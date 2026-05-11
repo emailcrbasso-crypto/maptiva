@@ -17,6 +17,7 @@ import { TemplatesPage } from '@/modules/templates/TemplatesPage'
 import { NewTemplatePage } from '@/modules/templates/NewTemplatePage'
 import { TemplateDetailPage } from '@/modules/templates/TemplateDetailPage'
 import { BrandingPage } from '@/modules/settings/BrandingPage'
+import { ProfilePage } from '@/modules/settings/ProfilePage'
 
 export default function App() {
   return (
@@ -49,6 +50,7 @@ export default function App() {
             <Route path="/people" element={<PeoplePage />} />
             <Route path="/members" element={<MembersPage />} />
             <Route path="/settings/branding" element={<BrandingPage />} />
+            <Route path="/settings/profile" element={<ProfilePage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
