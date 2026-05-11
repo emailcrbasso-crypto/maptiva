@@ -27,7 +27,8 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState<string | null>(null)
-  const [mode,     setMode]     = useState<'signin' | 'signup'>('signin')
+  const [mode,     setMode]     = useState<'signin' | 'signup' | 'reset'>('signin')
+  const [resetSent, setResetSent] = useState(false)
 
   // Pre-login branding: try to load by domain or slug param
   const [preBranding, setPreBranding] = useState<PreLoginBranding>(DEFAULT_PRE_LOGIN)
@@ -72,6 +73,15 @@ export function LoginPage() {
     setLoading(true)
     setError(null)
 
+    if (mode === 'reset') {
+      const redirectTo = `${window.location.origin}/login`
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
+      if (error) setError(error.message)
+      else setResetSent(true)
+      setLoading(false)
+      return
+    }
+
     const { error } =
       mode === 'signin'
         ? await supabase.auth.signInWithPassword({ email, password })
@@ -107,54 +117,115 @@ export function LoginPage() {
           )}
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-              placeholder="seu@email.com"
-            />
+        {/* ── Reset enviado ── */}
+        {resetSent ? (
+          <div className="text-center space-y-4">
+            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+              <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <p className="text-sm text-gray-700 font-medium">E-mail enviado!</p>
+            <p className="text-xs text-gray-400">
+              Verifique sua caixa de entrada e clique no link para redefinir sua senha.
+            </p>
+            <button
+              type="button"
+              onClick={() => { setMode('signin'); setResetSent(false); setError(null) }}
+              className="text-sm text-gray-500 hover:text-gray-800 underline"
+            >
+              Voltar ao login
+            </button>
           </div>
+        ) : (
+          <>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  placeholder="seu@email.com"
+                />
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Senha</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-              placeholder="••••••••"
-            />
-          </div>
+              {mode !== 'reset' && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-medium text-gray-700">Senha</label>
+                    {mode === 'signin' && (
+                      <button
+                        type="button"
+                        onClick={() => { setMode('reset'); setError(null) }}
+                        className="text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                      >
+                        Esqueceu a senha?
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    placeholder="••••••••"
+                  />
+                </div>
+              )}
 
-          {error && (
-            <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>
-          )}
+              {mode === 'reset' && (
+                <p className="text-xs text-gray-400">
+                  Informe o e-mail da sua conta. Enviaremos um link para redefinir a senha.
+                </p>
+              )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-gray-900 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-gray-700 disabled:opacity-50 transition-colors"
-          >
-            {loading ? 'Aguarde...' : mode === 'signin' ? 'Entrar' : 'Criar conta'}
-          </button>
-        </form>
+              {error && (
+                <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>
+              )}
 
-        <p className="text-center text-sm text-gray-400 mt-6">
-          {mode === 'signin' ? 'Sem conta?' : 'Já tem conta?'}{' '}
-          <button
-            type="button"
-            onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null) }}
-            className="text-gray-700 font-medium hover:underline"
-          >
-            {mode === 'signin' ? 'Cadastre-se' : 'Entre'}
-          </button>
-        </p>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-gray-900 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-gray-700 disabled:opacity-50 transition-colors"
+              >
+                {loading
+                  ? 'Aguarde...'
+                  : mode === 'signin'
+                  ? 'Entrar'
+                  : mode === 'signup'
+                  ? 'Criar conta'
+                  : 'Enviar link de recuperação'}
+              </button>
+            </form>
+
+            <p className="text-center text-sm text-gray-400 mt-6">
+              {mode === 'reset' ? (
+                <button
+                  type="button"
+                  onClick={() => { setMode('signin'); setError(null) }}
+                  className="text-gray-700 font-medium hover:underline"
+                >
+                  ← Voltar ao login
+                </button>
+              ) : (
+                <>
+                  {mode === 'signin' ? 'Sem conta?' : 'Já tem conta?'}{' '}
+                  <button
+                    type="button"
+                    onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null) }}
+                    className="text-gray-700 font-medium hover:underline"
+                  >
+                    {mode === 'signin' ? 'Cadastre-se' : 'Entre'}
+                  </button>
+                </>
+              )}
+            </p>
+          </>
+        )}
       </div>
     </div>
   )
