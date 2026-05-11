@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(npx supabase --version 2>&1)",
+      "PowerShell(node --version 2>&1)",
+      "Bash(npm --version)",
+      "Bash(npm create *)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npm uninstall *)",
+      "Bash(netstat -ano)",
+      "Bash(findstr /i \"assignments_admin\\\\|select a\\\\.\\\\*\")",
+      "Bash(powershell -Command \"Select-String -Pattern 'assignments_admin|select a\\\\.\\\\*' -Path 'C:\\\\Users\\\\Rafael Medeiros\\\\projetos\\\\Maptiva\\\\supabase\\\\migrations\\\\0013_views.sql'\")",
+      "Bash(npm run *)",
+      "Bash(node -e \"require\\('xlsx'\\); console.log\\('xlsx ok'\\)\")",
+      "Bash(node -e \"require\\('@react-pdf/renderer'\\); console.log\\('pdf ok'\\)\")",
+      "Bash(npx supabase *)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('name:', d.get\\('name'\\)\\); print\\('build:', d.get\\('scripts',{}\\).get\\('build'\\)\\)\")"
+    ]
+  }
+}
