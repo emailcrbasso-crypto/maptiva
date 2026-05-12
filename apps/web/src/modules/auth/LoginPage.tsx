@@ -30,22 +30,38 @@ export function LoginPage() {
   const [password2, setPassword2] = useState('')
   const [loading,   setLoading]   = useState(false)
   const [error,     setError]     = useState<string | null>(null)
-  const [mode,      setMode]      = useState<'signin' | 'signup' | 'reset' | 'new_password'>('signin')
+  const [mode,      setMode]      = useState<'signin' | 'reset' | 'new_password'>('signin')
   const [resetSent, setResetSent] = useState(false)
 
   const [preBranding, setPreBranding] = useState<PreLoginBranding>(DEFAULT_PRE_LOGIN)
 
-  // ── Detect PASSWORD_RECOVERY event from Supabase magic link ─────────────────
+  // ── Detect PASSWORD_RECOVERY or invite SIGNED_IN from Supabase links ─────────
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
-        // User clicked the recovery link — show "set new password" form
+        // User clicked password reset link
         setMode('new_password')
         setError(null)
+        return
+      }
+
+      if (event === 'SIGNED_IN' && session) {
+        // Check if this is an invite link (hash contains type=invite)
+        const hash = window.location.hash
+        if (hash.includes('type=invite')) {
+          // User accepted invite, now must set password
+          setMode('new_password')
+          setError(null)
+          // Clear hash from URL
+          window.history.replaceState(null, '', window.location.pathname)
+          return
+        }
+        // Normal sign-in → go to dashboard
+        navigate('/dashboard')
       }
     })
     return () => subscription.unsubscribe()
-  }, [])
+  }, [navigate])
 
   // ── Branding ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -122,14 +138,11 @@ export function LoginPage() {
       return
     }
 
-    // Sign in / Sign up
-    const { error } =
-      mode === 'signin'
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password })
+    // Sign in
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
 
     if (error) setError(error.message)
-    else if (mode === 'signin') navigate('/dashboard')
+    else navigate('/dashboard')
     setLoading(false)
   }
 
@@ -145,7 +158,11 @@ export function LoginPage() {
               ? <img src={brand.logoUrl} alt={brand.name} className="h-10 w-auto object-contain mx-auto mb-3" />
               : <h1 className="text-2xl font-semibold text-gray-900">{brand.name}</h1>
             }
-            <p className="text-sm text-gray-500 mt-1">Defina sua nova senha</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {window.location.hash.includes('type=invite')
+                ? 'Bem-vindo! Crie sua senha de acesso.'
+                : 'Defina sua nova senha'}
+            </p>
           </div>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -290,8 +307,7 @@ export function LoginPage() {
               >
                 {loading
                   ? 'Aguarde...'
-                  : mode === 'signin'   ? 'Entrar'
-                  : mode === 'signup'   ? 'Criar conta'
+                  : mode === 'signin' ? 'Entrar'
                   : 'Enviar link de recuperação'}
               </button>
             </form>
@@ -306,16 +322,9 @@ export function LoginPage() {
                   ← Voltar ao login
                 </button>
               ) : (
-                <>
-                  {mode === 'signin' ? 'Sem conta?' : 'Já tem conta?'}{' '}
-                  <button
-                    type="button"
-                    onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null) }}
-                    className="text-gray-700 font-medium hover:underline"
-                  >
-                    {mode === 'signin' ? 'Cadastre-se' : 'Entre'}
-                  </button>
-                </>
+                <span className="text-xs text-gray-300">
+                  Acesso restrito — solicite ao administrador da sua organização.
+                </span>
               )}
             </p>
           </>

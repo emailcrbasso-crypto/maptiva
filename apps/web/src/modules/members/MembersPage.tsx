@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 interface Member {
@@ -31,12 +31,165 @@ function initials(name: string): string {
     .join('')
 }
 
-export function MembersPage() {
-  const [members, setMembers] = useState<Member[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState<string | null>(null)
+// ─── Invite modal ─────────────────────────────────────────────────────────────
 
-  useEffect(() => {
+interface InviteModalProps {
+  onClose:   () => void
+  onSuccess: () => void
+}
+
+function InviteModal({ onClose, onSuccess }: InviteModalProps) {
+  const [email,    setEmail]    = useState('')
+  const [role,     setRole]     = useState('manager')
+  const [name,     setName]     = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState<string | null>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
+
+  // Close on overlay click
+  function handleOverlayClick(e: React.MouseEvent) {
+    if (e.target === overlayRef.current) onClose()
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      setError('Sessão expirada — faça login novamente.')
+      setLoading(false)
+      return
+    }
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
+    const fnUrl = `${supabaseUrl}/functions/v1/invite-member`
+
+    const res = await fetch(fnUrl, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ email: email.trim(), role, name: name.trim() || undefined }),
+    })
+
+    const result = await res.json() as { ok: boolean; error?: string }
+
+    if (!result.ok) {
+      setError(result.error ?? 'Erro desconhecido ao convidar membro.')
+      setLoading(false)
+      return
+    }
+
+    setLoading(false)
+    onSuccess()
+    onClose()
+  }
+
+  return (
+    <div
+      ref={overlayRef}
+      onClick={handleOverlayClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+    >
+      <div className="bg-white rounded-2xl shadow-xl border border-gray-200 w-full max-w-md mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-semibold text-gray-900">Convidar membro</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <p className="text-sm text-gray-500 mb-5">
+          Um e-mail de convite será enviado. O usuário define a própria senha ao aceitar.
+        </p>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">E-mail *</label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="colega@empresa.com"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nome (opcional)</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Nome completo"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Papel *</label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
+            >
+              <option value="admin">Admin</option>
+              <option value="manager">Gestor</option>
+              <option value="participant">Participante</option>
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              Admin: acesso total ao tenant. Gestor: acesso operacional. Participante: visualização básica.
+            </p>
+          </div>
+
+          {error && (
+            <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>
+          )}
+
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 py-2.5 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-50 transition-colors"
+            >
+              {loading ? 'Enviando...' : 'Enviar convite'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
+export function MembersPage() {
+  const [members,     setMembers]     = useState<Member[]>([])
+  const [loading,     setLoading]     = useState(true)
+  const [error,       setError]       = useState<string | null>(null)
+  const [showInvite,  setShowInvite]  = useState(false)
+  const [successMsg,  setSuccessMsg]  = useState<string | null>(null)
+
+  function loadMembers() {
+    setLoading(true)
+    setError(null)
     supabase
       .rpc('get_tenant_members')
       .then(({ data, error }) => {
@@ -44,11 +197,39 @@ export function MembersPage() {
         else setMembers((data as Member[]) ?? [])
         setLoading(false)
       })
-  }, [])
+  }
+
+  useEffect(() => { loadMembers() }, [])
+
+  function handleInviteSuccess() {
+    setSuccessMsg('Convite enviado com sucesso! O membro receberá um e-mail para definir a senha.')
+    loadMembers()
+    setTimeout(() => setSuccessMsg(null), 6000)
+  }
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-gray-900 mb-6">Membros</h1>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-semibold text-gray-900">Membros</h1>
+        <button
+          type="button"
+          onClick={() => setShowInvite(true)}
+          className="flex items-center gap-2 bg-gray-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Convidar membro
+        </button>
+      </div>
+
+      {/* Success banner */}
+      {successMsg && (
+        <div className="mb-4 bg-green-50 border border-green-100 rounded-lg px-4 py-3 text-sm text-green-700">
+          {successMsg}
+        </div>
+      )}
 
       {loading && <p className="text-gray-400 text-sm">Carregando...</p>}
       {error   && <p className="text-red-500 text-sm">{error}</p>}
@@ -89,6 +270,14 @@ export function MembersPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Invite modal */}
+      {showInvite && (
+        <InviteModal
+          onClose={() => setShowInvite(false)}
+          onSuccess={handleInviteSuccess}
+        />
       )}
     </div>
   )
