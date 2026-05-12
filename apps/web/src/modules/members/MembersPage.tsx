@@ -1,25 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import type { PanelRole } from '@/lib/types'
 
+// Membros do painel: apenas usuários com login.
+// Participantes da avaliação (avaliados) → public.people + cycle_participants, sem conta.
+// Respondentes externos (avaliadores) → magic link /respond/:token, sem conta.
 interface Member {
   id:    string
-  role:  string
+  role:  PanelRole
   name:  string
   email: string
 }
 
-const ROLE_LABEL: Record<string, string> = {
-  owner:       'Owner',
-  admin:       'Admin',
-  manager:     'Gestor',
-  participant: 'Participante',
+// Roles do painel — NÃO incluem 'participant' (que é entidade de domínio separada).
+const ROLE_LABEL: Record<PanelRole, string> = {
+  owner:   'Owner',
+  admin:   'Admin',
+  manager: 'Gestor',
 }
 
-const ROLE_COLOR: Record<string, string> = {
-  owner:       'bg-purple-50 text-purple-700',
-  admin:       'bg-blue-50 text-blue-700',
-  manager:     'bg-amber-50 text-amber-700',
-  participant: 'bg-gray-100 text-gray-600',
+const ROLE_COLOR: Record<PanelRole, string> = {
+  owner:   'bg-purple-50 text-purple-700',
+  admin:   'bg-blue-50 text-blue-700',
+  manager: 'bg-amber-50 text-amber-700',
 }
 
 function initials(name: string): string {
@@ -40,7 +43,7 @@ interface InviteModalProps {
 
 function InviteModal({ onClose, onSuccess }: InviteModalProps) {
   const [email,    setEmail]    = useState('')
-  const [role,     setRole]     = useState('manager')
+  const [role,     setRole]     = useState<'admin' | 'manager'>('manager')
   const [name,     setName]     = useState('')
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState<string | null>(null)
@@ -137,18 +140,17 @@ function InviteModal({ onClose, onSuccess }: InviteModalProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Papel *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Papel no painel *</label>
             <select
               value={role}
-              onChange={(e) => setRole(e.target.value)}
+              onChange={(e) => setRole(e.target.value as 'admin' | 'manager')}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
             >
-              <option value="admin">Admin</option>
-              <option value="manager">Gestor</option>
-              <option value="participant">Participante</option>
+              <option value="admin">Admin — gestão completa: templates, ciclos, pessoas e membros</option>
+              <option value="manager">Gestor — visibilidade do próprio time e seus relatórios</option>
             </select>
             <p className="text-xs text-gray-400 mt-1">
-              Admin: acesso total ao tenant. Gestor: acesso operacional. Participante: visualização básica.
+              Para adicionar participantes de avaliação (avaliados), use a aba <strong>Pessoas</strong>.
             </p>
           </div>
 
@@ -261,8 +263,8 @@ export function MembersPage() {
                   </td>
                   <td className="px-5 py-3 text-gray-500">{m.email}</td>
                   <td className="px-5 py-3">
-                    <span className={`inline-block text-xs font-medium px-2.5 py-0.5 rounded-full ${ROLE_COLOR[m.role] ?? 'bg-gray-100 text-gray-600'}`}>
-                      {ROLE_LABEL[m.role] ?? m.role}
+                    <span className={`inline-block text-xs font-medium px-2.5 py-0.5 rounded-full ${ROLE_COLOR[m.role as PanelRole] ?? 'bg-gray-100 text-gray-600'}`}>
+                      {ROLE_LABEL[m.role as PanelRole] ?? m.role}
                     </span>
                   </td>
                 </tr>

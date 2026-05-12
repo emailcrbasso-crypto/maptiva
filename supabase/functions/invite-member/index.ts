@@ -8,9 +8,17 @@
  * POST body:
  *   {
  *     email: string       // new member email
- *     role:  string       // 'admin' | 'manager' | 'participant'
+ *     role:  string       // 'admin' | 'manager'  (panel roles only — never 'participant')
  *     name?: string       // optional display name
  *   }
+ *
+ * Panel roles:
+ *   admin   → full operational access (templates, cycles, people, members)
+ *   manager → scoped access to own team's cycles and reports
+ *
+ * Assessment participants (avaliados) live in public.people + cycle_participants
+ * and do NOT need an invite or a dashboard account.
+ * External evaluators access /respond/:token with no auth whatsoever.
  *
  * Response (always HTTP 200 for operational results):
  *   { ok: true,  user_id }
@@ -39,7 +47,10 @@ function json(body: unknown, status = 200) {
   })
 }
 
-const ALLOWED_ROLES = ['admin', 'manager', 'participant']
+// Only panel roles may be invited via this function.
+// 'participant' is NOT a panel role — assessment participants live in
+// public.people + public.cycle_participants with no auth account required.
+const ALLOWED_ROLES = ['admin', 'manager']
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
