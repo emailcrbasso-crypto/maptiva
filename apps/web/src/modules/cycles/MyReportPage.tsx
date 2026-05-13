@@ -15,6 +15,16 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import {
+  Radar,
+  RadarChart as RechartsRadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  ResponsiveContainer,
+  Legend,
+  Tooltip,
+} from 'recharts'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,6 +69,33 @@ interface CommentRow {
   body:                          string
 }
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const REL_LABEL: Record<string, string> = {
+  self:        'Autoavaliação',
+  manager:     'Gestor',
+  peer:        'Pares',
+  subordinate: 'Subordinados',
+  client:      'Clientes',
+}
+
+const REL_SHORT: Record<string, string> = {
+  self:        'Self',
+  manager:     'Gestor',
+  peer:        'Pares',
+  subordinate: 'Subord.',
+  client:      'Cliente',
+}
+
+// Palette for radar lines — keeps consistent colors per relationship
+const RADAR_PALETTE: Record<string, string> = {
+  self:        '#6366f1', // indigo
+  manager:     '#10b981', // green
+  peer:        '#f59e0b', // amber
+  subordinate: '#3b82f6', // blue
+  client:      '#ec4899', // pink
+}
+
 // ─── Score badge ──────────────────────────────────────────────────────────────
 
 function ScoreBadge({ value, label }: { value: number | null; label: string }) {
@@ -78,22 +115,163 @@ function ScoreBadge({ value, label }: { value: number | null; label: string }) {
   )
 }
 
-// ─── Relationship labels ──────────────────────────────────────────────────────
+// ─── Radar chart ─────────────────────────────────────────────────────────────
 
-const REL_LABEL: Record<string, string> = {
-  self:        'Autoavaliação',
-  manager:     'Gestor',
-  peer:        'Pares',
-  subordinate: 'Subordinados',
-  client:      'Clientes',
+function RadarSection({
+  snapshots,
+  competencies,
+}: {
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+}) {
+  const compWithSnaps = competencies.filter((c) =>
+    snapshots.some((s) => s.competency_id === c.id && s.score_avg != null)
+  )
+  if (compWithSnaps.length < 3) return null
+
+  const relationships = [
+    ...new Set(
+      snapshots
+        .filter((s) => s.competency_id && s.score_avg != null)
+        .map((s) => s.relationship_code)
+    ),
+  ].sort()
+
+  const data = compWithSnaps.map((c) => {
+    const row: Record<string, number | string> = {
+      subject: c.name.length > 22 ? c.name.slice(0, 20) + '…' : c.name,
+    }
+    for (const rel of relationships) {
+      const snap = snapshots.find(
+        (s) => s.competency_id === c.id && s.relationship_code === rel
+      )
+      row[rel] = snap?.score_avg ?? 0
+    }
+    return row
+  })
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Gráfico de competências
+      </h2>
+      <p className="text-xs text-gray-400 mb-4">
+        Escala de 0 a 5 — quanto mais próximo da borda, maior o score.
+      </p>
+      <ResponsiveContainer width="100%" height={320}>
+        <RechartsRadarChart data={data} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
+          <PolarGrid stroke="#e5e7eb" />
+          <PolarAngleAxis
+            dataKey="subject"
+            tick={{ fontSize: 11, fill: '#6b7280' }}
+          />
+          <PolarRadiusAxis
+            domain={[0, 5]}
+            tick={{ fontSize: 9, fill: '#9ca3af' }}
+            tickCount={6}
+          />
+          {relationships.map((rel) => (
+            <Radar
+              key={rel}
+              name={REL_LABEL[rel] ?? rel}
+              dataKey={rel}
+              stroke={RADAR_PALETTE[rel] ?? '#94a3b8'}
+              fill={RADAR_PALETTE[rel] ?? '#94a3b8'}
+              fillOpacity={0.08}
+              strokeWidth={2}
+              dot={false}
+            />
+          ))}
+          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
+          <Tooltip formatter={(val) => (typeof val === 'number' ? val.toFixed(2) : '—')} />
+        </RechartsRadarChart>
+      </ResponsiveContainer>
+    </div>
+  )
 }
 
-const REL_SHORT: Record<string, string> = {
-  self:        'Self',
-  manager:     'Gestor',
-  peer:        'Pares',
-  subordinate: 'Subord.',
-  client:      'Cliente',
+// ─── Top-3 section ────────────────────────────────────────────────────────────
+
+function Top3Section({
+  snapshots,
+  competencies,
+}: {
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+}) {
+  // Score externo por competência (média de gestor + pares + subordinados)
+  const scored = competencies
+    .map((c) => {
+      const ext = snapshots.filter(
+        (s) =>
+          s.competency_id === c.id &&
+          ['manager', 'peer', 'subordinate'].includes(s.relationship_code) &&
+          s.score_avg != null
+      )
+      const extAvg =
+        ext.length > 0
+          ? ext.reduce((sum, s) => sum + s.score_avg!, 0) / ext.length
+          : null
+      const selfSnap = snapshots.find(
+        (s) => s.competency_id === c.id && s.relationship_code === 'self'
+      )
+      return { id: c.id, name: c.name, extAvg, selfScore: selfSnap?.score_avg ?? null }
+    })
+    .filter((c) => c.extAvg != null)
+
+  if (scored.length < 3) return null
+
+  const sorted  = [...scored].sort((a, b) => b.extAvg! - a.extAvg!)
+  const top3    = sorted.slice(0, 3)
+  const bottom3 = sorted.slice(-3).reverse()
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+        Destaques por competência
+      </h2>
+      <div className="grid grid-cols-2 gap-6">
+        {/* Pontos fortes */}
+        <div>
+          <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-3">
+            🏆 Pontos fortes
+          </p>
+          <div className="space-y-2">
+            {top3.map((c, i) => (
+              <div key={c.id} className="flex items-center gap-3">
+                <span className="text-sm font-bold text-green-500 w-5 shrink-0">{i + 1}.</span>
+                <p className="flex-1 text-sm text-gray-800">{c.name}</p>
+                <span className="text-xs font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full shrink-0">
+                  {c.extAvg!.toFixed(2)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Oportunidades de melhoria */}
+        <div>
+          <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-3">
+            🎯 Oportunidades de melhoria
+          </p>
+          <div className="space-y-2">
+            {bottom3.map((c, i) => (
+              <div key={c.id} className="flex items-center gap-3">
+                <span className="text-sm font-bold text-amber-500 w-5 shrink-0">{i + 1}.</span>
+                <p className="flex-1 text-sm text-gray-800">{c.name}</p>
+                <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full shrink-0">
+                  {c.extAvg!.toFixed(2)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <p className="text-xs text-gray-400 mt-4">
+        Ranking baseado na média das avaliações externas (gestor, pares e subordinados).
+      </p>
+    </div>
+  )
 }
 
 // ─── Competency breakdown ─────────────────────────────────────────────────────
@@ -418,8 +596,8 @@ export function MyReportPage() {
 
   if (!report) return null
 
-  const profile  = report.profile
-  const hasScore = profile?.overall_score != null
+  const profile         = report.profile
+  const hasScore        = profile?.overall_score != null
   const hasCompetencies = competencies.length > 0
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -480,6 +658,16 @@ export function MyReportPage() {
 
           {/* ── Insights (blind spots / hidden strengths) ── */}
           <InsightsPanel profile={profile} />
+
+          {/* ── Top-3 strongest / improvement areas ── */}
+          {hasCompetencies && (
+            <Top3Section snapshots={report.snapshots} competencies={competencies} />
+          )}
+
+          {/* ── Radar chart ── */}
+          {hasCompetencies && (
+            <RadarSection snapshots={report.snapshots} competencies={competencies} />
+          )}
 
           {/* ── Scores by relationship (bar chart style) ── */}
           <SnapshotsByRelationship snapshots={report.snapshots} />

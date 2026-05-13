@@ -5,6 +5,15 @@ import { exportCycleReportExcel } from '@/lib/exportReport'
 import type { CycleSummary } from '@/lib/exportReport'
 import { exportCycleReportPdf } from '@/lib/exportReportPdf'
 import { useTenant } from '@/modules/auth/TenantContext'
+import {
+  Radar,
+  RadarChart as RechartsRadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  ResponsiveContainer,
+  Tooltip,
+} from 'recharts'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +40,26 @@ interface CommentRow {
   body: string
 }
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const REL_SHORT: Record<string, string> = {
+  self: 'Self', manager: 'Gestor', peer: 'Pares',
+  subordinate: 'Subord.', client: 'Cliente',
+}
+
+const REL_LABEL: Record<string, string> = {
+  self: 'Autoavaliação', manager: 'Gestor', peer: 'Pares',
+  subordinate: 'Subordinados', client: 'Clientes',
+}
+
+const RADAR_PALETTE: Record<string, string> = {
+  self:        '#6366f1',
+  manager:     '#10b981',
+  peer:        '#f59e0b',
+  subordinate: '#3b82f6',
+  client:      '#ec4899',
+}
+
 // ─── Score badge ──────────────────────────────────────────────────────────────
 
 function ScoreBadge({ value, label }: { value: number | null; label: string }) {
@@ -50,12 +79,77 @@ function ScoreBadge({ value, label }: { value: number | null; label: string }) {
   )
 }
 
-// ─── Competency breakdown ─────────────────────────────────────────────────────
+// ─── Mini radar per participant ────────────────────────────────────────────────
 
-const REL_SHORT: Record<string, string> = {
-  self: 'Self', manager: 'Gestor', peer: 'Pares',
-  subordinate: 'Subord.', client: 'Cliente',
+function ParticipantRadar({
+  cpId,
+  snapshots,
+  competencies,
+}: {
+  cpId:         string
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+}) {
+  const mySnaps = snapshots.filter(
+    (s) =>
+      s.cycle_participant_id === cpId &&
+      s.competency_id &&
+      s.visibility_status === 'visible' &&
+      s.score_avg != null
+  )
+  if (mySnaps.length === 0) return null
+
+  const compIds = [...new Set(mySnaps.map((s) => s.competency_id))]
+  if (compIds.length < 3) return null
+
+  const relationships = [...new Set(mySnaps.map((s) => s.relationship_code))].sort()
+
+  const data = compIds.map((cId) => {
+    const comp = competencies.find((c) => c.id === cId)
+    const row: Record<string, number | string> = {
+      subject: comp
+        ? comp.name.length > 18 ? comp.name.slice(0, 16) + '…' : comp.name
+        : '—',
+    }
+    for (const rel of relationships) {
+      const snap = mySnaps.find(
+        (s) => s.competency_id === cId && s.relationship_code === rel
+      )
+      row[rel] = snap?.score_avg ?? 0
+    }
+    return row
+  })
+
+  return (
+    <div className="mt-4 pt-3 border-t border-gray-100">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+        Radar de competências
+      </p>
+      <ResponsiveContainer width="100%" height={240}>
+        <RechartsRadarChart data={data} margin={{ top: 8, right: 24, bottom: 8, left: 24 }}>
+          <PolarGrid stroke="#e5e7eb" />
+          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: '#6b7280' }} />
+          <PolarRadiusAxis domain={[0, 5]} tick={{ fontSize: 9, fill: '#9ca3af' }} tickCount={6} />
+          {relationships.map((rel) => (
+            <Radar
+              key={rel}
+              name={REL_LABEL[rel] ?? rel}
+              dataKey={rel}
+              stroke={RADAR_PALETTE[rel] ?? '#94a3b8'}
+              fill={RADAR_PALETTE[rel] ?? '#94a3b8'}
+              fillOpacity={0.08}
+              strokeWidth={1.5}
+              dot={false}
+            />
+          ))}
+          <Tooltip formatter={(val) => (typeof val === 'number' ? val.toFixed(2) : '—')} />
+        </RechartsRadarChart>
+      </ResponsiveContainer>
+    </div>
+  )
 }
+
+// ─── Competency breakdown ─────────────────────────────────────────────────────
 
 function CompetencyBreakdown({
   cpId,
@@ -139,11 +233,6 @@ function CompetencyBreakdown({
 }
 
 // ─── Comments section ─────────────────────────────────────────────────────────
-
-const REL_LABEL: Record<string, string> = {
-  self: 'Autoavaliação', manager: 'Gestor', peer: 'Pares',
-  subordinate: 'Subordinados', client: 'Clientes',
-}
 
 function CommentsSection({ cpId, comments }: { cpId: string; comments: CommentRow[] }) {
   const mine = comments.filter((c) => c.evaluated_cycle_participant_id === cpId)
@@ -280,7 +369,7 @@ export function ReportPage() {
           <div className="flex items-center gap-2 flex-wrap justify-end">
             {/* Exports */}
             <button
-              onClick={() => exportCycleReportExcel(summary)}
+              onClick={() => exportCycleReportExcel(summary, snapshots, competencies, comments)}
               className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
             >
               ↓ Excel
@@ -340,6 +429,32 @@ export function ReportPage() {
         </div>
       </div>
 
+      {/* ── Links para relatórios analíticos ── */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <Link
+          to={`/cycles/${id}/team-report`}
+          className="bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-400 hover:shadow-sm transition-all flex items-center gap-3"
+        >
+          <span className="text-2xl">👥</span>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Relatório da Equipe</p>
+            <p className="text-xs text-gray-400 mt-0.5">Ranking consolidado por departamento</p>
+          </div>
+          <span className="ml-auto text-gray-300">→</span>
+        </Link>
+        <Link
+          to={`/cycles/${id}/heatmap`}
+          className="bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-400 hover:shadow-sm transition-all flex items-center gap-3"
+        >
+          <span className="text-2xl">🗺️</span>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Heatmap Executivo</p>
+            <p className="text-xs text-gray-400 mt-0.5">Departamentos × competências</p>
+          </div>
+          <span className="ml-auto text-gray-300">→</span>
+        </Link>
+      </div>
+
       {/* ── Participants with scores ── */}
       {withProfile.length > 0 && (
         <div className="mb-6">
@@ -374,6 +489,15 @@ export function ReportPage() {
                   <ScoreBadge value={p.peer_score}        label="Pares" />
                   <ScoreBadge value={p.subordinate_score} label="Subordin." />
                 </div>
+
+                {/* Mini radar */}
+                {hasCompetencies && (
+                  <ParticipantRadar
+                    cpId={p.cycle_participant_id}
+                    snapshots={snapshots}
+                    competencies={competencies}
+                  />
+                )}
 
                 {/* Competency breakdown */}
                 {hasCompetencies && (

@@ -9,26 +9,46 @@ import * as XLSX from 'xlsx'
 // ─── Types (mirror ReportPage interfaces) ─────────────────────────────────────
 
 export interface ParticipantSummary {
-  cycle_participant_id: string
-  person_name: string
-  has_profile: boolean
-  overall_score: number | null
-  self_score: number | null
-  manager_score: number | null
-  peer_score: number | null
-  subordinate_score: number | null
-  blind_spot_count: number
+  cycle_participant_id:  string
+  person_name:           string
+  has_profile:           boolean
+  overall_score:         number | null
+  self_score:            number | null
+  manager_score:         number | null
+  peer_score:            number | null
+  subordinate_score:     number | null
+  blind_spot_count:      number
   hidden_strength_count: number
 }
 
 export interface CycleSummary {
-  cycle_id: string
-  cycle_name: string
-  status: string
-  report_release_at: string | null
-  total_assignments: number
+  cycle_id:              string
+  cycle_name:            string
+  status:                string
+  report_release_at:     string | null
+  total_assignments:     number
   completed_assignments: number
-  participants: ParticipantSummary[]
+  participants:          ParticipantSummary[]
+}
+
+export interface SnapshotExport {
+  cycle_participant_id: string
+  competency_id:        string | null
+  relationship_code:    string
+  score_avg:            number | null
+  visibility_status:    string
+}
+
+export interface CompetencyExport {
+  id:   string
+  name: string
+}
+
+export interface CommentExport {
+  id:                             string
+  evaluated_cycle_participant_id: string
+  relationship_group:             string
+  body:                           string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -43,15 +63,30 @@ function ptBrDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('pt-BR')
 }
 
+const REL_LABEL: Record<string, string> = {
+  self:        'Autoavaliação',
+  manager:     'Gestor',
+  peer:        'Pares',
+  subordinate: 'Subordinados',
+  client:      'Clientes',
+}
+
 // ─── Excel export ─────────────────────────────────────────────────────────────
 
 /**
  * exportCycleReportExcel
  * Generates and triggers download of an .xlsx file with:
- *   - Sheet "Resumo"       → cycle-level stats
- *   - Sheet "Participantes"→ one row per participant with all scores
+ *   - Sheet "Resumo"          → cycle-level stats
+ *   - Sheet "Participantes"   → one row per participant with all scores
+ *   - Sheet "Competências"    → one row per participant × competency × relationship
+ *   - Sheet "Comentários"     → anonymized qualitative comments
  */
-export function exportCycleReportExcel(summary: CycleSummary): void {
+export function exportCycleReportExcel(
+  summary:      CycleSummary,
+  snapshots?:   SnapshotExport[],
+  competencies?: CompetencyExport[],
+  comments?:    CommentExport[],
+): void {
   const wb = XLSX.utils.book_new()
 
   // ── Sheet 1: Resumo ────────────────────────────────────────────────────────
@@ -102,21 +137,55 @@ export function exportCycleReportExcel(summary: CycleSummary): void {
   ])
 
   const wsParticipants = XLSX.utils.aoa_to_sheet([headers, ...rows])
-
-  // Header style via column widths
   wsParticipants['!cols'] = [
-    { wch: 28 }, // Participante
-    { wch: 10 }, // Overall
-    { wch: 14 }, // Autoavaliação
-    { wch: 10 }, // Gestor
-    { wch: 10 }, // Pares
-    { wch: 14 }, // Subordinados
-    { wch: 14 }, // Pontos Cegos
-    { wch: 14 }, // Forças Ocultas
-    { wch: 16 }, // Status
+    { wch: 28 }, { wch: 10 }, { wch: 14 }, { wch: 10 },
+    { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
   ]
-
   XLSX.utils.book_append_sheet(wb, wsParticipants, 'Participantes')
+
+  // ── Sheet 3: Competências (if data available) ──────────────────────────────
+  if (snapshots && snapshots.length > 0 && competencies && competencies.length > 0) {
+    const compMap = new Map(competencies.map((c) => [c.id, c.name]))
+    const cpNameMap = new Map(summary.participants.map((p) => [p.cycle_participant_id, p.person_name]))
+
+    // Only include visible competency-level snapshots
+    const compSnaps = snapshots.filter(
+      (s) => s.competency_id && s.visibility_status === 'visible' && s.score_avg != null
+    )
+
+    const compHeaders = ['Participante', 'Competência', 'Perspectiva', 'Score']
+    const compRows = compSnaps.map((s) => [
+      cpNameMap.get(s.cycle_participant_id) ?? s.cycle_participant_id,
+      compMap.get(s.competency_id!) ?? s.competency_id,
+      REL_LABEL[s.relationship_code] ?? s.relationship_code,
+      fmt(s.score_avg),
+    ])
+
+    if (compRows.length > 0) {
+      const wsComp = XLSX.utils.aoa_to_sheet([compHeaders, ...compRows])
+      wsComp['!cols'] = [{ wch: 28 }, { wch: 28 }, { wch: 16 }, { wch: 10 }]
+      XLSX.utils.book_append_sheet(wb, wsComp, 'Competências')
+    }
+  }
+
+  // ── Sheet 4: Comentários (if data available) ───────────────────────────────
+  if (comments && comments.length > 0) {
+    const cpNameMap = new Map(summary.participants.map((p) => [p.cycle_participant_id, p.person_name]))
+
+    // Deduplicate
+    const unique = [...new Map(comments.map((c) => [c.id, c])).values()]
+
+    const commHeaders = ['Avaliado', 'Perspectiva', 'Comentário']
+    const commRows = unique.map((c) => [
+      cpNameMap.get(c.evaluated_cycle_participant_id) ?? c.evaluated_cycle_participant_id,
+      REL_LABEL[c.relationship_group] ?? c.relationship_group,
+      c.body,
+    ])
+
+    const wsComm = XLSX.utils.aoa_to_sheet([commHeaders, ...commRows])
+    wsComm['!cols'] = [{ wch: 28 }, { wch: 16 }, { wch: 80 }]
+    XLSX.utils.book_append_sheet(wb, wsComm, 'Comentários')
+  }
 
   // ── Trigger download ───────────────────────────────────────────────────────
   const safeName = summary.cycle_name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_')

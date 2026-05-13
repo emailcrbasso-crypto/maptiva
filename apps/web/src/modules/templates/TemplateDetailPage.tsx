@@ -268,11 +268,22 @@ export function TemplateDetailPage() {
   const [loading,        setLoading]        = useState(true)
   const [error,          setError]          = useState<string | null>(null)
 
+  // N-mínimo inline edit
+  const [editingNMin, setEditingNMin] = useState(false)
+  const [nMinValue,   setNMinValue]   = useState(0)
+  const [savingNMin,  setSavingNMin]  = useState(false)
+
   // Add questionnaire modal
   const [showAddQuestionnaire, setShowAddQuestionnaire] = useState(false)
   const [newQuestName,         setNewQuestName]         = useState('')
   const [newQuestRel,          setNewQuestRel]          = useState('')
   const [savingQuest,          setSavingQuest]          = useState(false)
+
+  // Questionnaire rename/delete
+  const [editingQuestId,  setEditingQuestId]  = useState<string | null>(null)
+  const [editQuestName,   setEditQuestName]   = useState('')
+  const [editQuestRel,    setEditQuestRel]    = useState('')
+  const [savingQuestEdit, setSavingQuestEdit] = useState(false)
 
   // Add question inline form
   const [addingToQuest,   setAddingToQuest]   = useState<string | null>(null)
@@ -328,6 +339,44 @@ export function TemplateDetailPage() {
   useEffect(() => { loadAll() }, [loadAll])
 
   // ── Handlers ──────────────────────────────────────────────────────────────
+
+  async function handleSaveNMin() {
+    if (!template) return
+    const val = Number(nMinValue)
+    if (!Number.isInteger(val) || val < 1) return
+    setSavingNMin(true)
+    const { error: err } = await supabase
+      .from('templates')
+      .update({ n_minimum_default: val })
+      .eq('id', template.id)
+    if (err) { alert(err.message); setSavingNMin(false); return }
+    setSavingNMin(false)
+    setEditingNMin(false)
+    await loadAll()
+  }
+
+  async function handleRenameQuestionnaire() {
+    if (!editingQuestId || !editQuestName.trim()) return
+    setSavingQuestEdit(true)
+    const { error: err } = await supabase
+      .from('questionnaires')
+      .update({ name: editQuestName.trim(), relationship_code: editQuestRel || null })
+      .eq('id', editingQuestId)
+    if (err) { alert(err.message); setSavingQuestEdit(false); return }
+    setSavingQuestEdit(false)
+    setEditingQuestId(null)
+    await loadAll()
+  }
+
+  async function handleDeleteQuestionnaire(questId: string, questName: string) {
+    if (!confirm(`Excluir o questionário "${questName}"? As perguntas serão removidas junto.`)) return
+    const { error: err } = await supabase
+      .from('questionnaires')
+      .delete()
+      .eq('id', questId)
+    if (err) { alert(err.message); return }
+    await loadAll()
+  }
 
   async function handleAddQuestionnaire() {
     if (!template || !newQuestName.trim()) return
@@ -409,11 +458,53 @@ export function TemplateDetailPage() {
         <Link to="/templates" className="text-sm text-gray-400 hover:text-gray-600">← Templates</Link>
         <div className="mt-2">
           <h1 className="text-xl font-semibold text-gray-900">{template.name}</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            {METHOD_LABEL[template.method_code] ?? template.method_code}
-            {' · '}Escala {template.scale_min}–{template.scale_max}
-            {' · '}N mínimo: {template.n_minimum_default}
-          </p>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <p className="text-sm text-gray-400">
+              {METHOD_LABEL[template.method_code] ?? template.method_code}
+              {' · '}Escala {template.scale_min}–{template.scale_max}
+              {' · '}
+            </p>
+            {editingNMin ? (
+              <span className="flex items-center gap-1">
+                <span className="text-sm text-gray-400">N mínimo:</span>
+                <input
+                  autoFocus
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={nMinValue}
+                  onChange={(e) => setNMinValue(Number(e.target.value))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveNMin()
+                    if (e.key === 'Escape') setEditingNMin(false)
+                  }}
+                  className="w-14 border border-gray-300 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                />
+                <button
+                  onClick={handleSaveNMin}
+                  disabled={savingNMin}
+                  className="text-xs bg-gray-900 text-white px-2 py-0.5 rounded hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                >
+                  {savingNMin ? '…' : 'Salvar'}
+                </button>
+                <button
+                  onClick={() => setEditingNMin(false)}
+                  className="text-xs text-gray-400 hover:text-gray-600 px-1"
+                >
+                  Cancelar
+                </button>
+              </span>
+            ) : (
+              <button
+                onClick={() => { setNMinValue(template.n_minimum_default); setEditingNMin(true) }}
+                className="group flex items-center gap-1 text-sm text-gray-400 hover:text-gray-700 transition-colors"
+                title="Editar N mínimo"
+              >
+                N mínimo: <strong className="text-gray-600">{template.n_minimum_default}</strong>
+                <PencilIcon className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -457,19 +548,91 @@ export function TemplateDetailPage() {
             return (
               <div key={quest.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 {/* Questionnaire header */}
-                <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{quest.name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {quest.relationship_code
-                        ? (REL_LABEL[quest.relationship_code] ?? quest.relationship_code)
-                        : 'Todas as relações'}
-                    </p>
+                {editingQuestId === quest.id ? (
+                  /* ── Inline rename form ── */
+                  <div className="px-5 py-3.5 border-b border-gray-100 space-y-3">
+                    <div className="flex gap-3">
+                      <input
+                        autoFocus
+                        type="text"
+                        value={editQuestName}
+                        onChange={(e) => setEditQuestName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleRenameQuestionnaire()
+                          if (e.key === 'Escape') setEditingQuestId(null)
+                        }}
+                        placeholder="Nome do questionário"
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      />
+                      <select
+                        value={editQuestRel}
+                        onChange={(e) => setEditQuestRel(e.target.value)}
+                        className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none"
+                      >
+                        <option value="">Todas as relações</option>
+                        <option value="self">Autoavaliação</option>
+                        <option value="manager">Gestor</option>
+                        <option value="peer">Par</option>
+                        <option value="subordinate">Subordinado</option>
+                        <option value="client">Cliente</option>
+                      </select>
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => setEditingQuestId(null)}
+                        className="text-sm text-gray-500 px-3 py-1.5 hover:text-gray-700"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={handleRenameQuestionnaire}
+                        disabled={savingQuestEdit || !editQuestName.trim()}
+                        className="text-sm bg-gray-900 text-white px-4 py-1.5 rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                      >
+                        {savingQuestEdit ? 'Salvando...' : 'Salvar'}
+                      </button>
+                    </div>
                   </div>
-                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                    {quest.questions.length} pergunta{quest.questions.length !== 1 ? 's' : ''}
-                  </span>
-                </div>
+                ) : (
+                  <div className="group px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{quest.name}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {quest.relationship_code
+                          ? (REL_LABEL[quest.relationship_code] ?? quest.relationship_code)
+                          : 'Todas as relações'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                        {quest.questions.length} pergunta{quest.questions.length !== 1 ? 's' : ''}
+                      </span>
+                      {/* Edit / delete icons — visible on hover */}
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => {
+                            setEditingQuestId(quest.id)
+                            setEditQuestName(quest.name)
+                            setEditQuestRel(quest.relationship_code ?? '')
+                          }}
+                          className="text-gray-400 hover:text-gray-700 p-1 rounded hover:bg-gray-100 transition-colors"
+                          title="Renomear questionário"
+                        >
+                          <PencilIcon />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteQuestionnaire(quest.id, quest.name)}
+                          className="text-gray-300 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors"
+                          title="Excluir questionário"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Grouped questions */}
                 {groups.map(({ competency, palette, questions }) => {

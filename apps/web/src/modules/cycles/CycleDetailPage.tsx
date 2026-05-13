@@ -6,6 +6,11 @@ import {
   downloadParticipantTemplate,
   type ParsedPerson,
 } from '@/lib/importParticipants'
+import {
+  parseAssignmentFile,
+  downloadAssignmentTemplate,
+  type ParsedAssignment,
+} from '@/lib/importAssignments'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -133,6 +138,20 @@ export function CycleDetailPage() {
   const [importRows, setImportRows] = useState<ParsedPerson[]>([])
   const [importErrors, setImportErrors] = useState<string[]>([])
   const [importing, setImporting] = useState(false)
+
+  // import assignment matrix via spreadsheet
+  const [showMatrixModal,   setShowMatrixModal]   = useState(false)
+  const [matrixRows,        setMatrixRows]        = useState<ParsedAssignment[]>([])
+  const [matrixErrors,      setMatrixErrors]      = useState<string[]>([])
+  const [importingMatrix,   setImportingMatrix]   = useState(false)
+
+  // mass reminders
+  const [showReminderModal,  setShowReminderModal]  = useState(false)
+  const [reminderTotal,      setReminderTotal]      = useState(0)
+  const [reminderDone,       setReminderDone]       = useState(0)
+  const [reminderFailed,     setReminderFailed]     = useState(0)
+  const [reminderRunning,    setReminderRunning]    = useState(false)
+  const [reminderLog,        setReminderLog]        = useState<string[]>([])
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
@@ -432,6 +451,178 @@ export function CycleDetailPage() {
     await loadAll()
   }
 
+  // ── Mass reminders ────────────────────────────────────────────────────────
+
+  async function handleSendReminders() {
+    if (!id) return
+
+    // Collect all pending / invited assignments across all participants
+    const pending = participants.flatMap((p) =>
+      p.assignments.filter(
+        (a) => a.status === 'pending' || a.status === 'invited'
+      ).map((a) => ({ assignmentId: a.id, status: a.status }))
+    )
+
+    if (pending.length === 0) {
+      alert('Nenhuma avaliação pendente encontrada.')
+      return
+    }
+
+    setReminderTotal(pending.length)
+    setReminderDone(0)
+    setReminderFailed(0)
+    setReminderLog([])
+    setReminderRunning(true)
+    setShowReminderModal(true)
+
+    let done = 0
+    let failed = 0
+    const log: string[] = []
+
+    for (const { assignmentId, status } of pending) {
+      try {
+        // Step 1 — get or generate token
+        let token: string
+
+        if (status === 'pending') {
+          const { data: genData, error: genErr } = await supabase.rpc('generate_magic_link', {
+            p_assignment_id: assignmentId,
+            p_expires_days:  30,
+          })
+          if (genErr || !genData) {
+            failed++
+            log.push(`Erro ao gerar link (${assignmentId}): ${genErr?.message ?? 'sem dados'}`)
+            setReminderFailed(failed)
+            setReminderLog([...log])
+            continue
+          }
+          token = (genData as { token: string }).token
+        } else {
+          // status = 'invited' — regenerate to ensure fresh token
+          const { data: genData, error: genErr } = await supabase.rpc('generate_magic_link', {
+            p_assignment_id: assignmentId,
+            p_expires_days:  30,
+          })
+          if (genErr || !genData) {
+            failed++
+            log.push(`Erro ao regenerar link (${assignmentId}): ${genErr?.message ?? 'sem dados'}`)
+            setReminderFailed(failed)
+            setReminderLog([...log])
+            continue
+          }
+          token = (genData as { token: string }).token
+        }
+
+        // Step 2 — send email
+        const { data: sendData, error: invokeErr } = await supabase.functions.invoke('send-invite', {
+          body: {
+            assignment_id: assignmentId,
+            token,
+            base_url: window.location.origin,
+          },
+        })
+
+        if (invokeErr) {
+          failed++
+          log.push(`Erro de rede (${assignmentId}): ${invokeErr.message}`)
+        } else {
+          const result = sendData as { ok: boolean; error?: string; to?: string }
+          if (result?.ok) {
+            done++
+            log.push(`✓ Enviado para ${result.to ?? assignmentId}`)
+          } else {
+            failed++
+            log.push(`✗ Falhou (${assignmentId}): ${result?.error ?? 'erro desconhecido'}`)
+          }
+        }
+      } catch (e) {
+        failed++
+        log.push(`Exceção (${assignmentId}): ${String(e)}`)
+      }
+
+      setReminderDone(done)
+      setReminderFailed(failed)
+      setReminderLog([...log])
+    }
+
+    setReminderRunning(false)
+    await loadAll()
+  }
+
+  // ── Import assignment matrix ──────────────────────────────────────────────
+
+  async function handleMatrixFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const result = await parseAssignmentFile(file)
+    setMatrixRows(result.rows)
+    setMatrixErrors(result.errors)
+    e.target.value = ''
+  }
+
+  async function confirmMatrixImport() {
+    if (!id || !tenantId || matrixRows.length === 0) return
+    setImportingMatrix(true)
+
+    // Build email → cycle_participant_id map from current participants
+    const emailToCpId = new Map<string, string>()
+    for (const p of participants) {
+      emailToCpId.set(p.person.email, p.id)
+    }
+
+    let added = 0
+    let skipped = 0
+    const failures: string[] = []
+
+    for (const row of matrixRows) {
+      const evaluatedCpId = emailToCpId.get(row.evaluated_email)
+      const evaluatorCpId = emailToCpId.get(row.evaluator_email)
+
+      if (!evaluatedCpId) {
+        failures.push(`Avaliado "${row.evaluated_email}" não encontrado como participante do ciclo.`)
+        continue
+      }
+      if (!evaluatorCpId) {
+        failures.push(`Avaliador "${row.evaluator_email}" não encontrado como participante do ciclo.`)
+        continue
+      }
+
+      const qId = getQuestionnaireId(row.relationship_code)
+      const { error: err } = await supabase.from('assignments').insert({
+        tenant_id: tenantId,
+        cycle_id: id,
+        evaluated_cycle_participant_id: evaluatedCpId,
+        evaluator_cycle_participant_id: evaluatorCpId,
+        relationship_code: row.relationship_code,
+        ...(qId ? { questionnaire_id: qId } : {}),
+      })
+
+      if (err) {
+        if (err.code === '23505') {
+          skipped++
+        } else {
+          failures.push(`${row.evaluator_email} → ${row.evaluated_email}: ${err.message}`)
+        }
+      } else {
+        added++
+      }
+    }
+
+    setImportingMatrix(false)
+    setShowMatrixModal(false)
+    setMatrixRows([])
+    setMatrixErrors([])
+
+    const msg = [
+      added   > 0 ? `${added} vínculo(s) criado(s).` : null,
+      skipped > 0 ? `${skipped} já existia(m) — ignorado(s).` : null,
+      ...failures,
+    ].filter(Boolean).join('\n')
+
+    if (msg) alert(msg)
+    await loadAll()
+  }
+
   // ── Import participants ───────────────────────────────────────────────────
 
   async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -543,13 +734,28 @@ export function CycleDetailPage() {
               </button>
             )}
             {cycle.status === 'active' && (
-              <button
-                onClick={handleClose}
-                disabled={closing}
-                className="text-sm px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-              >
-                {closing ? 'Fechando...' : 'Fechar ciclo'}
-              </button>
+              <>
+                <button
+                  onClick={() => {
+                    const count = participants.flatMap((p) =>
+                      p.assignments.filter((a) => a.status === 'pending' || a.status === 'invited')
+                    ).length
+                    if (count === 0) { alert('Nenhuma avaliação pendente para enviar lembretes.'); return }
+                    if (!confirm(`Enviar lembrete para ${count} avaliador(es) com avaliações pendentes?`)) return
+                    handleSendReminders()
+                  }}
+                  className="text-sm px-4 py-2 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition-colors"
+                >
+                  ✉ Lembretes
+                </button>
+                <button
+                  onClick={handleClose}
+                  disabled={closing}
+                  className="text-sm px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                >
+                  {closing ? 'Fechando...' : 'Fechar ciclo'}
+                </button>
+              </>
             )}
             {cycle.status === 'closed' && !cycle.report_release_at && (
               <button
@@ -609,10 +815,16 @@ export function CycleDetailPage() {
           {isManageable && (
             <div className="flex gap-2">
               <button
+                onClick={() => { setShowMatrixModal(true); setMatrixRows([]); setMatrixErrors([]) }}
+                className="text-sm text-gray-500 hover:text-gray-900 border border-gray-300 px-3 py-1.5 rounded-lg hover:border-gray-400 transition-colors"
+              >
+                ↑ Importar matriz
+              </button>
+              <button
                 onClick={() => { setShowImportModal(true); setImportRows([]); setImportErrors([]) }}
                 className="text-sm text-gray-500 hover:text-gray-900 border border-gray-300 px-3 py-1.5 rounded-lg hover:border-gray-400 transition-colors"
               >
-                ↑ Importar planilha
+                ↑ Importar pessoas
               </button>
               <button
                 onClick={openAddParticipant}
@@ -949,6 +1161,159 @@ export function CycleDetailPage() {
                   className="bg-gray-900 text-white text-sm px-5 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
                 >
                   {importing ? 'Importando...' : `Importar ${importRows.length > 0 ? `(${importRows.length})` : ''}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Mass reminders progress ── */}
+      {showReminderModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="text-sm font-medium text-gray-900">
+                {reminderRunning ? 'Enviando lembretes...' : 'Lembretes enviados'}
+              </h3>
+              {!reminderRunning && (
+                <button onClick={() => setShowReminderModal(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+              )}
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              {/* Progress bar */}
+              <div>
+                <div className="flex justify-between text-xs text-gray-500 mb-1.5">
+                  <span>{reminderDone + reminderFailed} / {reminderTotal}</span>
+                  <span className="text-green-600">{reminderDone} ✓</span>
+                  {reminderFailed > 0 && <span className="text-red-500">{reminderFailed} ✗</span>}
+                </div>
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gray-900 rounded-full transition-all duration-300"
+                    style={{ width: reminderTotal > 0 ? `${((reminderDone + reminderFailed) / reminderTotal) * 100}%` : '0%' }}
+                  />
+                </div>
+              </div>
+
+              {/* Log */}
+              <div className="max-h-48 overflow-y-auto space-y-1 border border-gray-100 rounded-lg p-3 bg-gray-50">
+                {reminderRunning && reminderLog.length === 0 && (
+                  <p className="text-xs text-gray-400 animate-pulse">Iniciando...</p>
+                )}
+                {reminderLog.map((line, i) => (
+                  <p key={i} className={`text-xs font-mono ${
+                    line.startsWith('✓') ? 'text-green-700' : line.startsWith('✗') ? 'text-red-600' : 'text-gray-500'
+                  }`}>
+                    {line}
+                  </p>
+                ))}
+              </div>
+
+              {!reminderRunning && (
+                <div className="flex justify-between items-center pt-1">
+                  <p className="text-sm text-gray-600">
+                    {reminderFailed === 0
+                      ? `✓ ${reminderDone} lembrete(s) enviado(s) com sucesso.`
+                      : `${reminderDone} enviado(s), ${reminderFailed} falha(s).`}
+                  </p>
+                  <button
+                    onClick={() => setShowReminderModal(false)}
+                    className="text-sm bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Import assignment matrix ── */}
+      {showMatrixModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="text-sm font-medium text-gray-900">Importar matriz de avaliação</h3>
+              <button onClick={() => setShowMatrixModal(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-500 space-y-1">
+                <p>A planilha define quem avalia quem. Colunas obrigatórias:</p>
+                <p><strong>email_avaliado</strong>, <strong>email_avaliador</strong>, <strong>relacao</strong></p>
+                <p>Relações válidas: <strong>self, gestor, par, subordinado, cliente</strong></p>
+                <p className="text-gray-400">Colunas opcionais: nome_avaliado, nome_avaliador</p>
+                <p className="mt-1">
+                  <strong>Atenção:</strong> os e-mails devem pertencer a participantes já adicionados ao ciclo.
+                </p>
+                <button
+                  onClick={downloadAssignmentTemplate}
+                  className="text-blue-600 hover:text-blue-800 underline mt-1"
+                >
+                  Baixar modelo de planilha
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Selecionar arquivo</label>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleMatrixFile}
+                  className="w-full text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-300 file:text-sm file:text-gray-600 file:bg-white hover:file:bg-gray-50 file:cursor-pointer"
+                />
+              </div>
+
+              {matrixErrors.length > 0 && (
+                <div className="bg-red-50 rounded-lg p-3 space-y-1">
+                  {matrixErrors.map((e, i) => (
+                    <p key={i} className="text-xs text-red-600">{e}</p>
+                  ))}
+                </div>
+              )}
+
+              {matrixRows.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-600 mb-2">
+                    {matrixRows.length} vínculo(s) encontrado(s) — prévia:
+                  </p>
+                  <div className="border border-gray-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="text-left px-3 py-2 text-gray-500 font-medium">Avaliado</th>
+                          <th className="text-left px-3 py-2 text-gray-500 font-medium">Avaliador</th>
+                          <th className="text-left px-3 py-2 text-gray-500 font-medium">Relação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {matrixRows.map((row, i) => (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-3 py-1.5 text-gray-900">{row.evaluated_email}</td>
+                            <td className="px-3 py-1.5 text-gray-500">{row.evaluator_email}</td>
+                            <td className="px-3 py-1.5 text-gray-400">{row.relationship_code}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-1">
+                <button
+                  onClick={() => setShowMatrixModal(false)}
+                  className="text-sm text-gray-500 hover:text-gray-700 px-4 py-2"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmMatrixImport}
+                  disabled={importingMatrix || matrixRows.length === 0}
+                  className="bg-gray-900 text-white text-sm px-5 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                >
+                  {importingMatrix ? 'Importando...' : `Importar ${matrixRows.length > 0 ? `(${matrixRows.length})` : ''}`}
                 </button>
               </div>
             </div>
