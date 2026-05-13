@@ -4,10 +4,11 @@ import { supabase } from '@/lib/supabase'
 
 export interface UserProfile {
   /** public.users.id — needed to query people.user_id */
-  id:        string
-  name:      string
-  email:     string
-  avatarUrl: string | null
+  id:            string
+  name:          string
+  email:         string
+  avatarUrl:     string | null
+  isSuperAdmin:  boolean
 }
 
 interface AuthContextValue {
@@ -31,24 +32,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data } = await supabase
       .from('users')
-      .select('id, name, email, avatar_url')
+      .select('id, name, email, avatar_url, is_super_admin')
       .eq('auth_user_id', authUser.id)
       .single()
 
     if (data) {
-      const row = data as { id: string; name: string; email: string; avatar_url: string | null }
+      const row = data as { id: string; name: string; email: string; avatar_url: string | null; is_super_admin: boolean }
       setProfile({
-        id:        row.id,
-        name:      row.name  || authUser.email || '',
-        email:     row.email || authUser.email || '',
-        avatarUrl: row.avatar_url ?? null,
+        id:           row.id,
+        name:         row.name  || authUser.email || '',
+        email:        row.email || authUser.email || '',
+        avatarUrl:    row.avatar_url ?? null,
+        isSuperAdmin: row.is_super_admin ?? false,
       })
     } else {
       setProfile({
-        id:        '',
-        name:      authUser.email || '',
-        email:     authUser.email || '',
-        avatarUrl: null,
+        id:           '',
+        name:         authUser.email || '',
+        email:        authUser.email || '',
+        avatarUrl:    null,
+        isSuperAdmin: false,
       })
     }
   }
