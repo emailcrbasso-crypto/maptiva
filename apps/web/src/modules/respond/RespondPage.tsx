@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { getScale, scaleRangeKey, type ScaleDefinition, type ScaleLabel } from '@/lib/scales'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -9,10 +10,15 @@ interface Question {
   prompt:          string
   response_type:   'scale' | 'text' | 'boolean'
   order_index:     number
-  scale_min?:      number
-  scale_max?:      number
   competency_id:   string | null
   competency_name: string | null
+  // Per-question scale metadata (from get_assignment_context v5)
+  scale_id:        string
+  scale_min:       number
+  scale_max:       number
+  scale_allow_na:  boolean
+  scale_na_label:  string
+  scale_labels:    ScaleLabel[]
 }
 
 interface AssignmentContext {
@@ -21,7 +27,7 @@ interface AssignmentContext {
   questionnaire_name:   string
   evaluated_name:       string
   relationship_code:    string
-  scale_min:            number
+  scale_min:            number   // template default (backward compat)
   scale_max:            number
   questions:            Question[]
   tenant_name:          string
@@ -46,6 +52,17 @@ const DEFAULT_BRANDING: ShellBranding = {
 
 type PageState = 'loading' | 'ready' | 'submitting' | 'done' | 'error'
 
+// ─── Answer state ─────────────────────────────────────────────────────────────
+// Para perguntas scale: score (number) ou isNa (boolean)
+interface ScaleAnswer {
+  score: number | null
+  isNa:  boolean
+}
+
+function isScaleAnswered(a: ScaleAnswer | undefined): boolean {
+  return a != null && (a.score != null || a.isNa)
+}
+
 // ─── Competency palette ───────────────────────────────────────────────────────
 
 const COMP_COLORS = [
@@ -62,13 +79,9 @@ const COMP_COLORS = [
 // ─── Progress bar ─────────────────────────────────────────────────────────────
 
 function ProgressBar({
-  answered,
-  total,
-  primaryColor,
+  answered, total, primaryColor,
 }: {
-  answered: number
-  total:    number
-  primaryColor: string
+  answered: number; total: number; primaryColor: string
 }) {
   const pct = total > 0 ? Math.round((answered / total) * 100) : 0
   return (
@@ -85,10 +98,7 @@ function ProgressBar({
         <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-300"
-            style={{
-              width:           `${pct}%`,
-              backgroundColor: pct === 100 ? '#16a34a' : primaryColor,
-            }}
+            style={{ width: `${pct}%`, backgroundColor: pct === 100 ? '#16a34a' : primaryColor }}
           />
         </div>
       </div>
@@ -99,59 +109,87 @@ function ProgressBar({
 // ─── Scale input ──────────────────────────────────────────────────────────────
 
 function ScaleInput({
-  min,
-  max,
-  value,
+  scale,
+  answer,
   primaryColor,
-  onChange,
+  onScore,
+  onNa,
 }: {
-  min:          number
-  max:          number
-  value:        number | null
+  scale:        ScaleDefinition
+  answer:       ScaleAnswer
   primaryColor: string
-  onChange:     (v: number) => void
+  onScore:      (v: number) => void
+  onNa:         () => void
 }) {
-  const steps = Array.from({ length: max - min + 1 }, (_, i) => i + min)
-  const labels: Record<number, string> = {
-    [min]: 'Discordo\ntotalmente',
-    [max]: 'Concordo\ntotalmente',
-  }
-  // For 5-point scales add midpoint label
-  const mid = Math.round((min + max) / 2)
-  if (max - min >= 4) labels[mid] = 'Neutro'
-
   return (
     <div className="mt-4">
-      {/* Buttons row */}
-      <div className="flex gap-2 justify-between">
-        {steps.map((n) => {
-          const selected = value === n
+      {/* Scale chip label */}
+      <div className="flex items-center gap-1.5 mb-3">
+        <span className="text-xs text-gray-400 font-medium">{scale.name}</span>
+      </div>
+
+      {/* Numeric buttons with labels */}
+      <div className="flex gap-1.5">
+        {scale.labels.map((lbl) => {
+          const selected = !answer.isNa && answer.score === lbl.value
           return (
             <button
-              key={n}
+              key={lbl.value}
               type="button"
-              onClick={() => onChange(n)}
-              style={
+              onClick={() => onScore(lbl.value)}
+              style={selected ? { backgroundColor: primaryColor, borderColor: primaryColor } : undefined}
+              className={`flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl border-2 transition-all duration-150 ${
                 selected
-                  ? { backgroundColor: primaryColor, borderColor: primaryColor, color: '#fff' }
-                  : undefined
-              }
-              className={`flex-1 h-12 rounded-xl border-2 text-base font-semibold transition-all duration-150 ${
-                selected
-                  ? 'shadow-md scale-105'
-                  : 'border-gray-200 text-gray-600 hover:border-gray-400 hover:bg-gray-50 hover:scale-105'
+                  ? 'text-white shadow-md scale-[1.04]'
+                  : answer.isNa
+                  ? 'border-gray-100 text-gray-300 hover:border-gray-300 hover:text-gray-500'
+                  : 'border-gray-200 text-gray-700 hover:border-gray-400 hover:scale-[1.04]'
               }`}
             >
-              {n}
+              <span className="text-base font-bold leading-none">{lbl.value}</span>
+              <span className={`text-[10px] leading-tight text-center max-w-[52px] ${
+                selected ? 'text-white/90' : 'text-gray-400'
+              }`}>
+                {lbl.short}
+              </span>
             </button>
           )
         })}
       </div>
+
       {/* Anchor labels */}
-      <div className="flex justify-between mt-2 px-0.5">
-        <span className="text-xs text-gray-400 max-w-[80px] leading-tight">{min} — Discordo totalmente</span>
-        <span className="text-xs text-gray-400 max-w-[80px] text-right leading-tight">Concordo totalmente — {max}</span>
+      <div className="flex justify-between mt-1.5 px-0.5">
+        <span className="text-[11px] text-gray-400 max-w-[90px] leading-tight">
+          {scale.labels[0].label}
+        </span>
+        <span className="text-[11px] text-gray-400 max-w-[90px] text-right leading-tight">
+          {scale.labels[scale.labels.length - 1].label}
+        </span>
       </div>
+
+      {/* N/A button (only if scale supports it) */}
+      {scale.allowNa && (
+        <button
+          type="button"
+          onClick={onNa}
+          className={`mt-3 w-full py-2.5 rounded-xl border-2 text-xs font-medium transition-all duration-150 ${
+            answer.isNa
+              ? 'border-gray-400 bg-gray-100 text-gray-700'
+              : 'border-dashed border-gray-200 text-gray-400 hover:border-gray-400 hover:text-gray-600'
+          }`}
+        >
+          {answer.isNa ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              {scale.naLabel}
+            </span>
+          ) : (
+            scale.naLabel
+          )}
+        </button>
+      )}
     </div>
   )
 }
@@ -159,52 +197,50 @@ function ScaleInput({
 // ─── Collapsible comment ──────────────────────────────────────────────────────
 
 function CollapsibleComment({
-  value,
-  onChange,
+  value, onChange,
 }: {
-  value:    string
-  onChange: (v: string) => void
+  value: string; onChange: (v: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const hasText = value.trim().length > 0
 
+  if (!open && !hasText) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors mt-4"
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+        Adicionar contexto
+      </button>
+    )
+  }
+
   return (
     <div className="mt-4">
-      {!open && !hasText ? (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-          </svg>
-          Adicionar contexto
-        </button>
-      ) : (
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-xs text-gray-400 font-medium">Comentário opcional</label>
-            {open && !hasText && (
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="text-xs text-gray-300 hover:text-gray-500 transition-colors"
-              >
-                ✕ Fechar
-              </button>
-            )}
-          </div>
-          <textarea
-            autoFocus={open && !hasText}
-            className="w-full rounded-xl border border-gray-200 text-sm px-3 py-2 resize-none text-gray-700 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-200 transition-shadow"
-            rows={2}
-            placeholder="Adicione contexto se desejar..."
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-          />
-        </div>
-      )}
+      <div className="flex items-center justify-between mb-1">
+        <label className="text-xs text-gray-400 font-medium">Comentário opcional</label>
+        {open && !hasText && (
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="text-xs text-gray-300 hover:text-gray-500 transition-colors"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      <textarea
+        autoFocus={open && !hasText}
+        className="w-full rounded-xl border border-gray-200 text-sm px-3 py-2 resize-none text-gray-700 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-200 transition-shadow"
+        rows={2}
+        placeholder="Adicione contexto se desejar..."
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   )
 }
@@ -212,54 +248,39 @@ function CollapsibleComment({
 // ─── Question card ────────────────────────────────────────────────────────────
 
 function QuestionCard({
-  question,
-  number,
-  scaleMin,
-  scaleMax,
-  score,
-  textAnswer,
-  comment,
-  primaryColor,
-  onScore,
-  onText,
-  onComment,
+  question, number, answer, textAnswer, comment,
+  primaryColor, onScore, onNa, onText, onComment,
 }: {
   question:     Question
   number:       number
-  scaleMin:     number
-  scaleMax:     number
-  score:        number | null
+  answer:       ScaleAnswer
   textAnswer:   string
   comment:      string
   primaryColor: string
   onScore:      (v: number) => void
+  onNa:         () => void
   onText:       (v: string) => void
   onComment:    (v: string) => void
 }) {
+  const scale    = getScale(question.scale_id)
   const answered =
     question.response_type === 'scale'
-      ? score != null
+      ? isScaleAnswered(answer)
       : question.response_type === 'text'
       ? textAnswer.trim().length > 0
       : false
 
   return (
-    <div
-      className={`bg-white rounded-2xl border-2 transition-all duration-200 overflow-hidden ${
-        answered ? 'border-green-200' : 'border-amber-200'
-      }`}
-    >
-      {/* Top accent bar */}
+    <div className={`bg-white rounded-2xl border-2 transition-all duration-200 overflow-hidden ${
+      answered ? 'border-green-200' : 'border-amber-200'
+    }`}>
       <div className={`h-1 w-full ${answered ? 'bg-green-400' : 'bg-amber-300'}`} />
-
       <div className="p-5">
-        {/* Question prompt */}
+        {/* Prompt */}
         <div className="flex items-start gap-3">
-          <span
-            className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold mt-0.5 ${
-              answered ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-600'
-            }`}
-          >
+          <span className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold mt-0.5 ${
+            answered ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-600'
+          }`}>
             {answered ? (
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -271,18 +292,16 @@ function QuestionCard({
           <p className="text-sm font-medium text-gray-800 leading-relaxed flex-1">{question.prompt}</p>
         </div>
 
-        {/* Scale input */}
         {question.response_type === 'scale' && (
           <ScaleInput
-            min={scaleMin}
-            max={scaleMax}
-            value={score}
+            scale={scale}
+            answer={answer}
             primaryColor={primaryColor}
-            onChange={onScore}
+            onScore={onScore}
+            onNa={onNa}
           />
         )}
 
-        {/* Text input */}
         {question.response_type === 'text' && (
           <textarea
             className="mt-4 w-full rounded-xl border border-gray-200 text-sm px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-gray-200 transition-shadow"
@@ -293,7 +312,6 @@ function QuestionCard({
           />
         )}
 
-        {/* Collapsible comment */}
         <CollapsibleComment value={comment} onChange={onComment} />
       </div>
     </div>
@@ -303,27 +321,35 @@ function QuestionCard({
 // ─── Competency section ───────────────────────────────────────────────────────
 
 function CompetencySection({
-  name,
-  colorIdx,
-  children,
+  name, colorIdx, scaleName, scaleChanged, children,
 }: {
-  name:     string | null
-  colorIdx: number
-  children: React.ReactNode
+  name:         string | null
+  colorIdx:     number
+  scaleName:    string
+  scaleChanged: boolean  // true se a escala mudou em relação à seção anterior
+  children:     React.ReactNode
 }) {
   const c = COMP_COLORS[colorIdx % COMP_COLORS.length]
 
-  if (!name) {
-    return <>{children}</>
-  }
-
   return (
     <div>
-      <div className={`flex items-center gap-2 px-1 mb-3`}>
-        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${c.dot}`} />
-        <span className={`text-xs font-semibold uppercase tracking-wider ${c.text}`}>{name}</span>
-        <div className={`flex-1 h-px ${c.bg} border-t ${c.border}`} />
-      </div>
+      {(name || scaleChanged) && (
+        <div className="flex items-center gap-2 px-1 mb-3">
+          {name && <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${c.dot}`} />}
+          {name && <span className={`text-xs font-semibold uppercase tracking-wider ${c.text}`}>{name}</span>}
+          {scaleChanged && (
+            <span className="ml-auto inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full border border-gray-200">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              Escala: {scaleName}
+            </span>
+          )}
+          {!scaleChanged && name && (
+            <div className={`flex-1 h-px border-t ${c.border}`} />
+          )}
+        </div>
+      )}
       <div className="space-y-3">{children}</div>
     </div>
   )
@@ -346,43 +372,26 @@ function Shell({
 }) {
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Sticky header */}
       <header className="sticky top-0 z-40 bg-white border-b border-gray-100 px-4 py-3">
         <div className="max-w-xl mx-auto flex items-center justify-between">
           {branding.logoUrl ? (
-            <img
-              src={branding.logoUrl}
-              alt={branding.name}
-              className="h-7 w-auto object-contain"
-            />
+            <img src={branding.logoUrl} alt={branding.name} className="h-7 w-auto object-contain" />
           ) : (
             <span className="text-sm font-semibold text-gray-900">{branding.name}</span>
           )}
           {!branding.hideMaptiva && branding.name !== 'Maptiva' && (
-            <a
-              href="https://maptiva.com.br"
-              className="text-xs text-gray-300 hover:text-gray-400 transition-colors"
-              target="_blank"
-              rel="noreferrer"
-            >
+            <a href="https://maptiva.com.br" className="text-xs text-gray-300 hover:text-gray-400 transition-colors" target="_blank" rel="noreferrer">
               Powered by Maptiva
             </a>
           )}
         </div>
       </header>
 
-      {/* Progress bar */}
       {showProgress && (
-        <ProgressBar
-          answered={progressAnswered}
-          total={progressTotal}
-          primaryColor={branding.primaryColor}
-        />
+        <ProgressBar answered={progressAnswered} total={progressTotal} primaryColor={branding.primaryColor} />
       )}
 
-      <div className="max-w-xl mx-auto px-4 py-8">
-        {children}
-      </div>
+      <div className="max-w-xl mx-auto px-4 py-8">{children}</div>
     </div>
   )
 }
@@ -397,12 +406,11 @@ export function RespondPage() {
   const [branding, setBranding] = useState<ShellBranding>(DEFAULT_BRANDING)
   const [errorMsg, setErrorMsg] = useState('')
 
-  const [scores,        setScores]        = useState<Record<string, number | null>>({})
+  // scale answers: question_id → {score, isNa}
+  const [scaleAnswers,  setScaleAnswers]  = useState<Record<string, ScaleAnswer>>({})
   const [textAnswers,   setTextAnswers]   = useState<Record<string, string>>({})
   const [comments,      setComments]      = useState<Record<string, string>>({})
   const [globalComment, setGlobalComment] = useState('')
-
-  // validation: show which questions were left unanswered on submit attempt
   const [showValidation, setShowValidation] = useState(false)
   const firstUnansweredRef = useRef<HTMLDivElement | null>(null)
 
@@ -430,11 +438,11 @@ export function RespondPage() {
             document.documentElement.style.setProperty('--color-respond-primary', b.primaryColor)
           }
 
-          const init: Record<string, number | null> = {}
+          const init: Record<string, ScaleAnswer> = {}
           context.questions.forEach((q) => {
-            if (q.response_type === 'scale') init[q.id] = null
+            if (q.response_type === 'scale') init[q.id] = { score: null, isNa: false }
           })
-          setScores(init)
+          setScaleAnswers(init)
           setState('ready')
         }
       })
@@ -444,12 +452,12 @@ export function RespondPage() {
     e.preventDefault()
     if (!token || !ctx) return
 
-    const unanswered = ctx.questions.filter(
-      (q) => q.response_type === 'scale' && scores[q.id] == null,
+    const unansweredQs = ctx.questions.filter(
+      (q) => q.response_type === 'scale' && !isScaleAnswered(scaleAnswers[q.id])
     )
-    if (unanswered.length > 0) {
+    if (unansweredQs.length > 0) {
       setShowValidation(true)
-      // scroll to first unanswered card
+      firstUnansweredRef.current = null // reset so ref can re-capture
       setTimeout(() => {
         firstUnansweredRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }, 50)
@@ -460,9 +468,20 @@ export function RespondPage() {
 
     const answers = ctx.questions.map((q) => {
       if (q.response_type === 'scale') {
-        return { question_id: q.id, score: scores[q.id], text_answer: null }
+        const a = scaleAnswers[q.id]
+        return {
+          question_id:  q.id,
+          score:        a.isNa ? null : (a.score ?? null),
+          text_answer:  null,
+          is_na:        a.isNa,
+        }
       }
-      return { question_id: q.id, score: null, text_answer: textAnswers[q.id] ?? '' }
+      return {
+        question_id:  q.id,
+        score:        null,
+        text_answer:  textAnswers[q.id] ?? '',
+        is_na:        false,
+      }
     })
 
     const commentsList: { question_id: string | null; body: string }[] = []
@@ -489,7 +508,7 @@ export function RespondPage() {
     }
   }
 
-  // ─── Loading ─────────────────────────────────────────────────────────────────
+  // ─── Loading ────────────────────────────────────────────────────────────────
 
   if (state === 'loading') {
     return (
@@ -502,26 +521,19 @@ export function RespondPage() {
     )
   }
 
-  // ─── Error ───────────────────────────────────────────────────────────────────
+  // ─── Error ──────────────────────────────────────────────────────────────────
 
   if (state === 'error') {
     const isExpired = errorMsg.includes('expirou')
     const isUsed    = errorMsg.includes('já foi utilizado')
-
     return (
       <Shell branding={branding}>
         <div className="text-center py-16">
-          <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 ${
-            isUsed ? 'bg-green-100' : 'bg-red-50'
-          }`}>
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 ${isUsed ? 'bg-green-100' : 'bg-red-50'}`}>
             <span className="text-3xl">{isExpired ? '⏱' : isUsed ? '✓' : '⚠️'}</span>
           </div>
           <h1 className="text-lg font-semibold text-gray-900 mb-2">
-            {isExpired
-              ? 'Link expirado'
-              : isUsed
-              ? 'Avaliação já concluída'
-              : 'Não foi possível carregar o questionário'}
+            {isExpired ? 'Link expirado' : isUsed ? 'Avaliação já concluída' : 'Não foi possível carregar o questionário'}
           </h1>
           <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
             {isExpired
@@ -535,7 +547,7 @@ export function RespondPage() {
     )
   }
 
-  // ─── Done ────────────────────────────────────────────────────────────────────
+  // ─── Done ───────────────────────────────────────────────────────────────────
 
   if (state === 'done') {
     return (
@@ -558,34 +570,33 @@ export function RespondPage() {
 
   if (!ctx) return null
 
-  // ─── Ready ───────────────────────────────────────────────────────────────────
+  // ─── Ready ──────────────────────────────────────────────────────────────────
 
-  const scaleMin    = ctx.scale_min ?? 1
-  const scaleMax    = ctx.scale_max ?? 5
   const scaleQs     = ctx.questions.filter((q) => q.response_type === 'scale')
-  const answeredCnt = scaleQs.filter((q) => scores[q.id] != null).length
+  const answeredCnt = scaleQs.filter((q) => isScaleAnswered(scaleAnswers[q.id])).length
   const totalCnt    = scaleQs.length
 
-  // Group questions by competency
-  // null competency_id → one unnamed group at the end
+  // Group questions by competency (maintaining order)
   const compOrder: string[] = []
-  const compGroups: Map<string, Question[]> = new Map()
+  const compGroups = new Map<string, Question[]>()
   for (const q of ctx.questions) {
     const key = q.competency_id ?? '__none__'
-    if (!compGroups.has(key)) {
-      compGroups.set(key, [])
-      compOrder.push(key)
-    }
+    if (!compGroups.has(key)) { compGroups.set(key, []); compOrder.push(key) }
     compGroups.get(key)!.push(q)
   }
 
-  // Build a color index map per competency key
+  // Color index per competency key
   const compColorMap = new Map<string, number>()
   compOrder.forEach((key, i) => { if (key !== '__none__') compColorMap.set(key, i) })
 
-  // question number counter (flat, across all groups)
-  let globalIdx = 0
+  // Detect scale changes between sections (for scale chip display)
+  const sectionRangeKeys: string[] = compOrder.map((key) => {
+    const qs = compGroups.get(key)!.filter((q) => q.response_type === 'scale')
+    if (qs.length === 0) return ''
+    return scaleRangeKey(getScale(qs[0].scale_id))
+  })
 
+  let globalIdx = 0
   const estimatedMin = Math.max(1, Math.round(totalCnt * 0.5))
 
   return (
@@ -607,9 +618,7 @@ export function RespondPage() {
           <h1 className="text-2xl font-bold text-gray-900 mb-1">
             Avaliação de <span style={{ color: branding.primaryColor }}>{ctx.evaluated_name}</span>
           </h1>
-          <p className="text-sm text-gray-500">
-            {ctx.questionnaire_name} · {labelRelationship(ctx.relationship_code)}
-          </p>
+          <p className="text-sm text-gray-500">{ctx.questionnaire_name} · {labelRelationship(ctx.relationship_code)}</p>
           <div className="flex items-center gap-3 mt-3">
             <span className="text-xs text-gray-400 flex items-center gap-1">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -648,42 +657,67 @@ export function RespondPage() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           <p className="text-xs text-amber-700 font-medium">
-            {totalCnt - answeredCnt} pergunta{totalCnt - answeredCnt !== 1 ? 's' : ''} ainda não respondida{totalCnt - answeredCnt !== 1 ? 's' : ''}. Role a página para encontrá-las.
+            {totalCnt - answeredCnt} pergunta{totalCnt - answeredCnt !== 1 ? 's' : ''} ainda não respondida{totalCnt - answeredCnt !== 1 ? 's' : ''}. Role para encontrá-las.
           </p>
         </div>
       )}
 
       {/* ── Questions form ── */}
       <form onSubmit={handleSubmit} className="space-y-8">
-        {compOrder.map((key) => {
-          const questions = compGroups.get(key)!
-          const firstQ    = questions[0]
-          const compName  = key === '__none__' ? null : (firstQ.competency_name ?? null)
-          const colorIdx  = key === '__none__' ? COMP_COLORS.length - 1 : (compColorMap.get(key) ?? 0)
+        {compOrder.map((key, sectionIdx) => {
+          const questions  = compGroups.get(key)!
+          const firstQ     = questions[0]
+          const compName   = key === '__none__' ? null : (firstQ.competency_name ?? null)
+          const colorIdx   = key === '__none__' ? COMP_COLORS.length - 1 : (compColorMap.get(key) ?? 0)
+          const myRangeKey = sectionRangeKeys[sectionIdx]
+          const prevRangeKey = sectionIdx > 0 ? sectionRangeKeys[sectionIdx - 1] : ''
+          const scaleChanged = myRangeKey !== '' && myRangeKey !== prevRangeKey && sectionIdx > 0
+
+          // Scale name for this section
+          const sectionScaleId = questions.find((q) => q.response_type === 'scale')?.scale_id
+          const sectionScaleName = sectionScaleId ? getScale(sectionScaleId).name : ''
 
           return (
-            <CompetencySection key={key} name={compName} colorIdx={colorIdx}>
+            <CompetencySection
+              key={key}
+              name={compName}
+              colorIdx={colorIdx}
+              scaleName={sectionScaleName}
+              scaleChanged={scaleChanged}
+            >
               {questions.map((q) => {
                 globalIdx++
-                const num     = globalIdx
-                const isUnanswered = showValidation && q.response_type === 'scale' && scores[q.id] == null
+                const num = globalIdx
+                const isUnanswered =
+                  showValidation &&
+                  q.response_type === 'scale' &&
+                  !isScaleAnswered(scaleAnswers[q.id])
 
                 return (
                   <div
                     key={q.id}
-                    ref={isUnanswered && firstUnansweredRef.current === null ? (el) => { firstUnansweredRef.current = el } : undefined}
+                    ref={
+                      isUnanswered && firstUnansweredRef.current === null
+                        ? (el) => { firstUnansweredRef.current = el }
+                        : undefined
+                    }
                   >
                     <QuestionCard
                       question={q}
                       number={num}
-                      scaleMin={scaleMin}
-                      scaleMax={scaleMax}
-                      score={scores[q.id] ?? null}
+                      answer={scaleAnswers[q.id] ?? { score: null, isNa: false }}
                       textAnswer={textAnswers[q.id] ?? ''}
                       comment={comments[q.id] ?? ''}
                       primaryColor={branding.primaryColor}
                       onScore={(v) => {
-                        setScores((prev) => ({ ...prev, [q.id]: v }))
+                        setScaleAnswers((prev) => ({ ...prev, [q.id]: { score: v, isNa: false } }))
+                        setShowValidation(false)
+                      }}
+                      onNa={() => {
+                        setScaleAnswers((prev) => {
+                          const cur = prev[q.id]
+                          return { ...prev, [q.id]: { score: null, isNa: !cur?.isNa } }
+                        })
                         setShowValidation(false)
                       }}
                       onText={(v) => setTextAnswers((prev) => ({ ...prev, [q.id]: v }))}
@@ -770,5 +804,7 @@ function friendlyError(msg: string): string {
   if (msg.includes('P0002') || msg.includes('already_used'))    return 'Este link já foi utilizado.'
   if (msg.includes('P0003') || msg.includes('status_invalid'))  return 'Este assignment não está disponível.'
   if (msg.includes('P0004') || msg.includes('expired'))         return 'Este link expirou.'
+  if (msg.includes('P0008') || msg.includes('mixed_scale'))     return 'Este questionário contém escalas incompatíveis. Entre em contato com o administrador.'
+  if (msg.includes('P0009') || msg.includes('na_not_allowed'))  return 'A opção "Não observei" não está disponível para esta pergunta.'
   return msg
 }

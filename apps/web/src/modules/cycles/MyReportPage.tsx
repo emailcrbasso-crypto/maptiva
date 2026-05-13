@@ -25,6 +25,7 @@ import {
   Legend,
   Tooltip,
 } from 'recharts'
+import { getScale, scoreColorClass, scoreBgClass, scoreToPercent, type ScaleDefinition } from '@/lib/scales'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -98,12 +99,13 @@ const RADAR_PALETTE: Record<string, string> = {
 
 // ─── Score badge ──────────────────────────────────────────────────────────────
 
-function ScoreBadge({ value, label }: { value: number | null; label: string }) {
-  const color = value == null
-    ? 'bg-gray-50 text-gray-300'
-    : value >= 4 ? 'bg-green-50 text-green-700'
-    : value >= 3 ? 'bg-yellow-50 text-yellow-700'
-    : 'bg-red-50 text-red-600'
+function ScoreBadge({
+  value, label, scaleId = 'likert_5',
+}: {
+  value: number | null; label: string; scaleId?: string
+}) {
+  const scale = getScale(scaleId)
+  const color = scoreBgClass(value, scale)
 
   return (
     <div className={`rounded-xl p-4 text-center ${color}`}>
@@ -120,10 +122,14 @@ function ScoreBadge({ value, label }: { value: number | null; label: string }) {
 function RadarSection({
   snapshots,
   competencies,
+  scaleId = 'likert_5',
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
+  scaleId?:     string
 }) {
+  const scale    = getScale(scaleId)
+  const scaleMax = scale.max
   const compWithSnaps = competencies.filter((c) =>
     snapshots.some((s) => s.competency_id === c.id && s.score_avg != null)
   )
@@ -156,7 +162,7 @@ function RadarSection({
         Gráfico de competências
       </h2>
       <p className="text-xs text-gray-400 mb-4">
-        Escala de 0 a 5 — quanto mais próximo da borda, maior o score.
+        Escala de 0 a {scaleMax} — quanto mais próximo da borda, maior o score.
       </p>
       <ResponsiveContainer width="100%" height={320}>
         <RechartsRadarChart data={data} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
@@ -166,9 +172,9 @@ function RadarSection({
             tick={{ fontSize: 11, fill: '#6b7280' }}
           />
           <PolarRadiusAxis
-            domain={[0, 5]}
+            domain={[0, scaleMax]}
             tick={{ fontSize: 9, fill: '#9ca3af' }}
-            tickCount={6}
+            tickCount={scaleMax + 1}
           />
           {relationships.map((rel) => (
             <Radar
@@ -279,10 +285,13 @@ function Top3Section({
 function CompetencyBreakdown({
   snapshots,
   competencies,
+  scaleId = 'likert_5',
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
+  scaleId?:     string
 }) {
+  const scale = getScale(scaleId)
   const withComp = snapshots.filter((s) => s.competency_id && s.score_avg != null)
   if (withComp.length === 0) return null
 
@@ -330,11 +339,7 @@ function CompetencyBreakdown({
                     return (
                       <td key={r} className="py-3 px-4 text-center">
                         {snap?.score_avg != null ? (
-                          <span className={`font-semibold ${
-                            snap.score_avg >= 4 ? 'text-green-600'
-                            : snap.score_avg >= 3 ? 'text-yellow-600'
-                            : 'text-red-500'
-                          }`}>
+                          <span className={`font-semibold ${scoreColorClass(snap.score_avg, scale)}`}>
                             {snap.score_avg.toFixed(2)}
                           </span>
                         ) : (
@@ -438,7 +443,22 @@ function InsightsPanel({ profile }: { profile: NonNullable<MyReportData['profile
 
 // ─── Snapshot by relationship ─────────────────────────────────────────────────
 
-function SnapshotsByRelationship({ snapshots }: { snapshots: SnapshotRow[] }) {
+function barBgClass(score: number | null, scale: ScaleDefinition): string {
+  if (score == null) return 'bg-gray-200'
+  const pct = scoreToPercent(score, scale)
+  if (pct >= 80) return 'bg-green-500'
+  if (pct >= 60) return 'bg-yellow-400'
+  return 'bg-red-400'
+}
+
+function SnapshotsByRelationship({
+  snapshots,
+  scaleId = 'likert_5',
+}: {
+  snapshots: SnapshotRow[]
+  scaleId?:  string
+}) {
+  const scale = getScale(scaleId)
   // Snapshots without competency_id are the overall-per-relationship scores
   const overallSnaps = snapshots.filter((s) => !s.competency_id)
   if (overallSnaps.length === 0) return null
@@ -456,21 +476,15 @@ function SnapshotsByRelationship({ snapshots }: { snapshots: SnapshotRow[] }) {
             </span>
             <div className="flex-1 bg-gray-100 rounded-full h-2">
               <div
-                className={`h-2 rounded-full transition-all ${
-                  s.score_avg == null ? 'bg-gray-200'
-                  : s.score_avg >= 4 ? 'bg-green-500'
-                  : s.score_avg >= 3 ? 'bg-yellow-400'
-                  : 'bg-red-400'
-                }`}
-                style={{ width: s.score_avg != null ? `${(s.score_avg / 5) * 100}%` : '0%' }}
+                className={`h-2 rounded-full transition-all ${barBgClass(s.score_avg, scale)}`}
+                style={{
+                  width: s.score_avg != null
+                    ? `${scoreToPercent(s.score_avg, scale)}%`
+                    : '0%',
+                }}
               />
             </div>
-            <span className={`text-sm font-semibold w-10 text-right ${
-              s.score_avg == null ? 'text-gray-300'
-              : s.score_avg >= 4 ? 'text-green-600'
-              : s.score_avg >= 3 ? 'text-yellow-600'
-              : 'text-red-500'
-            }`}>
+            <span className={`text-sm font-semibold w-10 text-right ${scoreColorClass(s.score_avg, scale)}`}>
               {s.score_avg != null ? s.score_avg.toFixed(2) : '—'}
             </span>
             <span className="text-xs text-gray-400 w-24 text-right">
@@ -491,6 +505,7 @@ export function MyReportPage() {
   const [report,       setReport]       = useState<MyReportData | null>(null)
   const [competencies, setCompetencies] = useState<CompetencyRow[]>([])
   const [comments,     setComments]     = useState<CommentRow[]>([])
+  const [scaleId,      setScaleId]      = useState<string>('likert_5')
   const [loading,      setLoading]      = useState(true)
   const [errorCode,    setErrorCode]    = useState<string | null>(null)
 
@@ -539,6 +554,21 @@ export function MyReportPage() {
         .select('id, cycle_id, evaluated_cycle_participant_id, relationship_group, body')
         .eq('cycle_id', id)
       setComments((commData ?? []) as CommentRow[])
+
+      // Load template scale_id so report coloring uses the correct proportional range
+      const { data: cycleRow } = await supabase
+        .from('cycles')
+        .select('template_id')
+        .eq('id', id)
+        .single()
+      if (cycleRow?.template_id) {
+        const { data: tmplRow } = await supabase
+          .from('templates')
+          .select('scale_id')
+          .eq('id', cycleRow.template_id)
+          .single()
+        if (tmplRow?.scale_id) setScaleId(tmplRow.scale_id)
+      }
 
       setLoading(false)
     }
@@ -636,11 +666,11 @@ export function MyReportPage() {
               Scores consolidados
             </h2>
             <div className="grid grid-cols-5 gap-3">
-              <ScoreBadge value={profile.overall_score}     label="Overall" />
-              <ScoreBadge value={profile.self_score}        label="Autoaval." />
-              <ScoreBadge value={profile.manager_score}     label="Gestor" />
-              <ScoreBadge value={profile.peer_score}        label="Pares" />
-              <ScoreBadge value={profile.subordinate_score} label="Subordin." />
+              <ScoreBadge value={profile.overall_score}     label="Overall"    scaleId={scaleId} />
+              <ScoreBadge value={profile.self_score}        label="Autoaval."  scaleId={scaleId} />
+              <ScoreBadge value={profile.manager_score}     label="Gestor"     scaleId={scaleId} />
+              <ScoreBadge value={profile.peer_score}        label="Pares"      scaleId={scaleId} />
+              <ScoreBadge value={profile.subordinate_score} label="Subordin."  scaleId={scaleId} />
             </div>
 
             {profile.generated_at && (
@@ -666,17 +696,22 @@ export function MyReportPage() {
 
           {/* ── Radar chart ── */}
           {hasCompetencies && (
-            <RadarSection snapshots={report.snapshots} competencies={competencies} />
+            <RadarSection
+              snapshots={report.snapshots}
+              competencies={competencies}
+              scaleId={scaleId}
+            />
           )}
 
           {/* ── Scores by relationship (bar chart style) ── */}
-          <SnapshotsByRelationship snapshots={report.snapshots} />
+          <SnapshotsByRelationship snapshots={report.snapshots} scaleId={scaleId} />
 
           {/* ── Competency breakdown table ── */}
           {hasCompetencies && (
             <CompetencyBreakdown
               snapshots={report.snapshots}
               competencies={competencies}
+              scaleId={scaleId}
             />
           )}
 

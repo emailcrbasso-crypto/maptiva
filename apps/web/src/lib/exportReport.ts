@@ -5,6 +5,7 @@
  */
 
 import * as XLSX from 'xlsx'
+import { getScale } from './scales'
 
 // ─── Types (mirror ReportPage interfaces) ─────────────────────────────────────
 
@@ -37,6 +38,7 @@ export interface SnapshotExport {
   relationship_code:    string
   score_avg:            number | null
   visibility_status:    string
+  scale_id?:            string
 }
 
 export interface CompetencyExport {
@@ -153,18 +155,43 @@ export function exportCycleReportExcel(
       (s) => s.competency_id && s.visibility_status === 'visible' && s.score_avg != null
     )
 
-    const compHeaders = ['Participante', 'Competência', 'Perspectiva', 'Score']
+    const compHeaders = ['Participante', 'Competência', 'Perspectiva', 'Score', 'Escala']
     const compRows = compSnaps.map((s) => [
       cpNameMap.get(s.cycle_participant_id) ?? s.cycle_participant_id,
       compMap.get(s.competency_id!) ?? s.competency_id,
       REL_LABEL[s.relationship_code] ?? s.relationship_code,
       fmt(s.score_avg),
+      s.scale_id ?? '—',
     ])
 
     if (compRows.length > 0) {
       const wsComp = XLSX.utils.aoa_to_sheet([compHeaders, ...compRows])
-      wsComp['!cols'] = [{ wch: 28 }, { wch: 28 }, { wch: 16 }, { wch: 10 }]
+      wsComp['!cols'] = [{ wch: 28 }, { wch: 28 }, { wch: 16 }, { wch: 10 }, { wch: 18 }]
       XLSX.utils.book_append_sheet(wb, wsComp, 'Competências')
+    }
+
+    // ── Sheet "Escalas": legend for every scale referenced in this export ─────
+    const usedScaleIds = [
+      ...new Set(
+        compSnaps
+          .map((s) => s.scale_id)
+          .filter((id): id is string => !!id)
+      ),
+    ]
+    if (usedScaleIds.length > 0) {
+      const scaleRows: (string | number)[][] = []
+      for (const sid of usedScaleIds) {
+        const sc = getScale(sid)
+        scaleRows.push([`Escala: ${sc.id}`, sc.name, `Range: ${sc.min}–${sc.max}`, sc.allowNa ? `N/A: ${sc.naLabel}` : 'N/A: não disponível'])
+        scaleRows.push(['Valor', 'Rótulo', 'Abreviação', ''])
+        for (const lbl of sc.labels) {
+          scaleRows.push([lbl.value, lbl.label, lbl.short, ''])
+        }
+        scaleRows.push([]) // blank separator between scales
+      }
+      const wsScales = XLSX.utils.aoa_to_sheet(scaleRows)
+      wsScales['!cols'] = [{ wch: 20 }, { wch: 32 }, { wch: 14 }, { wch: 50 }]
+      XLSX.utils.book_append_sheet(wb, wsScales, 'Escalas')
     }
   }
 

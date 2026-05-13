@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { SCALE_OPTIONS, getScale, hasMixedRanges, type ScaleDefinition } from '@/lib/scales'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface TemplateInfo {
   id: string; name: string; method_code: string
-  scale_min: number; scale_max: number
+  scale_id: string; scale_min: number; scale_max: number
   allow_na: boolean; n_minimum_default: number
   status: string; tenant_id: string
 }
@@ -14,6 +15,7 @@ interface TemplateInfo {
 interface Question {
   id: string; prompt: string; response_type: string
   order_index: number; competency_id: string | null
+  scale_id: string | null
 }
 
 interface Questionnaire {
@@ -23,6 +25,7 @@ interface Questionnaire {
 
 interface Competency {
   id: string; name: string; order_index: number
+  scale_id: string | null
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -61,14 +64,31 @@ function PencilIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
 
 // ─── Question row (view + inline edit) ───────────────────────────────────────
 
+function ScaleChip({
+  scale, isOverride,
+}: {
+  scale: ScaleDefinition; isOverride: boolean
+}) {
+  return (
+    <span className={`inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${
+      isOverride
+        ? 'bg-amber-50 border-amber-200 text-amber-700'
+        : 'bg-gray-50 border-gray-200 text-gray-400'
+    }`} title={scale.description}>
+      {scale.name}
+    </span>
+  )
+}
+
 function QuestionRow({
-  question, index, competencies, questionnaireId,
+  question, index, competencies, questionnaireId, templateScaleId,
   onEdited, onRemoved,
 }: {
   question: Question
   index: number
   competencies: Competency[]
   questionnaireId: string
+  templateScaleId: string
   onEdited: () => void
   onRemoved: (questionnaireId: string, questionId: string) => void
 }) {
@@ -76,6 +96,7 @@ function QuestionRow({
   const [prompt,       setPrompt]       = useState(question.prompt)
   const [responseType, setResponseType] = useState(question.response_type)
   const [competencyId, setCompetencyId] = useState(question.competency_id ?? '')
+  const [qScaleId,     setQScaleId]     = useState(question.scale_id ?? '')
   const [saving,       setSaving]       = useState(false)
   const [error,        setError]        = useState<string | null>(null)
 
@@ -83,6 +104,7 @@ function QuestionRow({
     setPrompt(question.prompt)
     setResponseType(question.response_type)
     setCompetencyId(question.competency_id ?? '')
+    setQScaleId(question.scale_id ?? '')
     setError(null)
     setEditing(true)
   }
@@ -96,6 +118,7 @@ function QuestionRow({
         prompt:        prompt.trim(),
         response_type: responseType,
         competency_id: competencyId || null,
+        scale_id:      qScaleId || null,
       })
       .eq('id', question.id)
     if (err) { setError(err.message); setSaving(false); return }
@@ -103,6 +126,12 @@ function QuestionRow({
     setEditing(false)
     onEdited()
   }
+
+  // Effective scale for display
+  const comp        = competencies.find((c) => c.id === question.competency_id)
+  const effectiveId = question.scale_id ?? comp?.scale_id ?? templateScaleId
+  const effectScale = getScale(effectiveId)
+  const isOverride  = !!question.scale_id
 
   if (editing) {
     return (
@@ -119,7 +148,7 @@ function QuestionRow({
           onChange={(e) => setPrompt(e.target.value)}
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900"
         />
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
           <select
             value={responseType}
             onChange={(e) => setResponseType(e.target.value)}
@@ -128,6 +157,19 @@ function QuestionRow({
             <option value="scale">Escala</option>
             <option value="text">Texto aberto</option>
           </select>
+          {responseType === 'scale' && (
+            <select
+              value={qScaleId}
+              onChange={(e) => setQScaleId(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none"
+              title="Sobrescrever escala para esta pergunta"
+            >
+              <option value="">Escala padrão ({getScale(templateScaleId).name})</option>
+              {SCALE_OPTIONS.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          )}
           <select
             value={competencyId}
             onChange={(e) => setCompetencyId(e.target.value)}
@@ -166,6 +208,9 @@ function QuestionRow({
           {String(index + 1).padStart(2, '0')}
         </span>
         <p className="text-sm text-gray-800 leading-snug flex-1">{question.prompt}</p>
+        {question.response_type === 'scale' && (
+          <ScaleChip scale={effectScale} isOverride={isOverride} />
+        )}
       </div>
       <div className="flex items-center gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
@@ -273,6 +318,11 @@ export function TemplateDetailPage() {
   const [nMinValue,   setNMinValue]   = useState(0)
   const [savingNMin,  setSavingNMin]  = useState(false)
 
+  // Template scale inline edit
+  const [editingScale, setEditingScale] = useState(false)
+  const [scaleValue,   setScaleValue]   = useState('')
+  const [savingScale,  setSavingScale]  = useState(false)
+
   // Add questionnaire modal
   const [showAddQuestionnaire, setShowAddQuestionnaire] = useState(false)
   const [newQuestName,         setNewQuestName]         = useState('')
@@ -290,6 +340,7 @@ export function TemplateDetailPage() {
   const [newPrompt,       setNewPrompt]       = useState('')
   const [newResponseType, setNewResponseType] = useState('scale')
   const [newCompetencyId, setNewCompetencyId] = useState('')
+  const [newScaleId,      setNewScaleId]      = useState('')
   const [savingQuestion,  setSavingQuestion]  = useState(false)
 
   // Add competency inline form
@@ -306,7 +357,7 @@ export function TemplateDetailPage() {
     const [tmplRes, questRes, compRes] = await Promise.all([
       supabase.from('templates').select('*').eq('id', id).single(),
       supabase.from('questionnaires').select('id, name, relationship_code').eq('template_id', id).order('name'),
-      supabase.from('competencies').select('id, name, order_index').eq('template_id', id).order('order_index'),
+      supabase.from('competencies').select('id, name, order_index, scale_id').eq('template_id', id).order('order_index'),
     ])
 
     if (tmplRes.error) { setError(tmplRes.error.message); setLoading(false); return }
@@ -319,7 +370,7 @@ export function TemplateDetailPage() {
       rawQuests.map(async (q) => {
         const { data: qqData } = await supabase
           .from('questionnaire_questions')
-          .select('order_index, questions(id, prompt, response_type, order_index, competency_id)')
+          .select('order_index, questions(id, prompt, response_type, order_index, competency_id, scale_id)')
           .eq('questionnaire_id', q.id)
           .order('order_index')
         const questions: Question[] = ((qqData ?? []) as Array<{
@@ -352,6 +403,20 @@ export function TemplateDetailPage() {
     if (err) { alert(err.message); setSavingNMin(false); return }
     setSavingNMin(false)
     setEditingNMin(false)
+    await loadAll()
+  }
+
+  async function handleSaveScale() {
+    if (!template || !scaleValue) return
+    const scale = getScale(scaleValue)
+    setSavingScale(true)
+    const { error: err } = await supabase
+      .from('templates')
+      .update({ scale_id: scale.id, scale_min: scale.min, scale_max: scale.max })
+      .eq('id', template.id)
+    if (err) { alert(err.message); setSavingScale(false); return }
+    setSavingScale(false)
+    setEditingScale(false)
     await loadAll()
   }
 
@@ -398,9 +463,12 @@ export function TemplateDetailPage() {
     const { data: qData, error: qErr } = await supabase
       .from('questions')
       .insert({
-        tenant_id: template.tenant_id, template_id: template.id,
-        prompt: newPrompt.trim(), response_type: newResponseType,
+        tenant_id:     template.tenant_id,
+        template_id:   template.id,
+        prompt:        newPrompt.trim(),
+        response_type: newResponseType,
         competency_id: newCompetencyId || null,
+        scale_id:      (newResponseType === 'scale' && newScaleId) ? newScaleId : null,
       })
       .select('id').single()
 
@@ -415,7 +483,7 @@ export function TemplateDetailPage() {
 
     if (qqErr) { alert(qqErr.message); setSavingQuestion(false); return }
 
-    setNewPrompt(''); setNewResponseType('scale'); setNewCompetencyId('')
+    setNewPrompt(''); setNewResponseType('scale'); setNewCompetencyId(''); setNewScaleId('')
     setAddingToQuest(null); setSavingQuestion(false)
     await loadAll()
   }
@@ -461,9 +529,46 @@ export function TemplateDetailPage() {
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             <p className="text-sm text-gray-400">
               {METHOD_LABEL[template.method_code] ?? template.method_code}
-              {' · '}Escala {template.scale_min}–{template.scale_max}
               {' · '}
             </p>
+            {/* Escala do template — inline edit */}
+            {editingScale ? (
+              <span className="flex items-center gap-1">
+                <select
+                  autoFocus
+                  value={scaleValue}
+                  onChange={(e) => setScaleValue(e.target.value)}
+                  className="border border-gray-300 rounded px-2 py-0.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gray-900"
+                >
+                  {SCALE_OPTIONS.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleSaveScale}
+                  disabled={savingScale || !scaleValue}
+                  className="text-xs bg-gray-900 text-white px-2 py-0.5 rounded hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                >
+                  {savingScale ? '…' : 'Salvar'}
+                </button>
+                <button
+                  onClick={() => setEditingScale(false)}
+                  className="text-xs text-gray-400 hover:text-gray-600 px-1"
+                >
+                  Cancelar
+                </button>
+              </span>
+            ) : (
+              <button
+                onClick={() => { setScaleValue(template.scale_id ?? 'likert_5'); setEditingScale(true) }}
+                className="group flex items-center gap-1 text-sm text-gray-400 hover:text-gray-700 transition-colors"
+                title="Alterar escala padrão"
+              >
+                Escala: <strong className="text-gray-600">{getScale(template.scale_id).name}</strong>
+                <PencilIcon className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            )}
+            <span className="text-gray-400 text-sm">·</span>
             {editingNMin ? (
               <span className="flex items-center gap-1">
                 <span className="text-sm text-gray-400">N mínimo:</span>
@@ -531,6 +636,15 @@ export function TemplateDetailPage() {
           )}
 
           {questionnaires.map((quest) => {
+            // Mixed-range warning: detect if scale questions have different min/max
+            const scaleQuestionIds = quest.questions
+              .filter((q) => q.response_type === 'scale')
+              .map((q) => {
+                const comp = competencies.find((c) => c.id === q.competency_id)
+                return q.scale_id ?? comp?.scale_id ?? (template.scale_id ?? 'likert_5')
+              })
+            const hasMixed = hasMixedRanges(scaleQuestionIds)
+
             // Group questions by competency
             const groups = competencies
               .map((c, i) => ({
@@ -547,6 +661,15 @@ export function TemplateDetailPage() {
 
             return (
               <div key={quest.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                {/* Mixed-range warning */}
+                {hasMixed && (
+                  <div className="px-5 py-2.5 bg-amber-50 border-b border-amber-200 flex items-center gap-2 text-xs text-amber-700">
+                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span><strong>Ranges mistos detectados:</strong> este questionário tem perguntas com escalas de ranges diferentes (ex: 1–5 e 1–4). Isso bloqueará o envio das respostas.</span>
+                  </div>
+                )}
                 {/* Questionnaire header */}
                 {editingQuestId === quest.id ? (
                   /* ── Inline rename form ── */
@@ -657,6 +780,7 @@ export function TemplateDetailPage() {
                             index={startIdx + i}
                             competencies={competencies}
                             questionnaireId={quest.id}
+                            templateScaleId={template.scale_id ?? 'likert_5'}
                             onEdited={loadAll}
                             onRemoved={handleRemoveQuestion}
                           />
@@ -683,6 +807,7 @@ export function TemplateDetailPage() {
                             index={idx}
                             competencies={competencies}
                             questionnaireId={quest.id}
+                            templateScaleId={template.scale_id ?? 'likert_5'}
                             onEdited={loadAll}
                             onRemoved={handleRemoveQuestion}
                           />
@@ -708,12 +833,22 @@ export function TemplateDetailPage() {
                       placeholder="Enunciado da pergunta..."
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900"
                     />
-                    <div className="flex gap-3">
-                      <select value={newResponseType} onChange={(e) => setNewResponseType(e.target.value)}
+                    <div className="flex gap-3 flex-wrap">
+                      <select value={newResponseType} onChange={(e) => { setNewResponseType(e.target.value); setNewScaleId('') }}
                         className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none">
                         <option value="scale">Escala</option>
                         <option value="text">Texto aberto</option>
                       </select>
+                      {newResponseType === 'scale' && (
+                        <select value={newScaleId} onChange={(e) => setNewScaleId(e.target.value)}
+                          className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none"
+                          title="Sobrescrever escala para esta pergunta">
+                          <option value="">Escala padrão ({getScale(template.scale_id ?? 'likert_5').name})</option>
+                          {SCALE_OPTIONS.map((s) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      )}
                       <select value={newCompetencyId} onChange={(e) => setNewCompetencyId(e.target.value)}
                         className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none">
                         <option value="">Sem competência</option>
@@ -723,7 +858,7 @@ export function TemplateDetailPage() {
                       </select>
                     </div>
                     <div className="flex justify-end gap-2">
-                      <button onClick={() => { setAddingToQuest(null); setNewPrompt('') }}
+                      <button onClick={() => { setAddingToQuest(null); setNewPrompt(''); setNewScaleId('') }}
                         className="text-sm text-gray-500 px-3 py-1.5 hover:text-gray-700">
                         Cancelar
                       </button>

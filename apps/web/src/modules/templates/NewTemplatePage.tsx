@@ -1,23 +1,24 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { SCALE_OPTIONS, DEFAULT_SCALE_ID, type ScaleDefinition } from '@/lib/scales'
 
 export function NewTemplatePage() {
   const navigate = useNavigate()
 
-  const [name, setName] = useState('')
+  const [name,       setName]       = useState('')
   const [methodCode, setMethodCode] = useState('360')
-  const [scaleMin, setScaleMin] = useState(1)
-  const [scaleMax, setScaleMax] = useState(5)
-  const [allowNa, setAllowNa] = useState(true)
-  const [nMinimum, setNMinimum] = useState(3)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [scaleId,    setScaleId]    = useState<string>(DEFAULT_SCALE_ID)
+  const [allowNa,    setAllowNa]    = useState(true)
+  const [nMinimum,   setNMinimum]   = useState(3)
+  const [saving,     setSaving]     = useState(false)
+  const [error,      setError]      = useState<string | null>(null)
+
+  const selectedScale: ScaleDefinition = SCALE_OPTIONS.find((s) => s.id === scaleId) ?? SCALE_OPTIONS[0]
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) { setError('Nome é obrigatório.'); return }
-    if (scaleMax <= scaleMin) { setError('Escala máxima deve ser maior que a mínima.'); return }
 
     setSaving(true)
     setError(null)
@@ -39,16 +40,17 @@ export function NewTemplatePage() {
     const { data, error: insertErr } = await supabase
       .from('templates')
       .insert({
-        tenant_id:              memberData.tenant_id,
-        name:                   name.trim(),
-        method_code:            methodCode,
-        scale_min:              scaleMin,
-        scale_max:              scaleMax,
-        allow_na:               allowNa,
-        n_minimum_default:      nMinimum,
-        show_self_separately:   true,
+        tenant_id:               memberData.tenant_id,
+        name:                    name.trim(),
+        method_code:             methodCode,
+        scale_id:                selectedScale.id,
+        scale_min:               selectedScale.min,
+        scale_max:               selectedScale.max,
+        allow_na:                allowNa,
+        n_minimum_default:       nMinimum,
+        show_self_separately:    true,
         show_manager_separately: true,
-        status:                 'draft',
+        status:                  'draft',
       })
       .select('id')
       .single()
@@ -114,30 +116,27 @@ export function NewTemplatePage() {
         {/* Escala */}
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-2">Escala de respostas</label>
-          <div className="flex items-center gap-3">
-            <div className="flex-1">
-              <label className="text-xs text-gray-400 block mb-1">Mínimo</label>
-              <input
-                type="number"
-                min={1}
-                max={scaleMax - 1}
-                value={scaleMin}
-                onChange={(e) => setScaleMin(Number(e.target.value))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-              />
-            </div>
-            <span className="text-gray-400 mt-5">→</span>
-            <div className="flex-1">
-              <label className="text-xs text-gray-400 block mb-1">Máximo</label>
-              <input
-                type="number"
-                min={scaleMin + 1}
-                max={10}
-                value={scaleMax}
-                onChange={(e) => setScaleMax(Number(e.target.value))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-              />
-            </div>
+          <select
+            value={scaleId}
+            onChange={(e) => setScaleId(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gray-900"
+          >
+            {SCALE_OPTIONS.map((s) => (
+              <option key={s.id} value={s.id}>{s.name} — {s.description}</option>
+            ))}
+          </select>
+          {/* Labels preview */}
+          <div className="mt-2 flex gap-1.5 flex-wrap">
+            {selectedScale.labels.map((lbl) => (
+              <span key={lbl.value} className="inline-flex items-center gap-1 text-xs bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full text-gray-600">
+                <strong>{lbl.value}</strong> {lbl.label}
+              </span>
+            ))}
+            {selectedScale.allowNa && (
+              <span className="text-xs bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full text-blue-600">
+                + N/A
+              </span>
+            )}
           </div>
         </div>
 
