@@ -89,9 +89,17 @@ export function Layout() {
               className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
             >
               {/* Avatar */}
-              <div className="w-7 h-7 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-semibold shrink-0">
-                {avatarText}
-              </div>
+              {profile?.avatarUrl ? (
+                <img
+                  src={profile.avatarUrl}
+                  alt={displayName}
+                  className="w-7 h-7 rounded-full object-cover shrink-0 ring-1 ring-gray-200"
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-semibold shrink-0">
+                  {avatarText}
+                </div>
+              )}
               <span className="text-sm font-medium text-gray-700 max-w-[160px] truncate">
                 {displayName}
               </span>
@@ -103,9 +111,22 @@ export function Layout() {
             {/* Dropdown */}
             {menuOpen && (
               <div className="absolute right-0 top-full mt-1 w-52 bg-white rounded-xl border border-gray-200 shadow-lg py-1 z-50">
-                <div className="px-4 py-2.5 border-b border-gray-100">
-                  <p className="text-xs font-semibold text-gray-900 truncate">{displayName}</p>
-                  <p className="text-xs text-gray-400 truncate">{profile?.email}</p>
+                <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-3">
+                  {profile?.avatarUrl ? (
+                    <img
+                      src={profile.avatarUrl}
+                      alt={displayName}
+                      className="w-9 h-9 rounded-full object-cover shrink-0 ring-1 ring-gray-200"
+                    />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-semibold shrink-0">
+                      {avatarText}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-gray-900 truncate">{displayName}</p>
+                    <p className="text-xs text-gray-400 truncate">{profile?.email}</p>
+                  </div>
                 </div>
                 <button
                   onClick={() => { setMenuOpen(false); navigate('/settings/profile') }}

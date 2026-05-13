@@ -2,12 +2,20 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 
+export interface UserProfile {
+  /** public.users.id — needed to query people.user_id */
+  id:        string
+  name:      string
+  email:     string
+  avatarUrl: string | null
+}
+
 interface AuthContextValue {
-  session:    Session | null
-  user:       User | null
-  profile:    { name: string; email: string } | null
-  loading:    boolean
-  signOut:    () => Promise<void>
+  session:       Session | null
+  user:          User | null
+  profile:       UserProfile | null
+  loading:       boolean
+  signOut:       () => Promise<void>
   reloadProfile: () => Promise<void>
 }
 
@@ -15,23 +23,33 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
-  const [profile, setProfile] = useState<{ name: string; email: string } | null>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
 
   async function fetchProfile(authUser: User | null) {
     if (!authUser) { setProfile(null); return }
+
     const { data } = await supabase
       .from('users')
-      .select('name, email')
+      .select('id, name, email, avatar_url')
       .eq('auth_user_id', authUser.id)
       .single()
+
     if (data) {
+      const row = data as { id: string; name: string; email: string; avatar_url: string | null }
       setProfile({
-        name:  (data as { name: string; email: string }).name  || authUser.email || '',
-        email: (data as { name: string; email: string }).email || authUser.email || '',
+        id:        row.id,
+        name:      row.name  || authUser.email || '',
+        email:     row.email || authUser.email || '',
+        avatarUrl: row.avatar_url ?? null,
       })
     } else {
-      setProfile({ name: authUser.email || '', email: authUser.email || '' })
+      setProfile({
+        id:        '',
+        name:      authUser.email || '',
+        email:     authUser.email || '',
+        avatarUrl: null,
+      })
     }
   }
 
