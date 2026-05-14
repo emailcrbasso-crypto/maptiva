@@ -2,6 +2,7 @@ import { useEffect, useState, FormEvent } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { CycleStatus } from '@/lib/types'
+import { useSuperAdminMode } from '@/modules/auth/SuperAdminContext'
 
 interface Template {
   id: string
@@ -11,6 +12,7 @@ interface Template {
 
 export function NewCyclePage() {
   const navigate = useNavigate()
+  const { viewingTenant } = useSuperAdminMode()
 
   // form fields
   const [name, setName] = useState('')
@@ -28,13 +30,19 @@ export function NewCyclePage() {
 
   useEffect(() => {
     // Busca tenant_id e templates em paralelo
+    // Em modo suporte usa o tenant sendo gerenciado diretamente
+    const membershipPromise = viewingTenant
+      ? Promise.resolve({ data: { tenant_id: viewingTenant.id }, error: null })
+      : supabase
+          .from('tenant_memberships')
+          .select('tenant_id')
+          .eq('status', 'active')
+          .eq('is_support_access', false)
+          .limit(1)
+          .single()
+
     Promise.all([
-      supabase
-        .from('tenant_memberships')
-        .select('tenant_id')
-        .eq('status', 'active')
-        .limit(1)
-        .single(),
+      membershipPromise,
       supabase
         .from('templates')
         .select('id, name, method_code')

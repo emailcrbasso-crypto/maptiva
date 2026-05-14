@@ -22,6 +22,7 @@ import {
 } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from './AuthContext'
+import { useSuperAdminMode } from './SuperAdminContext'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,6 +72,7 @@ const TenantContext = createContext<TenantContextValue>({
 
 export function TenantProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth()
+  const { viewingTenant } = useSuperAdminMode()
   const [branding, setBranding] = useState<TenantBranding>(DEFAULT_BRANDING)
   const [loading, setLoading] = useState(true)
 
@@ -82,7 +84,11 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     }
 
     setLoading(true)
-    const { data, error } = await supabase.rpc('get_tenant_branding')
+
+    // Modo suporte: carrega branding do tenant sendo gerenciado
+    const { data, error } = viewingTenant
+      ? await supabase.rpc('get_tenant_branding_by_id', { p_tenant_id: viewingTenant.id })
+      : await supabase.rpc('get_tenant_branding')
 
     if (error || !data) {
       // Silently fall back to defaults — don't break the app
@@ -109,7 +115,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     })
 
     setLoading(false)
-  }, [session])
+  }, [session, viewingTenant])
 
   useEffect(() => {
     reload()

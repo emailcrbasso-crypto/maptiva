@@ -1,5 +1,6 @@
 import { useEffect, useState, FormEvent } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useSuperAdminMode } from '@/modules/auth/SuperAdminContext'
 
 interface Person {
   id: string
@@ -10,6 +11,7 @@ interface Person {
 }
 
 export function PeoplePage() {
+  const { viewingTenant } = useSuperAdminMode()
   const [people, setPeople] = useState<Person[]>([])
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -25,8 +27,18 @@ export function PeoplePage() {
   const [formError, setFormError] = useState<string | null>(null)
 
   async function load() {
+    const memberPromise = viewingTenant
+      ? Promise.resolve({ data: { tenant_id: viewingTenant.id }, error: null })
+      : supabase
+          .from('tenant_memberships')
+          .select('tenant_id')
+          .eq('status', 'active')
+          .eq('is_support_access', false)
+          .limit(1)
+          .single()
+
     const [memberRes, peopleRes] = await Promise.all([
-      supabase.from('tenant_memberships').select('tenant_id').eq('status', 'active').limit(1).single(),
+      memberPromise,
       supabase.from('people').select('id, name, email, job_title, department').order('name'),
     ])
     if (memberRes.data) setTenantId(memberRes.data.tenant_id)

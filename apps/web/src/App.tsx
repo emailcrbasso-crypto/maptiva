@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from '@/modules/auth/AuthContext'
+import { SuperAdminProvider } from '@/modules/auth/SuperAdminContext'
 import { TenantProvider } from '@/modules/auth/TenantContext'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { Layout } from '@/components/Layout'
@@ -26,6 +27,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <SuperAdminProvider>
         <TenantProvider>
         <Routes>
           {/* Rota pública: avaliadores chegam via magic link sem login */}
@@ -62,6 +64,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
         </TenantProvider>
+        </SuperAdminProvider>
       </AuthProvider>
     </BrowserRouter>
   )

@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/modules/auth/AuthContext'
+import { useSuperAdminMode } from '@/modules/auth/SuperAdminContext'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -346,13 +347,16 @@ function StatusDropdown({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function SuperAdminPage() {
-  const { profile } = useAuth()
-  const navigate    = useNavigate()
+  const { profile }              = useAuth()
+  const { enterTenant }          = useSuperAdminMode()
+  const navigate                 = useNavigate()
 
-  const [tenants,    setTenants]    = useState<TenantRow[]>([])
-  const [loading,    setLoading]    = useState(true)
-  const [showModal,  setShowModal]  = useState(false)
-  const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [tenants,      setTenants]      = useState<TenantRow[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [showModal,    setShowModal]    = useState(false)
+  const [successMsg,   setSuccessMsg]   = useState<string | null>(null)
+  const [enteringId,   setEnteringId]   = useState<string | null>(null)
+  const [enterError,   setEnterError]   = useState<string | null>(null)
 
   // Redirect if not super admin (once profile loads)
   useEffect(() => {
@@ -374,6 +378,19 @@ export function SuperAdminPage() {
     setSuccessMsg(`Cliente "${name}" criado. Convite enviado para ${email}.`)
     loadTenants()
     setTimeout(() => setSuccessMsg(null), 8000)
+  }
+
+  async function handleEnterTenant(tenant: TenantRow) {
+    setEnteringId(tenant.id)
+    setEnterError(null)
+    const { error } = await supabase.rpc('enter_tenant_as_admin', { p_tenant_id: tenant.id })
+    if (error) {
+      setEnterError(`Erro ao entrar no tenant: ${error.message}`)
+      setEnteringId(null)
+      return
+    }
+    enterTenant(tenant.id, tenant.name)
+    navigate('/dashboard')
   }
 
   // ── Stats ───────────────────────────────────────────────────────────────────
@@ -426,6 +443,13 @@ export function SuperAdminPage() {
         ))}
       </div>
 
+      {/* ── Enter error ── */}
+      {enterError && (
+        <div className="mb-4 bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-700">
+          {enterError}
+        </div>
+      )}
+
       {/* ── Success banner ── */}
       {successMsg && (
         <div className="mb-4 bg-green-50 border border-green-100 rounded-xl px-4 py-3 text-sm text-green-700 flex items-center gap-2">
@@ -456,6 +480,7 @@ export function SuperAdminPage() {
                 <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                 <th className="text-center px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Membros</th>
                 <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Criado em</th>
+                <th className="px-5 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -481,6 +506,25 @@ export function SuperAdminPage() {
                   </td>
                   <td className="px-5 py-3.5 text-gray-400 text-xs">
                     {ptDate(t.created_at)}
+                  </td>
+                  <td className="px-5 py-3.5 text-right">
+                    <button
+                      type="button"
+                      onClick={() => handleEnterTenant(t)}
+                      disabled={enteringId === t.id}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-violet-600 hover:text-violet-800 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {enteringId === t.id ? (
+                        'Entrando...'
+                      ) : (
+                        <>
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                          </svg>
+                          Entrar
+                        </>
+                      )}
+                    </button>
                   </td>
                 </tr>
               ))}

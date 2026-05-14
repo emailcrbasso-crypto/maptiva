@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { SCALE_OPTIONS, DEFAULT_SCALE_ID, type ScaleDefinition } from '@/lib/scales'
+import { useSuperAdminMode } from '@/modules/auth/SuperAdminContext'
 
 export function NewTemplatePage() {
   const navigate = useNavigate()
+  const { viewingTenant } = useSuperAdminMode()
 
   const [name,       setName]       = useState('')
   const [methodCode, setMethodCode] = useState('360')
@@ -23,24 +25,29 @@ export function NewTemplatePage() {
     setSaving(true)
     setError(null)
 
-    // Fetch tenant_id
-    const { data: memberData, error: memberErr } = await supabase
-      .from('tenant_memberships')
-      .select('tenant_id')
-      .eq('status', 'active')
-      .limit(1)
-      .single()
+    // Resolve tenant_id: usa o tenant do modo suporte ou busca o próprio
+    let resolvedTenantId: string | null = viewingTenant?.id ?? null
+    if (!resolvedTenantId) {
+      const { data: memberData, error: memberErr } = await supabase
+        .from('tenant_memberships')
+        .select('tenant_id')
+        .eq('status', 'active')
+        .eq('is_support_access', false)
+        .limit(1)
+        .single()
 
-    if (memberErr || !memberData) {
-      setError('Não foi possível determinar o tenant.')
-      setSaving(false)
-      return
+      if (memberErr || !memberData) {
+        setError('Não foi possível determinar o tenant.')
+        setSaving(false)
+        return
+      }
+      resolvedTenantId = memberData.tenant_id
     }
 
     const { data, error: insertErr } = await supabase
       .from('templates')
       .insert({
-        tenant_id:               memberData.tenant_id,
+        tenant_id:               resolvedTenantId,
         name:                    name.trim(),
         method_code:             methodCode,
         scale_id:                selectedScale.id,
