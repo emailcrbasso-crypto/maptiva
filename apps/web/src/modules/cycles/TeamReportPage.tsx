@@ -11,7 +11,9 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { useTenant } from '@/modules/auth/TenantContext'
 import * as XLSX from 'xlsx'
+import { exportTeamReportPdf } from '@/lib/exportTeamReportPdf'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -127,12 +129,14 @@ function exportTeamExcel(cycleName: string, grouped: [string, ParticipantWithDep
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function TeamReportPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id }       = useParams<{ id: string }>()
+  const { branding } = useTenant()
 
-  const [summary,   setSummary]   = useState<CycleSummary | null>(null)
-  const [people,    setPeople]    = useState<PersonInfo[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [error,     setError]     = useState<string | null>(null)
+  const [summary,      setSummary]      = useState<CycleSummary | null>(null)
+  const [people,       setPeople]       = useState<PersonInfo[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState<string | null>(null)
+  const [exportingPdf, setExportingPdf] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -213,12 +217,42 @@ export function TeamReportPage() {
             <h1 className="text-xl font-semibold text-gray-900">{summary.cycle_name}</h1>
             <p className="text-sm text-gray-400 mt-0.5">Relatório consolidado da equipe</p>
           </div>
-          <button
-            onClick={() => exportTeamExcel(summary.cycle_name, grouped)}
-            className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            ↓ Excel
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => exportTeamExcel(summary.cycle_name, grouped)}
+              className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              ↓ Excel
+            </button>
+            <button
+              onClick={async () => {
+                setExportingPdf(true)
+                await exportTeamReportPdf(
+                  summary.cycle_name,
+                  grouped.map(([dept, members]) => [
+                    dept,
+                    members.map((m) => ({ ...m })),
+                  ]) as [string, Parameters<typeof exportTeamReportPdf>[1][number][1]][] ,
+                  withProfile.length,
+                  avgOverall,
+                  merged.reduce((s, m) => s + m.blind_spot_count, 0),
+                  merged.reduce((s, m) => s + m.hidden_strength_count, 0),
+                  {
+                    companyName:  branding.name,
+                    logoUrl:      branding.logoUrl,
+                    primaryColor: branding.primaryColor,
+                    footerText:   branding.pdfFooterText,
+                    hideMaptiva:  branding.hideMaptiva,
+                  },
+                )
+                setExportingPdf(false)
+              }}
+              disabled={exportingPdf}
+              className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            >
+              {exportingPdf ? 'Gerando...' : '↓ PDF'}
+            </button>
+          </div>
         </div>
       </div>
 
