@@ -116,7 +116,7 @@ export function HeatmapPage() {
           .eq('visibility_status', 'visible'),
         supabase
           .from('cycle_participants')
-          .select('id, people(department)')
+          .select('id, people!person_id(department)')
           .eq('cycle_id', id),
       ])
 

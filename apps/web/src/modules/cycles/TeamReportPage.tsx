@@ -141,7 +141,7 @@ export function TeamReportPage() {
         supabase.rpc('get_cycle_summary', { p_cycle_id: id }),
         supabase
           .from('cycle_participants')
-          .select('id, people(department, job_title)')
+          .select('id, people!person_id(department, job_title)')
           .eq('cycle_id', id),
       ])
 
