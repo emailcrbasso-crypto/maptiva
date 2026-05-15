@@ -14,7 +14,9 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { useTenant } from '@/modules/auth/TenantContext'
 import * as XLSX from 'xlsx'
+import { exportHeatmapPdf } from '@/lib/exportHeatmapPdf'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,7 +94,8 @@ function exportHeatmapExcel(
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function HeatmapPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id }       = useParams<{ id: string }>()
+  const { branding } = useTenant()
 
   const [cycleName,    setCycleName]    = useState('')
   const [snapshots,    setSnapshots]    = useState<SnapshotRow[]>([])
@@ -100,6 +103,7 @@ export function HeatmapPage() {
   const [cpPeople,     setCpPeople]     = useState<CpPeopleRow[]>([])
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState<string | null>(null)
+  const [exportingPdf, setExportingPdf] = useState(false)
 
   // Filter state
   const [filterRel, setFilterRel] = useState<'external' | 'all'>('external')
@@ -269,6 +273,31 @@ export function HeatmapPage() {
               className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
             >
               ↓ Excel
+            </button>
+            <button
+              onClick={async () => {
+                setExportingPdf(true)
+                await exportHeatmapPdf(
+                  cycleName,
+                  departments,
+                  competencies,
+                  cellValues,
+                  compOverall,
+                  filterRel,
+                  {
+                    companyName:  branding.name,
+                    logoUrl:      branding.logoUrl,
+                    primaryColor: branding.primaryColor,
+                    footerText:   branding.pdfFooterText,
+                    hideMaptiva:  branding.hideMaptiva,
+                  },
+                )
+                setExportingPdf(false)
+              }}
+              disabled={exportingPdf}
+              className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            >
+              {exportingPdf ? 'Gerando...' : '↓ PDF'}
             </button>
           </div>
         </div>
