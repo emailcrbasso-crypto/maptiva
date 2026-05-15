@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { exportCycleReportExcel } from '@/lib/exportReport'
 import type { CycleSummary } from '@/lib/exportReport'
-import { exportCycleReportPdf } from '@/lib/exportReportPdf'
+import { exportCycleReportPdf, type PdfSnapshotRow, type PdfCompetencyRow } from '@/lib/exportReportPdf'
 import { useTenant } from '@/modules/auth/TenantContext'
 import {
   Radar,
@@ -377,13 +377,18 @@ export function ReportPage() {
             <button
               onClick={async () => {
                 setExportingPdf(true)
-                await exportCycleReportPdf(summary, {
-                  companyName:  branding.name,
-                  logoUrl:      branding.logoUrl,
-                  primaryColor: branding.primaryColor,
-                  footerText:   branding.pdfFooterText,
-                  hideMaptiva:  branding.hideMaptiva,
-                })
+                await exportCycleReportPdf(
+                  summary,
+                  {
+                    companyName:  branding.name,
+                    logoUrl:      branding.logoUrl,
+                    primaryColor: branding.primaryColor,
+                    footerText:   branding.pdfFooterText,
+                    hideMaptiva:  branding.hideMaptiva,
+                  },
+                  snapshots as PdfSnapshotRow[],
+                  competencies as PdfCompetencyRow[],
+                )
                 setExportingPdf(false)
               }}
               disabled={exportingPdf}
