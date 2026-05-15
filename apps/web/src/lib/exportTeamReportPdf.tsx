@@ -358,9 +358,9 @@ function TeamReportDocument({
           <View style={S.legendRow}>
             <Text style={S.legendItem}>Pontos cegos = avaliacao externa menor que autoavaliacao</Text>
             <Text style={S.legendItem}>Forcas ocultas = avaliacao externa maior que autoavaliacao</Text>
-            <Text style={[S.legendItem, { color: '#15803d' }]}>Verde >= 4.0</Text>
-            <Text style={[S.legendItem, { color: '#a16207' }]}>Amarelo >= 3.0</Text>
-            <Text style={[S.legendItem, { color: '#b91c1c' }]}>Vermelho &lt; 3.0</Text>
+            <Text style={[S.legendItem, { color: '#15803d' }]}>{'Verde >= 4.0'}</Text>
+            <Text style={[S.legendItem, { color: '#a16207' }]}>{'Amarelo >= 3.0'}</Text>
+            <Text style={[S.legendItem, { color: '#b91c1c' }]}>{'Vermelho < 3.0'}</Text>
           </View>
         </View>
 
