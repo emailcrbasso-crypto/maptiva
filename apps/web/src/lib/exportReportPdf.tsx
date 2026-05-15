@@ -207,12 +207,15 @@ function ScoreBox({ value, label }: { value: number | null; label: string }) {
 
 // ─── SVG Radar chart ──────────────────────────────────────────────────────────
 // Renders a spider/radar chart using @react-pdf/renderer SVG primitives.
-// Labels are rendered below as a separate View (avoids SVG text complexity).
+// Labels are embedded directly on each axis using SVG Text.
 
-const CX = 115          // svg center x
-const CY = 100          // svg center y
-const R  = 78           // outer radius
+const CX = 190          // svg center x (shifted right to balance label space)
+const CY = 130          // svg center y
+const R  = 82           // outer radius
 const SCALE_MAX = 5     // score domain max
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const SvgText = Text as any  // Text in SVG context — same component, different props
 
 function radarAngle(i: number, n: number): number {
   return (i / n) * 2 * Math.PI - Math.PI / 2
@@ -226,6 +229,26 @@ function polarToCart(i: number, n: number, value: number): { x: number; y: numbe
 
 function axisEnd(i: number, n: number): { x: number; y: number } {
   return polarToCart(i, n, SCALE_MAX)
+}
+
+/** Position and alignment for an axis label placed just outside the axis tip. */
+function axisLabelProps(i: number, n: number): {
+  x: number; y: number; textAnchor: string
+} {
+  const a   = radarAngle(i, n)
+  const gap = 14                          // pixels beyond axis tip
+  const lx  = CX + (R + gap) * Math.cos(a)
+  const ly  = CY + (R + gap) * Math.sin(a)
+
+  // horizontal anchor based on the angle's cosine
+  const textAnchor =
+    Math.cos(a) > 0.15  ? 'start' :
+    Math.cos(a) < -0.15 ? 'end'   : 'middle'
+
+  // vertical nudge: push text down when sin > 0 (below centre)
+  const dy = Math.sin(a) > 0.3 ? 9 : Math.sin(a) < -0.3 ? 1 : 5
+
+  return { x: lx, y: ly + dy, textAnchor }
 }
 
 function PdfRadarChart({
@@ -268,32 +291,22 @@ function PdfRadarChart({
       .join(' ')
   }
 
-  // Axis label text (truncated)
+  // Truncate label to fit alongside the axis
   function labelFor(cId: string): string {
     const comp = competencies.find((c) => c.id === cId)
     if (!comp) return '—'
-    return comp.name.length > 16 ? comp.name.slice(0, 14) + '…' : comp.name
+    return comp.name.length > 17 ? comp.name.slice(0, 15) + '…' : comp.name
   }
 
-  // Axis label position (outside the circle)
-  function labelPos(i: number): { x: number; y: number; anchor: string } {
-    const a = radarAngle(i, N)
-    const dist = R + 16
-    const x = CX + dist * Math.cos(a)
-    const y = CY + dist * Math.sin(a)
-    const anchor = Math.cos(a) > 0.15 ? 'start' : Math.cos(a) < -0.15 ? 'end' : 'middle'
-    return { x, y, anchor }
-  }
-
-  // SVG total size
-  const SVG_W = 230
-  const SVG_H = 210
+  // SVG canvas — wide enough for labels on both sides
+  const SVG_W = 430
+  const SVG_H = 270
 
   return (
     <View>
       <Text style={S.subHeader}>Radar de competências</Text>
 
-      {/* Chart SVG */}
+      {/* Chart SVG — labels embedded on axes */}
       <Svg width={SVG_W} height={SVG_H}>
         {/* Grid circles */}
         {gridLevels.map((lvl) => (
@@ -339,11 +352,9 @@ function PdfRadarChart({
           )
         })}
 
-        {/* Axis index dots (small circles at extremes) */}
+        {/* Axis tip dots */}
         {compIds.map((cId, i) => {
           const ep = axisEnd(i, N)
-          const lp = labelPos(i)
-          // Number label on axis
           return (
             <Circle
               key={`dot-${cId}`}
@@ -354,32 +365,28 @@ function PdfRadarChart({
               stroke="none"
             />
           )
-          // Note: SVG Text in react-pdf requires import alias; skipping inline labels.
-          // Competency names are shown in the axis legend below instead.
-          void lp // suppress lint
+        })}
+
+        {/* Competency labels directly on each axis */}
+        {compIds.map((cId, i) => {
+          const { x, y, textAnchor } = axisLabelProps(i, N)
+          return (
+            <SvgText
+              key={`lbl-${cId}`}
+              x={x}
+              y={y}
+              fontSize={6.5}
+              fill="#374151"
+              textAnchor={textAnchor}
+            >
+              {labelFor(cId)}
+            </SvgText>
+          )
         })}
       </Svg>
 
-      {/* Axis labels rendered as View/Text below chart — two columns */}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4, marginBottom: 4 }}>
-        {compIds.map((cId, i) => (
-          <View key={cId} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, minWidth: '45%' }}>
-            <View style={{
-              width: 14, height: 14, borderRadius: 7,
-              backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#e5e7eb',
-              alignItems: 'center', justifyContent: 'center',
-            }}>
-              <Text style={{ fontSize: 6, color: '#6b7280', fontFamily: 'Helvetica-Bold' }}>
-                {i + 1}
-              </Text>
-            </View>
-            <Text style={{ fontSize: 7, color: '#374151' }}>{labelFor(cId)}</Text>
-          </View>
-        ))}
-      </View>
-
-      {/* Legend: relationship colors */}
-      <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
+      {/* Relationship color legend */}
+      <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginTop: 2 }}>
         {relationships.map((rel) => (
           <View key={rel} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <View style={{
