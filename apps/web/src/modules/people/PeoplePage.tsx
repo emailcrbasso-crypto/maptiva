@@ -17,7 +17,7 @@ export function PeoplePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // form state
+  // ── Add form state ──────────────────────────────────────────────────────────
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -25,6 +25,15 @@ export function PeoplePage() {
   const [department, setDepartment] = useState('')
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  // ── Edit state ──────────────────────────────────────────────────────────────
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [editJobTitle, setEditJobTitle] = useState('')
+  const [editDepartment, setEditDepartment] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
 
   async function load() {
     const memberPromise = viewingTenant
@@ -48,6 +57,8 @@ export function PeoplePage() {
   }
 
   useEffect(() => { load() }, [])
+
+  // ── Add form handlers ───────────────────────────────────────────────────────
 
   function resetForm() {
     setName(''); setEmail(''); setJobTitle(''); setDepartment('')
@@ -84,6 +95,56 @@ export function PeoplePage() {
     setLoading(true)
     await load()
   }
+
+  // ── Edit handlers ───────────────────────────────────────────────────────────
+
+  function startEdit(p: Person) {
+    setEditingId(p.id)
+    setEditName(p.name)
+    setEditEmail(p.email)
+    setEditJobTitle(p.job_title ?? '')
+    setEditDepartment(p.department ?? '')
+    setEditError(null)
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setEditError(null)
+  }
+
+  async function handleEditSubmit(e: FormEvent, personId: string) {
+    e.preventDefault()
+    setEditError(null)
+    if (!editName.trim()) { setEditError('Nome é obrigatório.'); return }
+    if (!editEmail.trim()) { setEditError('E-mail é obrigatório.'); return }
+
+    setEditSaving(true)
+    const { error: updateError } = await supabase
+      .from('people')
+      .update({
+        name:       editName.trim(),
+        email:      editEmail.trim().toLowerCase(),
+        job_title:  editJobTitle.trim() || null,
+        department: editDepartment.trim() || null,
+      })
+      .eq('id', personId)
+
+    if (updateError) {
+      setEditError(
+        updateError.code === '23505'
+          ? 'Já existe uma pessoa com este e-mail neste tenant.'
+          : updateError.message
+      )
+      setEditSaving(false)
+      return
+    }
+
+    setEditingId(null)
+    setEditSaving(false)
+    await load()
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div>
@@ -200,17 +261,108 @@ export function PeoplePage() {
                 <th className="text-left px-5 py-3 text-gray-500 font-medium">E-mail</th>
                 <th className="text-left px-5 py-3 text-gray-500 font-medium">Cargo</th>
                 <th className="text-left px-5 py-3 text-gray-500 font-medium">Área</th>
+                <th className="px-5 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {people.map((p) => (
-                <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="px-5 py-3 font-medium text-gray-900">{p.name}</td>
-                  <td className="px-5 py-3 text-gray-500">{p.email}</td>
-                  <td className="px-5 py-3 text-gray-400">{p.job_title ?? '—'}</td>
-                  <td className="px-5 py-3 text-gray-400">{p.department ?? '—'}</td>
-                </tr>
-              ))}
+              {people.map((p) =>
+                editingId === p.id ? (
+                  // ── Inline edit row ────────────────────────────────────────
+                  <tr key={p.id} className="bg-blue-50">
+                    <td colSpan={5} className="px-5 py-4">
+                      <form onSubmit={(e) => handleEditSubmit(e, p.id)}>
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Nome <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                              disabled={editSaving}
+                              autoFocus
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              E-mail <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="email"
+                              value={editEmail}
+                              onChange={(e) => setEditEmail(e.target.value)}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                              disabled={editSaving}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Cargo</label>
+                            <input
+                              type="text"
+                              value={editJobTitle}
+                              onChange={(e) => setEditJobTitle(e.target.value)}
+                              placeholder="Gerente de Projetos"
+                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                              disabled={editSaving}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Área</label>
+                            <input
+                              type="text"
+                              value={editDepartment}
+                              onChange={(e) => setEditDepartment(e.target.value)}
+                              placeholder="Tecnologia"
+                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                              disabled={editSaving}
+                            />
+                          </div>
+                        </div>
+
+                        {editError && (
+                          <p className="text-xs text-red-500 mb-2">{editError}</p>
+                        )}
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="submit"
+                            disabled={editSaving}
+                            className="bg-gray-900 text-white text-xs px-4 py-1.5 rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                          >
+                            {editSaving ? 'Salvando...' : 'Salvar'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelEdit}
+                            disabled={editSaving}
+                            className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </form>
+                    </td>
+                  </tr>
+                ) : (
+                  // ── Normal read row ────────────────────────────────────────
+                  <tr key={p.id} className="hover:bg-gray-50 group">
+                    <td className="px-5 py-3 font-medium text-gray-900">{p.name}</td>
+                    <td className="px-5 py-3 text-gray-500">{p.email}</td>
+                    <td className="px-5 py-3 text-gray-400">{p.job_title ?? '—'}</td>
+                    <td className="px-5 py-3 text-gray-400">{p.department ?? '—'}</td>
+                    <td className="px-5 py-3 text-right">
+                      <button
+                        onClick={() => startEdit(p)}
+                        className="text-xs text-gray-400 hover:text-gray-700 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded hover:bg-gray-100"
+                      >
+                        Editar
+                      </button>
+                    </td>
+                  </tr>
+                )
+              )}
             </tbody>
           </table>
         </div>
