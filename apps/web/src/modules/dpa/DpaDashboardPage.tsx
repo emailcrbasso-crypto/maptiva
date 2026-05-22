@@ -147,7 +147,13 @@ export function DpaDashboardPage() {
       const { data: dashData, error: dashError } = await supabase.rpc('get_dpa_dashboard', {
         p_projeto_id: id,
       })
-      if (!dashError && dashData) {
+      if (dashError) {
+        console.error('get_dpa_dashboard error:', dashError)
+        setError(`Erro ao carregar resultados: ${dashError.message}`)
+        setLoading(false)
+        return
+      }
+      if (dashData) {
         setDashboard(dashData as DashboardData)
       }
     }
