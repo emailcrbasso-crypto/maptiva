@@ -85,7 +85,7 @@ function buildEmail(params: {
 
   const headerContent = branding.headerHtml
     ?? (branding.logoUrl
-      ? `<img src="${branding.logoUrl}" alt="${branding.companyName}" style="height:32px;display:block;" />`
+      ? `<img src="${branding.logoUrl}" alt="${branding.companyName}" height="40" style="height:40px;width:auto;max-height:40px;max-width:220px;display:block;" />`
       : `<span style="color:#fff;font-size:18px;font-weight:600;">${branding.companyName}</span>`)
 
   const poweredBy = branding.hideMaptiva
