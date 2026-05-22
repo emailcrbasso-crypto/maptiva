@@ -22,6 +22,11 @@ import { TemplateDetailPage } from '@/modules/templates/TemplateDetailPage'
 import { BrandingPage } from '@/modules/settings/BrandingPage'
 import { ProfilePage } from '@/modules/settings/ProfilePage'
 import { SuperAdminPage } from '@/modules/superadmin/SuperAdminPage'
+import { DpaFormPage } from '@/modules/dpa/DpaFormPage'
+import { DpaObrigadoPage, DpaJaRespondidoPage, DpaAcessoNegadoPage } from '@/modules/dpa/DpaStatusPages'
+import { DpaProjectsPage } from '@/modules/dpa/DpaProjectsPage'
+import { DpaNewProjectPage } from '@/modules/dpa/DpaNewProjectPage'
+import { DpaDashboardPage } from '@/modules/dpa/DpaDashboardPage'
 
 export default function App() {
   return (
@@ -30,8 +35,12 @@ export default function App() {
         <SuperAdminProvider>
         <TenantProvider>
         <Routes>
-          {/* Rota pública: avaliadores chegam via magic link sem login */}
-          <Route path="/respond/:token" element={<RespondPage />} />
+          {/* Rotas públicas: avaliadores e participantes DPA chegam via magic link */}
+          <Route path="/respond/:token"          element={<RespondPage />} />
+          <Route path="/diagnostico/:token"      element={<DpaFormPage />} />
+          <Route path="/diagnostico/obrigado"    element={<DpaObrigadoPage />} />
+          <Route path="/diagnostico/ja-respondido" element={<DpaJaRespondidoPage />} />
+          <Route path="/diagnostico/acesso-negado" element={<DpaAcessoNegadoPage />} />
 
           <Route path="/login" element={<LoginPage />} />
 
@@ -59,6 +68,9 @@ export default function App() {
             <Route path="/settings/branding" element={<BrandingPage />} />
             <Route path="/settings/profile" element={<ProfilePage />} />
             <Route path="/superadmin" element={<SuperAdminPage />} />
+            <Route path="/dpa"       element={<DpaProjectsPage />} />
+            <Route path="/dpa/new"   element={<DpaNewProjectPage />} />
+            <Route path="/dpa/:id"   element={<DpaDashboardPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

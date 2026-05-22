@@ -31,7 +31,18 @@ export function Layout() {
 
   const [menuOpen,     setMenuOpen]     = useState(false)
   const [exitingMode,  setExitingMode]  = useState(false)
+  const [hasDpa,       setHasDpa]       = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  // Check if tenant has at least one active DPA project (for nav visibility)
+  useEffect(() => {
+    supabase
+      .from('dpa_projetos')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'ativo')
+      .limit(1)
+      .then(({ count }) => setHasDpa((count ?? 0) > 0))
+  }, [])
 
   async function handleExitSupportMode() {
     setExitingMode(true)
@@ -112,6 +123,22 @@ export function Layout() {
               {label}
             </NavLink>
           ))}
+
+          {/* DPA link — only visible when tenant has an active project */}
+          {hasDpa && (
+            <NavLink
+              to="/dpa"
+              className={({ isActive }) =>
+                `px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'bg-gray-100 text-gray-900'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+                }`
+              }
+            >
+              Diagnóstico
+            </NavLink>
+          )}
 
           {/* Super-admin link — only visible to platform operators */}
           {profile?.isSuperAdmin && (
