@@ -97,6 +97,8 @@ const RADAR_PALETTE: Record<string, string> = {
   client:      '#ec4899', // pink
 }
 
+const REL_ORDER = ['self', 'manager', 'peer', 'subordinate', 'client']
+
 // ─── Score badge ──────────────────────────────────────────────────────────────
 
 function ScoreBadge({
@@ -117,9 +119,81 @@ function ScoreBadge({
   )
 }
 
-// ─── Radar chart ─────────────────────────────────────────────────────────────
+// ─── Participation panel ──────────────────────────────────────────────────────
 
-function RadarSection({
+function ParticipationPanel({ snapshots }: { snapshots: SnapshotRow[] }) {
+  // Use overall snapshots (no competency_id) to get response counts per relationship
+  const overallSnaps = snapshots
+    .filter((s) => !s.competency_id && s.response_count > 0)
+    .sort((a, b) => REL_ORDER.indexOf(a.relationship_code) - REL_ORDER.indexOf(b.relationship_code))
+
+  if (overallSnaps.length === 0) return null
+
+  const totalExternal = overallSnaps
+    .filter((r) => r.relationship_code !== 'self')
+    .reduce((sum, r) => sum + r.response_count, 0)
+
+  const totalAll = overallSnaps.reduce((sum, r) => sum + r.response_count, 0)
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+        Participação na avaliação
+      </h2>
+      <div className="grid grid-cols-2 gap-8 items-center">
+        {/* Table */}
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-100">
+              <th className="text-left text-gray-400 font-medium pb-2 text-xs uppercase tracking-wide">
+                Perspectiva
+              </th>
+              <th className="text-center text-gray-400 font-medium pb-2 text-xs uppercase tracking-wide">
+                Respostas
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {overallSnaps.map((r) => (
+              <tr key={r.relationship_code}>
+                <td className="py-2.5 text-gray-700">
+                  <span
+                    className="inline-block w-2 h-2 rounded-full mr-2"
+                    style={{ backgroundColor: RADAR_PALETTE[r.relationship_code] ?? '#9ca3af' }}
+                  />
+                  {REL_LABEL[r.relationship_code] ?? r.relationship_code}
+                </td>
+                <td className="py-2.5 text-center">
+                  <span className="font-semibold text-gray-900">{r.response_count}</span>
+                  <span className="text-gray-400 text-xs ml-1">
+                    resposta{r.response_count !== 1 ? 's' : ''}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {/* Summary numbers */}
+        <div className="flex flex-col items-center gap-4">
+          <div className="text-center">
+            <p className="text-5xl font-bold text-gray-900">{totalAll}</p>
+            <p className="text-sm text-gray-400 mt-1">respostas no total</p>
+          </div>
+          <div className="w-px h-8 bg-gray-200" />
+          <div className="text-center">
+            <p className="text-3xl font-bold text-indigo-600">{totalExternal}</p>
+            <p className="text-xs text-gray-400 mt-1">avaliadores externos</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Dual radar chart ─────────────────────────────────────────────────────────
+
+function DualRadarSection({
   snapshots,
   competencies,
   scaleId = 'likert_5',
@@ -130,24 +204,36 @@ function RadarSection({
 }) {
   const scale    = getScale(scaleId)
   const scaleMax = scale.max
+
   const compWithSnaps = competencies.filter((c) =>
     snapshots.some((s) => s.competency_id === c.id && s.score_avg != null)
   )
   if (compWithSnaps.length < 3) return null
 
-  const relationships = [
+  const shorten = (name: string) => name.length > 18 ? name.slice(0, 16) + '…' : name
+
+  // Data for self radar
+  const selfData = compWithSnaps.map((c) => ({
+    subject: shorten(c.name),
+    self: snapshots.find(
+      (s) => s.competency_id === c.id && s.relationship_code === 'self'
+    )?.score_avg ?? 0,
+  }))
+
+  const hasSelf = selfData.some((d) => d.self > 0)
+
+  // External relationships (all except self)
+  const externalRels = [
     ...new Set(
       snapshots
-        .filter((s) => s.competency_id && s.score_avg != null)
+        .filter((s) => s.competency_id && s.score_avg != null && s.relationship_code !== 'self')
         .map((s) => s.relationship_code)
     ),
-  ].sort()
+  ].sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
 
-  const data = compWithSnaps.map((c) => {
-    const row: Record<string, number | string> = {
-      subject: c.name.length > 22 ? c.name.slice(0, 20) + '…' : c.name,
-    }
-    for (const rel of relationships) {
+  const externalData = compWithSnaps.map((c) => {
+    const row: Record<string, number | string> = { subject: shorten(c.name) }
+    for (const rel of externalRels) {
       const snap = snapshots.find(
         (s) => s.competency_id === c.id && s.relationship_code === rel
       )
@@ -156,124 +242,351 @@ function RadarSection({
     return row
   })
 
+  const hasExternal = externalRels.length > 0
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
       <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
-        Gráfico de competências
+        Roda da liderança
       </h2>
-      <p className="text-xs text-gray-400 mb-4">
+      <p className="text-xs text-gray-400 mb-5">
         Escala de 0 a {scaleMax} — quanto mais próximo da borda, maior o score.
       </p>
-      <ResponsiveContainer width="100%" height={320}>
-        <RechartsRadarChart data={data} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
-          <PolarGrid stroke="#e5e7eb" />
-          <PolarAngleAxis
-            dataKey="subject"
-            tick={{ fontSize: 11, fill: '#6b7280' }}
-          />
-          <PolarRadiusAxis
-            domain={[0, scaleMax]}
-            tick={{ fontSize: 9, fill: '#9ca3af' }}
-            tickCount={scaleMax + 1}
-          />
-          {relationships.map((rel) => (
-            <Radar
-              key={rel}
-              name={REL_LABEL[rel] ?? rel}
-              dataKey={rel}
-              stroke={RADAR_PALETTE[rel] ?? '#94a3b8'}
-              fill={RADAR_PALETTE[rel] ?? '#94a3b8'}
-              fillOpacity={0.08}
-              strokeWidth={2}
-              dot={false}
-            />
-          ))}
-          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
-          <Tooltip formatter={(val) => (typeof val === 'number' ? val.toFixed(2) : '—')} />
-        </RechartsRadarChart>
-      </ResponsiveContainer>
+      <div className="grid grid-cols-2 gap-4">
+
+        {/* Left: Auto-avaliação */}
+        <div>
+          <p className="text-xs font-semibold text-center text-indigo-600 mb-2 uppercase tracking-wide">
+            Autoavaliação
+          </p>
+          {hasSelf ? (
+            <ResponsiveContainer width="100%" height={270}>
+              <RechartsRadarChart data={selfData} margin={{ top: 10, right: 28, bottom: 10, left: 28 }}>
+                <PolarGrid stroke="#e5e7eb" />
+                <PolarAngleAxis
+                  dataKey="subject"
+                  tick={{ fontSize: 10, fill: '#6b7280' }}
+                />
+                <PolarRadiusAxis
+                  domain={[0, scaleMax]}
+                  tick={{ fontSize: 8, fill: '#9ca3af' }}
+                  tickCount={scaleMax + 1}
+                />
+                <Radar
+                  name="Autoavaliação"
+                  dataKey="self"
+                  stroke="#6366f1"
+                  fill="#6366f1"
+                  fillOpacity={0.18}
+                  strokeWidth={2.5}
+                  dot={false}
+                />
+                <Tooltip formatter={(val) => (typeof val === 'number' ? val.toFixed(2) : '—')} />
+              </RechartsRadarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[270px] flex items-center justify-center text-xs text-gray-400">
+              Sem autoavaliação registrada
+            </div>
+          )}
+        </div>
+
+        {/* Right: Avaliadores externos */}
+        <div>
+          <p className="text-xs font-semibold text-center text-emerald-600 mb-2 uppercase tracking-wide">
+            Avaliadores externos
+          </p>
+          {hasExternal ? (
+            <ResponsiveContainer width="100%" height={270}>
+              <RechartsRadarChart data={externalData} margin={{ top: 10, right: 28, bottom: 10, left: 28 }}>
+                <PolarGrid stroke="#e5e7eb" />
+                <PolarAngleAxis
+                  dataKey="subject"
+                  tick={{ fontSize: 10, fill: '#6b7280' }}
+                />
+                <PolarRadiusAxis
+                  domain={[0, scaleMax]}
+                  tick={{ fontSize: 8, fill: '#9ca3af' }}
+                  tickCount={scaleMax + 1}
+                />
+                {externalRels.map((rel) => (
+                  <Radar
+                    key={rel}
+                    name={REL_LABEL[rel] ?? rel}
+                    dataKey={rel}
+                    stroke={RADAR_PALETTE[rel] ?? '#94a3b8'}
+                    fill={RADAR_PALETTE[rel] ?? '#94a3b8'}
+                    fillOpacity={0.08}
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                ))}
+                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                <Tooltip formatter={(val) => (typeof val === 'number' ? val.toFixed(2) : '—')} />
+              </RechartsRadarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[270px] flex items-center justify-center text-xs text-gray-400">
+              Sem avaliações externas ainda
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
 
-// ─── Top-3 section ────────────────────────────────────────────────────────────
+// ─── GAP section ──────────────────────────────────────────────────────────────
 
-function Top3Section({
+function GapSection({
   snapshots,
   competencies,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
 }) {
-  // Score externo por competência (média de gestor + pares + subordinados)
+  const rows = competencies
+    .map((c) => {
+      const selfSnap = snapshots.find(
+        (s) => s.competency_id === c.id && s.relationship_code === 'self'
+      )
+      const extSnaps = snapshots.filter(
+        (s) =>
+          s.competency_id === c.id &&
+          s.relationship_code !== 'self' &&
+          s.score_avg != null
+      )
+      const selfScore = selfSnap?.score_avg ?? null
+      const extAvg =
+        extSnaps.length > 0
+          ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length
+          : null
+      const gap =
+        selfScore != null && extAvg != null ? selfScore - extAvg : null
+
+      return { id: c.id, name: c.name, selfScore, extAvg, gap }
+    })
+    .filter((r) => r.selfScore != null || r.extAvg != null)
+    .sort((a, b) => {
+      // Sort by abs gap descending — biggest divergences first
+      const absA = a.gap != null ? Math.abs(a.gap) : 0
+      const absB = b.gap != null ? Math.abs(b.gap) : 0
+      return absB - absA
+    })
+
+  if (rows.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        GAP — Autoavaliação × Avaliadores
+      </h2>
+      <p className="text-xs text-gray-400 mb-4">
+        Diferença entre como você se avalia e como os outros te percebem, por competência.
+        Ordenado por maior divergência.
+      </p>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-100">
+              <th className="text-left text-gray-400 font-medium pb-3 min-w-[160px] text-xs uppercase tracking-wide">
+                Competência
+              </th>
+              <th className="text-center text-indigo-500 font-medium pb-3 px-4 text-xs uppercase tracking-wide">
+                Auto
+              </th>
+              <th className="text-center text-emerald-600 font-medium pb-3 px-4 text-xs uppercase tracking-wide">
+                Avaliadores
+              </th>
+              <th className="text-center text-gray-500 font-medium pb-3 px-4 text-xs uppercase tracking-wide">
+                GAP
+              </th>
+              <th className="text-left text-gray-400 font-medium pb-3 px-4 text-xs uppercase tracking-wide">
+                Interpretação
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {rows.map((r) => {
+              const isBlindSpot     = r.gap != null && r.gap > 0.5
+              const isHiddenStrength = r.gap != null && r.gap < -0.5
+              const isAligned       = r.gap != null && !isBlindSpot && !isHiddenStrength
+
+              const gapColor = isBlindSpot
+                ? 'text-amber-600'
+                : isHiddenStrength
+                ? 'text-blue-600'
+                : isAligned
+                ? 'text-gray-500'
+                : 'text-gray-300'
+
+              const gapBg = isBlindSpot
+                ? 'bg-amber-50'
+                : isHiddenStrength
+                ? 'bg-blue-50'
+                : ''
+
+              const label = isBlindSpot
+                ? '⚠️ Ponto cego'
+                : isHiddenStrength
+                ? '💎 Força oculta'
+                : isAligned
+                ? '✓ Alinhado'
+                : '—'
+
+              const labelColor = isBlindSpot
+                ? 'text-amber-600'
+                : isHiddenStrength
+                ? 'text-blue-600'
+                : 'text-gray-400'
+
+              return (
+                <tr key={r.id} className="hover:bg-gray-50/50 transition-colors">
+                  <td className="py-3 pr-4 text-gray-700 font-medium">{r.name}</td>
+                  <td className="py-3 px-4 text-center font-semibold text-indigo-600">
+                    {r.selfScore != null ? r.selfScore.toFixed(2) : '—'}
+                  </td>
+                  <td className="py-3 px-4 text-center font-semibold text-emerald-600">
+                    {r.extAvg != null ? r.extAvg.toFixed(2) : '—'}
+                  </td>
+                  <td className={`py-3 px-4 text-center font-bold rounded ${gapColor} ${gapBg}`}>
+                    {r.gap != null
+                      ? r.gap > 0
+                        ? `+${r.gap.toFixed(2)}`
+                        : r.gap.toFixed(2)
+                      : '—'}
+                  </td>
+                  <td className={`py-3 px-4 text-xs font-medium ${labelColor}`}>
+                    {label}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-3 mt-4">
+        <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 px-3 py-1.5 rounded-lg">
+          <span>⚠️</span>
+          <span><strong>Ponto cego</strong> — você acredita mais em si do que os outros percebem (GAP &gt; 0,5)</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg">
+          <span>💎</span>
+          <span><strong>Força oculta</strong> — outros te veem melhor do que você se avalia (GAP &lt; −0,5)</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-50 px-3 py-1.5 rounded-lg">
+          <span>✓</span>
+          <span><strong>Alinhado</strong> — percepção interna e externa convergentes</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Top 5 / Bottom 5 section ─────────────────────────────────────────────────
+
+function Top5Section({
+  snapshots,
+  competencies,
+  scaleId = 'likert_5',
+}: {
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+  scaleId?:     string
+}) {
+  const scale = getScale(scaleId)
+
   const scored = competencies
     .map((c) => {
       const ext = snapshots.filter(
         (s) =>
           s.competency_id === c.id &&
-          ['manager', 'peer', 'subordinate'].includes(s.relationship_code) &&
+          s.relationship_code !== 'self' &&
           s.score_avg != null
       )
       const extAvg =
         ext.length > 0
           ? ext.reduce((sum, s) => sum + s.score_avg!, 0) / ext.length
           : null
-      const selfSnap = snapshots.find(
-        (s) => s.competency_id === c.id && s.relationship_code === 'self'
-      )
-      return { id: c.id, name: c.name, extAvg, selfScore: selfSnap?.score_avg ?? null }
+      return { id: c.id, name: c.name, extAvg }
     })
     .filter((c) => c.extAvg != null)
 
   if (scored.length < 3) return null
 
   const sorted  = [...scored].sort((a, b) => b.extAvg! - a.extAvg!)
-  const top3    = sorted.slice(0, 3)
-  const bottom3 = sorted.slice(-3).reverse()
+  const top5    = sorted.slice(0, Math.min(5, scored.length))
+  const bottom5 = sorted.slice(-Math.min(5, scored.length)).reverse()
+
+  function ScoreBar({ value, color }: { value: number; color: 'green' | 'amber' }) {
+    const pct = (value / scale.max) * 100
+    return (
+      <div className="h-1.5 bg-gray-100 rounded-full mt-1">
+        <div
+          className={`h-1.5 rounded-full ${color === 'green' ? 'bg-green-400' : 'bg-amber-400'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
       <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
-        Destaques por competência
+        Indicadores das maiores e menores notas
       </h2>
-      <div className="grid grid-cols-2 gap-6">
-        {/* Pontos fortes */}
+      <div className="grid grid-cols-2 gap-8">
+
+        {/* Top 5 — Pontos Fortes */}
         <div>
           <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-3">
-            🏆 Pontos fortes
+            🏆 {top5.length} maiores notas — Pontos Fortes
           </p>
-          <div className="space-y-2">
-            {top3.map((c, i) => (
-              <div key={c.id} className="flex items-center gap-3">
-                <span className="text-sm font-bold text-green-500 w-5 shrink-0">{i + 1}.</span>
-                <p className="flex-1 text-sm text-gray-800">{c.name}</p>
-                <span className="text-xs font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full shrink-0">
-                  {c.extAvg!.toFixed(2)}
-                </span>
+          <div className="space-y-4">
+            {top5.map((c, i) => (
+              <div key={c.id}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-700 flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-bold text-green-400 shrink-0 w-4">{i + 1}.</span>
+                    <span className="truncate">{c.name}</span>
+                  </span>
+                  <span className="text-sm font-bold text-green-600 shrink-0 ml-3">
+                    {c.extAvg!.toFixed(2)}
+                  </span>
+                </div>
+                <ScoreBar value={c.extAvg!} color="green" />
               </div>
             ))}
           </div>
         </div>
 
-        {/* Oportunidades de melhoria */}
+        {/* Bottom 5 — Oportunidades */}
         <div>
           <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-3">
-            🎯 Oportunidades de melhoria
+            🎯 {bottom5.length} menores notas — Oportunidades de Melhoria
           </p>
-          <div className="space-y-2">
-            {bottom3.map((c, i) => (
-              <div key={c.id} className="flex items-center gap-3">
-                <span className="text-sm font-bold text-amber-500 w-5 shrink-0">{i + 1}.</span>
-                <p className="flex-1 text-sm text-gray-800">{c.name}</p>
-                <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full shrink-0">
-                  {c.extAvg!.toFixed(2)}
-                </span>
+          <div className="space-y-4">
+            {bottom5.map((c, i) => (
+              <div key={c.id}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-700 flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-bold text-amber-400 shrink-0 w-4">{i + 1}.</span>
+                    <span className="truncate">{c.name}</span>
+                  </span>
+                  <span className="text-sm font-bold text-amber-600 shrink-0 ml-3">
+                    {c.extAvg!.toFixed(2)}
+                  </span>
+                </div>
+                <ScoreBar value={c.extAvg!} color="amber" />
               </div>
             ))}
           </div>
         </div>
       </div>
-      <p className="text-xs text-gray-400 mt-4">
+      <p className="text-xs text-gray-400 mt-5">
         Ranking baseado na média das avaliações externas (gestor, pares e subordinados).
       </p>
     </div>
@@ -305,22 +618,24 @@ function CompetencyBreakdown({
     byComp.get(s.competency_id)!.push(s)
   }
 
-  const relationships = [...new Set(withComp.map((s) => s.relationship_code))].sort()
+  const relationships = [
+    ...new Set(withComp.map((s) => s.relationship_code)),
+  ].sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
       <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
-        Por competência
+        Avaliação geral por competência
       </h2>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100">
-              <th className="text-left text-gray-500 font-medium pb-3 pr-6 min-w-[180px]">
+              <th className="text-left text-gray-500 font-medium pb-3 pr-6 min-w-[180px] text-xs uppercase tracking-wide">
                 Competência
               </th>
               {relationships.map((r) => (
-                <th key={r} className="text-center text-gray-500 font-medium pb-3 px-4 min-w-[80px]">
+                <th key={r} className="text-center text-gray-500 font-medium pb-3 px-4 min-w-[80px] text-xs uppercase tracking-wide">
                   {REL_SHORT[r] ?? r}
                 </th>
               ))}
@@ -330,7 +645,7 @@ function CompetencyBreakdown({
             {[...byComp.entries()].map(([compId, snaps]) => {
               const comp = compMap.get(compId)
               return (
-                <tr key={compId}>
+                <tr key={compId} className="hover:bg-gray-50/50 transition-colors">
                   <td className="py-3 pr-6 text-gray-700 font-medium">
                     {comp?.name ?? '—'}
                   </td>
@@ -441,7 +756,7 @@ function InsightsPanel({ profile }: { profile: NonNullable<MyReportData['profile
   )
 }
 
-// ─── Snapshot by relationship ─────────────────────────────────────────────────
+// ─── Scores by relationship (bar style) ──────────────────────────────────────
 
 function barBgClass(score: number | null, scale: ScaleDefinition): string {
   if (score == null) return 'bg-gray-200'
@@ -460,18 +775,25 @@ function SnapshotsByRelationship({
 }) {
   const scale = getScale(scaleId)
   // Snapshots without competency_id are the overall-per-relationship scores
-  const overallSnaps = snapshots.filter((s) => !s.competency_id)
+  const overallSnaps = snapshots
+    .filter((s) => !s.competency_id)
+    .sort((a, b) => REL_ORDER.indexOf(a.relationship_code) - REL_ORDER.indexOf(b.relationship_code))
+
   if (overallSnaps.length === 0) return null
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
       <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
-        Scores por perspectiva
+        Scores consolidados por perspectiva
       </h2>
       <div className="space-y-3">
         {overallSnaps.map((s) => (
           <div key={s.relationship_code} className="flex items-center gap-4">
-            <span className="text-sm text-gray-600 w-32 shrink-0">
+            <span className="text-sm text-gray-600 w-32 shrink-0 flex items-center gap-2">
+              <span
+                className="inline-block w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: RADAR_PALETTE[s.relationship_code] ?? '#9ca3af' }}
+              />
               {REL_LABEL[s.relationship_code] ?? s.relationship_code}
             </span>
             <div className="flex-1 bg-gray-100 rounded-full h-2">
@@ -633,15 +955,22 @@ export function MyReportPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-4xl mx-auto">
       {/* ── Header ── */}
       <div className="mb-6">
         <Link to="/cycles" className="text-sm text-gray-400 hover:text-gray-600">
           ← Meus ciclos
         </Link>
-        <div className="mt-2">
-          <h1 className="text-xl font-semibold text-gray-900">{report.cycle.name}</h1>
-          <p className="text-sm text-gray-400 mt-0.5">Meu relatório individual</p>
+        <div className="mt-2 flex items-end justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">{report.cycle.name}</h1>
+            <p className="text-sm text-gray-400 mt-0.5">Meu relatório individual</p>
+          </div>
+          {profile?.generated_at && (
+            <p className="text-xs text-gray-400">
+              Calculado em {new Date(profile.generated_at).toLocaleString('pt-BR')}
+            </p>
+          )}
         </div>
       </div>
 
@@ -660,7 +989,11 @@ export function MyReportPage() {
 
       {profile && (
         <div className="space-y-5">
-          {/* ── Overall scores grid ── */}
+
+          {/* 1. Participation summary */}
+          <ParticipationPanel snapshots={report.snapshots} />
+
+          {/* 2. Overall scores grid */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
               Scores consolidados
@@ -673,12 +1006,6 @@ export function MyReportPage() {
               <ScoreBadge value={profile.subordinate_score} label="Subordin."  scaleId={scaleId} />
             </div>
 
-            {profile.generated_at && (
-              <p className="text-xs text-gray-400 mt-4 text-right">
-                Calculado em {new Date(profile.generated_at).toLocaleString('pt-BR')}
-              </p>
-            )}
-
             {!hasScore && (
               <p className="text-xs text-gray-400 mt-4 text-center">
                 Perfil criado mas sem scores calculados. Verifique se as questões têm competências vinculadas.
@@ -686,27 +1013,36 @@ export function MyReportPage() {
             )}
           </div>
 
-          {/* ── Insights (blind spots / hidden strengths) ── */}
+          {/* 3. Insights (blind spots / hidden strengths) */}
           <InsightsPanel profile={profile} />
 
-          {/* ── Top-3 strongest / improvement areas ── */}
+          {/* 4. Dual radar — Auto vs. Avaliadores */}
           {hasCompetencies && (
-            <Top3Section snapshots={report.snapshots} competencies={competencies} />
-          )}
-
-          {/* ── Radar chart ── */}
-          {hasCompetencies && (
-            <RadarSection
+            <DualRadarSection
               snapshots={report.snapshots}
               competencies={competencies}
               scaleId={scaleId}
             />
           )}
 
-          {/* ── Scores by relationship (bar chart style) ── */}
+          {/* 5. GAP — Autoavaliação × Avaliadores */}
+          {hasCompetencies && (
+            <GapSection snapshots={report.snapshots} competencies={competencies} />
+          )}
+
+          {/* 6. Top 5 / Bottom 5 */}
+          {hasCompetencies && (
+            <Top5Section
+              snapshots={report.snapshots}
+              competencies={competencies}
+              scaleId={scaleId}
+            />
+          )}
+
+          {/* 7. Scores by relationship (bar chart style) */}
           <SnapshotsByRelationship snapshots={report.snapshots} scaleId={scaleId} />
 
-          {/* ── Competency breakdown table ── */}
+          {/* 8. Avaliação geral por competência */}
           {hasCompetencies && (
             <CompetencyBreakdown
               snapshots={report.snapshots}
@@ -715,10 +1051,10 @@ export function MyReportPage() {
             />
           )}
 
-          {/* ── Qualitative comments ── */}
+          {/* 9. Qualitative comments */}
           {comments.length > 0 && <CommentsSection comments={comments} />}
 
-          {/* ── Confidentiality notice ── */}
+          {/* 10. Confidentiality notice */}
           <div className="bg-blue-50 border border-blue-100 rounded-xl px-5 py-4">
             <p className="text-xs text-blue-700 leading-relaxed">
               <strong>Privacidade e anonimato:</strong> Os resultados são apresentados de forma
