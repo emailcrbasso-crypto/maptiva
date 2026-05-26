@@ -11,6 +11,7 @@ import { CycleDetailPage } from '@/modules/cycles/CycleDetailPage'
 import { NewCyclePage } from '@/modules/cycles/NewCyclePage'
 import { ReportPage } from '@/modules/cycles/ReportPage'
 import { MyReportPage } from '@/modules/cycles/MyReportPage'
+import { ParticipantReportPage } from '@/modules/cycles/ParticipantReportPage'
 import { TeamReportPage } from '@/modules/cycles/TeamReportPage'
 import { HeatmapPage } from '@/modules/cycles/HeatmapPage'
 import { MembersPage } from '@/modules/members/MembersPage'
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="/cycles/:id" element={<CycleDetailPage />} />
             <Route path="/cycles/:id/report" element={<ReportPage />} />
             <Route path="/cycles/:id/my-report" element={<MyReportPage />} />
+            <Route path="/cycles/:id/participants/:cpId/report" element={<ParticipantReportPage />} />
             <Route path="/cycles/:id/team-report" element={<TeamReportPage />} />
             <Route path="/cycles/:id/heatmap" element={<HeatmapPage />} />
             <Route path="/templates" element={<TemplatesPage />} />

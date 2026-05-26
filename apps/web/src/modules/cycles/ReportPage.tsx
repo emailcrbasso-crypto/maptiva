@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { exportCycleReportExcel } from '@/lib/exportReport'
 import type { CycleSummary } from '@/lib/exportReport'
@@ -277,6 +277,7 @@ function CommentsSection({ cpId, comments }: { cpId: string; comments: CommentRo
 export function ReportPage() {
   const { id }       = useParams<{ id: string }>()
   const { branding } = useTenant()
+  const navigate     = useNavigate()
 
   const [summary,      setSummary]      = useState<CycleSummary | null>(null)
   const [snapshots,    setSnapshots]    = useState<SnapshotRow[]>([])
@@ -469,21 +470,27 @@ export function ReportPage() {
           <div className="space-y-4">
             {withProfile.map((p) => (
               <div key={p.cycle_participant_id} className="bg-white rounded-xl border border-gray-200 p-5">
-                {/* Name + badges */}
+                {/* Name + badges + action */}
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-900">{p.person_name}</h3>
-                  <div className="flex gap-2 text-xs">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <h3 className="text-sm font-semibold text-gray-900">{p.person_name}</h3>
                     {p.blind_spot_count > 0 && (
-                      <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                      <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
                         {p.blind_spot_count} ponto{p.blind_spot_count !== 1 ? 's' : ''} cego{p.blind_spot_count !== 1 ? 's' : ''}
                       </span>
                     )}
                     {p.hidden_strength_count > 0 && (
-                      <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                      <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
                         {p.hidden_strength_count} força{p.hidden_strength_count !== 1 ? 's' : ''} oculta{p.hidden_strength_count !== 1 ? 's' : ''}
                       </span>
                     )}
                   </div>
+                  <button
+                    onClick={() => navigate(`/cycles/${id}/participants/${p.cycle_participant_id}/report`)}
+                    className="text-xs text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg font-medium transition-colors shrink-0"
+                  >
+                    Ver relatório completo →
+                  </button>
                 </div>
 
                 {/* Score grid */}

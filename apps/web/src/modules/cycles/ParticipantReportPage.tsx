@@ -1,10 +1,9 @@
 /**
- * MyReportPage — Relatório individual do participante logado
- * Rota: /cycles/:id/my-report
+ * ParticipantReportPage — Relatório individual visto pelo administrador
+ * Rota: /cycles/:id/participants/:cpId/report
  *
- * Usa o RPC `get_my_report(cycle_id)` que:
- *   - É automaticamente escopado ao usuário logado (via auth.uid → people)
- *   - Requer relatório liberado (report_release_at set) para não-admin
+ * Usa o RPC `get_participant_report(cycle_id, cp_id)` — admin/owner only.
+ * Exibe o mesmo layout completo do MyReportPage (Phase 1).
  */
 
 import { useEffect, useState } from 'react'
@@ -18,12 +17,11 @@ import {
   ReportDisplay,
 } from './reportShared'
 
-// ─── Main page ────────────────────────────────────────────────────────────────
-
-export function MyReportPage() {
-  const { id } = useParams<{ id: string }>()
+export function ParticipantReportPage() {
+  const { id, cpId } = useParams<{ id: string; cpId: string }>()
 
   const [cycleName,    setCycleName]    = useState<string>('')
+  const [personName,   setPersonName]   = useState<string>('')
   const [snapshots,    setSnapshots]    = useState<SnapshotRow[]>([])
   const [competencies, setCompetencies] = useState<CompetencyRow[]>([])
   const [comments,     setComments]     = useState<CommentRow[]>([])
@@ -31,19 +29,22 @@ export function MyReportPage() {
   const [scaleId,      setScaleId]      = useState<string>('likert_5')
   const [generatedAt,  setGeneratedAt]  = useState<string | null>(null)
   const [loading,      setLoading]      = useState(true)
-  const [errorCode,    setErrorCode]    = useState<string | null>(null)
+  const [error,        setError]        = useState<string | null>(null)
 
   useEffect(() => {
-    if (!id) return
+    if (!id || !cpId) return
     async function load() {
-      const { data, error } = await supabase.rpc('get_my_report', { p_cycle_id: id })
+      const { data, error: rpcErr } = await supabase.rpc('get_participant_report', {
+        p_cycle_id: id,
+        p_cp_id:    cpId,
+      })
 
-      if (error) {
-        setErrorCode(
-          error.message.includes('report_not_released') ? 'not_released'
-          : error.message.includes('participant_not_found') ? 'not_participant'
-          : error.message.includes('cycle_not_found') ? 'not_found'
-          : 'generic'
+      if (rpcErr) {
+        setError(
+          rpcErr.message.includes('not_authorized') ? 'Você não tem permissão para ver este relatório.'
+          : rpcErr.message.includes('participant_not_found') ? 'Participante não encontrado neste ciclo.'
+          : rpcErr.message.includes('cycle_not_found') ? 'Ciclo não encontrado.'
+          : rpcErr.message
         )
         setLoading(false)
         return
@@ -53,9 +54,11 @@ export function MyReportPage() {
         cycle:     { id: string; name: string; status: string }
         profile:   ProfileData | null
         snapshots: SnapshotRow[]
+        person:    { name: string } | null
       }
 
       setCycleName(d.cycle.name)
+      setPersonName(d.person?.name ?? 'Participante')
       setSnapshots(d.snapshots ?? [])
       if (d.profile) {
         setProfile(d.profile)
@@ -74,11 +77,12 @@ export function MyReportPage() {
         setCompetencies((compData ?? []) as CompetencyRow[])
       }
 
-      // Load comments
+      // Load comments (admin can see all)
       const { data: commData } = await supabase
         .from('comments_published')
         .select('id, cycle_id, evaluated_cycle_participant_id, relationship_group, body')
         .eq('cycle_id', id)
+        .eq('evaluated_cycle_participant_id', cpId)
       setComments((commData ?? []) as CommentRow[])
 
       // Load scale_id from template
@@ -99,51 +103,28 @@ export function MyReportPage() {
       setLoading(false)
     }
     load()
-  }, [id])
-
-  // ── Loading / Error states ────────────────────────────────────────────────
+  }, [id, cpId])
 
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto">
-        <p className="text-gray-400 text-sm animate-pulse">Carregando seu relatório...</p>
+        <p className="text-gray-400 text-sm animate-pulse">Carregando relatório...</p>
       </div>
     )
   }
 
-  if (errorCode) {
-    const messages: Record<string, { title: string; body: string; icon: string }> = {
-      not_released: {
-        icon: '🔒',
-        title: 'Relatório ainda não liberado',
-        body: 'O administrador do ciclo ainda não liberou os resultados para os participantes.',
-      },
-      not_participant: {
-        icon: '👤',
-        title: 'Você não é participante deste ciclo',
-        body: 'Sua conta não está vinculada como participante neste ciclo de avaliação.',
-      },
-      not_found: {
-        icon: '🔍',
-        title: 'Ciclo não encontrado',
-        body: 'O ciclo de avaliação solicitado não existe ou você não tem acesso.',
-      },
-      generic: {
-        icon: '⚠️',
-        title: 'Erro ao carregar relatório',
-        body: 'Ocorreu um erro inesperado. Tente novamente mais tarde.',
-      },
-    }
-    const msg = messages[errorCode] ?? messages.generic
+  if (error) {
     return (
       <div className="max-w-4xl mx-auto">
-        <Link to="/cycles" className="text-sm text-gray-400 hover:text-gray-600 mb-6 inline-block">
-          ← Voltar
+        <Link
+          to={`/cycles/${id}/report`}
+          className="text-sm text-gray-400 hover:text-gray-600 mb-6 inline-block"
+        >
+          ← Voltar ao relatório do ciclo
         </Link>
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-          <p className="text-4xl mb-4">{msg.icon}</p>
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">{msg.title}</h2>
-          <p className="text-sm text-gray-500">{msg.body}</p>
+          <p className="text-4xl mb-4">⚠️</p>
+          <p className="text-sm text-gray-500">{error}</p>
         </div>
       </div>
     )
@@ -153,19 +134,30 @@ export function MyReportPage() {
     <div className="max-w-4xl mx-auto">
       {/* Header */}
       <div className="mb-6">
-        <Link to="/cycles" className="text-sm text-gray-400 hover:text-gray-600">
-          ← Meus ciclos
+        <Link
+          to={`/cycles/${id}/report`}
+          className="text-sm text-gray-400 hover:text-gray-600"
+        >
+          ← Voltar ao relatório do ciclo
         </Link>
         <div className="mt-2 flex items-end justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">{cycleName}</h1>
-            <p className="text-sm text-gray-400 mt-0.5">Meu relatório individual</p>
-          </div>
-          {generatedAt && (
-            <p className="text-xs text-gray-400">
-              Calculado em {new Date(generatedAt).toLocaleString('pt-BR')}
+            <h1 className="text-xl font-semibold text-gray-900">{personName}</h1>
+            <p className="text-sm text-gray-400 mt-0.5">
+              Relatório individual — {cycleName}
             </p>
-          )}
+          </div>
+          <div className="flex items-center gap-3">
+            {generatedAt && (
+              <p className="text-xs text-gray-400">
+                Calculado em {new Date(generatedAt).toLocaleString('pt-BR')}
+              </p>
+            )}
+            {/* Admin badge */}
+            <span className="text-xs bg-violet-50 text-violet-600 px-3 py-1 rounded-full font-medium">
+              Visão Admin
+            </span>
+          </div>
         </div>
       </div>
 
@@ -173,7 +165,7 @@ export function MyReportPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
           <p className="text-3xl mb-4">📊</p>
           <h2 className="text-lg font-semibold text-gray-900 mb-2">
-            Relatório ainda não gerado
+            Relatório ainda não gerado para {personName}
           </h2>
           <p className="text-sm text-gray-500">
             Os scores serão calculados quando o ciclo for encerrado e as pontuações consolidadas.
