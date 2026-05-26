@@ -133,7 +133,7 @@ export function ParticipantReportPage() {
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-6 no-print">
         <Link
           to={`/cycles/${id}/report`}
           className="text-sm text-gray-400 hover:text-gray-600"
@@ -153,12 +153,26 @@ export function ParticipantReportPage() {
                 Calculado em {new Date(generatedAt).toLocaleString('pt-BR')}
               </p>
             )}
-            {/* Admin badge */}
             <span className="text-xs bg-violet-50 text-violet-600 px-3 py-1 rounded-full font-medium">
               Visão Admin
             </span>
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              🖨️ Imprimir
+            </button>
           </div>
         </div>
+      </div>
+
+      {/* Print-only header */}
+      <div className="hidden print:block mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">{personName}</h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Relatório 360° — {cycleName}
+          {generatedAt ? ` · ${new Date(generatedAt).toLocaleDateString('pt-BR')}` : ''}
+        </p>
       </div>
 
       {!profile ? (

@@ -152,7 +152,7 @@ export function MyReportPage() {
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-6 no-print">
         <Link to="/cycles" className="text-sm text-gray-400 hover:text-gray-600">
           ← Meus ciclos
         </Link>
@@ -161,12 +161,26 @@ export function MyReportPage() {
             <h1 className="text-xl font-semibold text-gray-900">{cycleName}</h1>
             <p className="text-sm text-gray-400 mt-0.5">Meu relatório individual</p>
           </div>
-          {generatedAt && (
-            <p className="text-xs text-gray-400">
-              Calculado em {new Date(generatedAt).toLocaleString('pt-BR')}
-            </p>
-          )}
+          <div className="flex items-center gap-3">
+            {generatedAt && (
+              <p className="text-xs text-gray-400">
+                Calculado em {new Date(generatedAt).toLocaleString('pt-BR')}
+              </p>
+            )}
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              🖨️ Imprimir
+            </button>
+          </div>
         </div>
+      </div>
+
+      {/* Print-only header (shown only when printing) */}
+      <div className="hidden print:block mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">{cycleName}</h1>
+        <p className="text-sm text-gray-500 mt-1">Relatório individual — {generatedAt ? new Date(generatedAt).toLocaleDateString('pt-BR') : ''}</p>
       </div>
 
       {!profile ? (

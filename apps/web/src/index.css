@@ -12,3 +12,57 @@
     -webkit-font-smoothing: antialiased;
   }
 }
+
+/* ── Print styles ────────────────────────────────────────────────────────────
+   Applied when the user prints or uses "Imprimir" on report pages.
+   Elements with .no-print are hidden; .print-page-break forces a new page.
+*/
+@media print {
+  /* Hide navigation, buttons, and UI chrome */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Remove background colors and shadows from cards for cleaner print */
+  body {
+    background: #fff !important;
+    font-size: 11pt;
+    color: #111;
+  }
+
+  /* Cards: keep border, remove shadow */
+  .rounded-xl {
+    border-radius: 6pt !important;
+    box-shadow: none !important;
+  }
+
+  /* Full width — no sidebar */
+  .max-w-4xl, .max-w-3xl {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+
+  /* Keep backgrounds on score badges so colors are meaningful */
+  .bg-green-50, .bg-yellow-50, .bg-red-50, .bg-gray-50,
+  .bg-amber-50, .bg-blue-50, .bg-indigo-50, .bg-violet-50 {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Force SVG/charts to be visible */
+  svg {
+    overflow: visible !important;
+  }
+
+  /* Avoid page breaks inside cards */
+  .space-y-5 > * {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* New page before dual radar and GAP to keep sections together */
+  .print-page-break {
+    break-before: page;
+    page-break-before: always;
+  }
+}
