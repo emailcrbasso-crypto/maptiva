@@ -290,25 +290,26 @@ export function DualRadarSection({
   )
 }
 
-// ─── GAP section ──────────────────────────────────────────────────────────────
+// ─── GAP visual bar chart ─────────────────────────────────────────────────────
 
 export function GapSection({
   snapshots,
   competencies,
+  scaleId = 'likert_5',
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
+  scaleId?:     string
 }) {
+  const scale = getScale(scaleId)
+
   const rows = competencies
     .map((c) => {
       const selfSnap = snapshots.find(
         (s) => s.competency_id === c.id && s.relationship_code === 'self'
       )
       const extSnaps = snapshots.filter(
-        (s) =>
-          s.competency_id === c.id &&
-          s.relationship_code !== 'self' &&
-          s.score_avg != null
+        (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null
       )
       const selfScore = selfSnap?.score_avg ?? null
       const extAvg =
@@ -332,71 +333,238 @@ export function GapSection({
       <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
         GAP — Autoavaliação × Avaliadores
       </h2>
-      <p className="text-xs text-gray-400 mb-4">
+      <p className="text-xs text-gray-400 mb-5">
         Diferença entre como você se avalia e como os outros te percebem, por competência.
         Ordenado por maior divergência.
       </p>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-100">
-              <th className="text-left text-gray-400 font-medium pb-3 min-w-[160px] text-xs uppercase tracking-wide">Competência</th>
-              <th className="text-center text-indigo-500 font-medium pb-3 px-4 text-xs uppercase tracking-wide">Auto</th>
-              <th className="text-center text-emerald-600 font-medium pb-3 px-4 text-xs uppercase tracking-wide">Avaliadores</th>
-              <th className="text-center text-gray-500 font-medium pb-3 px-4 text-xs uppercase tracking-wide">GAP</th>
-              <th className="text-left text-gray-400 font-medium pb-3 px-4 text-xs uppercase tracking-wide">Interpretação</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {rows.map((r) => {
-              const isBlindSpot      = r.gap != null && r.gap > 0.5
-              const isHiddenStrength = r.gap != null && r.gap < -0.5
-              const isAligned        = r.gap != null && !isBlindSpot && !isHiddenStrength
 
-              const gapColor = isBlindSpot
-                ? 'text-amber-600'
-                : isHiddenStrength ? 'text-blue-600'
-                : isAligned ? 'text-gray-500'
-                : 'text-gray-300'
-              const gapBg = isBlindSpot ? 'bg-amber-50' : isHiddenStrength ? 'bg-blue-50' : ''
-              const label = isBlindSpot ? '⚠️ Ponto cego'
-                : isHiddenStrength ? '💎 Força oculta'
-                : isAligned ? '✓ Alinhado' : '—'
-              const labelColor = isBlindSpot ? 'text-amber-600'
-                : isHiddenStrength ? 'text-blue-600' : 'text-gray-400'
+      <div className="space-y-4">
+        {rows.map((r) => {
+          const isBlindSpot      = r.gap != null && r.gap > 0.5
+          const isHiddenStrength = r.gap != null && r.gap < -0.5
 
-              return (
-                <tr key={r.id} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="py-3 pr-4 text-gray-700 font-medium">{r.name}</td>
-                  <td className="py-3 px-4 text-center font-semibold text-indigo-600">
-                    {r.selfScore != null ? r.selfScore.toFixed(2) : '—'}
-                  </td>
-                  <td className="py-3 px-4 text-center font-semibold text-emerald-600">
-                    {r.extAvg != null ? r.extAvg.toFixed(2) : '—'}
-                  </td>
-                  <td className={`py-3 px-4 text-center font-bold rounded ${gapColor} ${gapBg}`}>
+          const selfPct = r.selfScore != null ? (r.selfScore / scale.max) * 100 : 0
+          const extPct  = r.extAvg    != null ? (r.extAvg    / scale.max) * 100 : 0
+
+          const badgeCls = isBlindSpot
+            ? 'bg-amber-100 text-amber-700 border-amber-200'
+            : isHiddenStrength
+            ? 'bg-blue-100 text-blue-700 border-blue-200'
+            : r.gap != null
+            ? 'bg-gray-100 text-gray-500 border-gray-200'
+            : 'bg-gray-50 text-gray-300 border-gray-100'
+
+          const gapInterpretation = isBlindSpot
+            ? 'Ponto cego'
+            : isHiddenStrength
+            ? 'Força oculta'
+            : r.gap != null
+            ? 'Alinhado'
+            : ''
+
+          const gapEmoji = isBlindSpot ? '⚠️' : isHiddenStrength ? '💎' : r.gap != null ? '✓' : ''
+
+          return (
+            <div key={r.id} className="flex items-center gap-4">
+              {/* Competency name */}
+              <div className="w-44 shrink-0">
+                <p className="text-sm font-medium text-gray-700 leading-tight">{r.name}</p>
+              </div>
+
+              {/* Double bar */}
+              <div className="flex-1 space-y-1.5 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-indigo-500 w-9 shrink-0">Auto</span>
+                  <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-2.5 rounded-full bg-indigo-400 transition-all"
+                      style={{ width: `${selfPct}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-bold text-indigo-600 w-8 text-right shrink-0">
+                    {r.selfScore != null ? r.selfScore.toFixed(1) : '—'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-emerald-600 w-9 shrink-0">Aval.</span>
+                  <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-2.5 rounded-full bg-emerald-400 transition-all"
+                      style={{ width: `${extPct}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-bold text-emerald-600 w-8 text-right shrink-0">
+                    {r.extAvg != null ? r.extAvg.toFixed(1) : '—'}
+                  </span>
+                </div>
+              </div>
+
+              {/* GAP badge */}
+              <div className="w-36 shrink-0 text-right">
+                <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg border ${badgeCls}`}>
+                  <span>{gapEmoji}</span>
+                  <span className="font-bold tabular-nums">
                     {r.gap != null ? (r.gap > 0 ? `+${r.gap.toFixed(2)}` : r.gap.toFixed(2)) : '—'}
-                  </td>
-                  <td className={`py-3 px-4 text-xs font-medium ${labelColor}`}>{label}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+                  </span>
+                </span>
+                {gapInterpretation && (
+                  <p className="text-xs text-gray-400 mt-0.5">{gapInterpretation}</p>
+                )}
+              </div>
+            </div>
+          )
+        })}
       </div>
-      <div className="flex flex-wrap gap-3 mt-4">
+
+      <div className="flex flex-wrap gap-3 mt-5 pt-4 border-t border-gray-50">
         <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 px-3 py-1.5 rounded-lg">
           <span>⚠️</span>
-          <span><strong>Ponto cego</strong> — você acredita mais em si do que os outros percebem (GAP &gt; 0,5)</span>
+          <span><strong>Ponto cego</strong> — Auto &gt; Aval. em mais de 0,5 pontos</span>
         </div>
         <div className="flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg">
           <span>💎</span>
-          <span><strong>Força oculta</strong> — outros te veem melhor do que você se avalia (GAP &lt; −0,5)</span>
+          <span><strong>Força oculta</strong> — Aval. &gt; Auto em mais de 0,5 pontos</span>
         </div>
         <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-50 px-3 py-1.5 rounded-lg">
           <span>✓</span>
-          <span><strong>Alinhado</strong> — percepção interna e externa convergentes</span>
+          <span><strong>Alinhado</strong> — percepções convergentes</span>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Dimension breakdown — mini-radars per dimension ─────────────────────────
+
+export function DimensionBreakdown({
+  snapshots,
+  competencies,
+  scaleId = 'likert_5',
+}: {
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+  scaleId?:     string
+}) {
+  const scale = getScale(scaleId)
+
+  // Only render if at least some competencies have a dimension_code
+  const hasDimensions = competencies.some((c) => c.dimension_code)
+  if (!hasDimensions) return null
+
+  // Group competencies by dimension_code (skip ones with null)
+  const dimMap = new Map<string, CompetencyRow[]>()
+  for (const c of competencies) {
+    if (!c.dimension_code) continue
+    if (!dimMap.has(c.dimension_code)) dimMap.set(c.dimension_code, [])
+    dimMap.get(c.dimension_code)!.push(c)
+  }
+  if (dimMap.size === 0) return null
+
+  const shorten = (name: string) => name.length > 18 ? name.slice(0, 16) + '…' : name
+
+  // Which relationship groups have data in this dataset
+  const activeRels = REL_ORDER.filter((rel) =>
+    snapshots.some((s) => s.competency_id && s.score_avg != null && s.relationship_code === rel)
+  )
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 print-page-break">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Análise por dimensão
+      </h2>
+      <p className="text-xs text-gray-400 mb-5">
+        Competências agrupadas pelas dimensões do modelo de liderança.
+      </p>
+
+      <div className="grid grid-cols-2 gap-5">
+        {[...dimMap.entries()].map(([dim, comps]) => {
+          // Build radar data for this dimension's competencies
+          const radarData = comps.map((c) => {
+            const row: Record<string, number | string> = { subject: shorten(c.name) }
+            for (const rel of activeRels) {
+              const snap = snapshots.find(
+                (s) => s.competency_id === c.id && s.relationship_code === rel
+              )
+              row[rel] = snap?.score_avg ?? 0
+            }
+            return row
+          })
+
+          // Need at least 3 competencies for a meaningful radar
+          if (radarData.length < 3) {
+            // Fall back to a small score list
+            return (
+              <div key={dim} className="rounded-xl border border-gray-100 p-4">
+                <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3 text-center">
+                  {dim}
+                </p>
+                <div className="space-y-2">
+                  {comps.map((c) => {
+                    const extSnaps = snapshots.filter(
+                      (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null
+                    )
+                    const extAvg = extSnaps.length > 0
+                      ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length
+                      : null
+                    return (
+                      <div key={c.id} className="flex justify-between items-center text-sm">
+                        <span className="text-gray-600 truncate mr-3">{c.name}</span>
+                        <span className={`font-semibold shrink-0 ${scoreColorClass(extAvg, scale)}`}>
+                          {extAvg != null ? extAvg.toFixed(2) : '—'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          }
+
+          // Determine which rels actually have data for this dimension
+          const relsWithData = activeRels.filter((rel) =>
+            radarData.some((d) => (d[rel] as number) > 0)
+          )
+
+          return (
+            <div key={dim} className="rounded-xl border border-gray-100 p-4">
+              <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2 text-center">
+                {dim}
+              </p>
+              <ResponsiveContainer width="100%" height={220}>
+                <RechartsRadarChart data={radarData} margin={{ top: 8, right: 24, bottom: 8, left: 24 }}>
+                  <PolarGrid stroke="#e5e7eb" />
+                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fill: '#6b7280' }} />
+                  <PolarRadiusAxis
+                    domain={[0, scale.max]}
+                    tick={false}
+                    axisLine={false}
+                    tickCount={scale.max + 1}
+                  />
+                  {relsWithData.map((rel) => (
+                    <Radar
+                      key={rel}
+                      name={REL_LABEL[rel] ?? rel}
+                      dataKey={rel}
+                      stroke={RADAR_PALETTE[rel] ?? '#94a3b8'}
+                      fill={RADAR_PALETTE[rel] ?? '#94a3b8'}
+                      fillOpacity={rel === 'self' ? 0.15 : 0.05}
+                      strokeWidth={rel === 'self' ? 2.5 : 1.5}
+                      dot={false}
+                    />
+                  ))}
+                  {relsWithData.length > 1 && (
+                    <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />
+                  )}
+                  <Tooltip
+                    formatter={(val) =>
+                      typeof val === 'number' && val > 0 ? val.toFixed(2) : '—'
+                    }
+                  />
+                </RechartsRadarChart>
+              </ResponsiveContainer>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -771,28 +939,33 @@ export function ReportDisplay({
         <DualRadarSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
       )}
 
-      {/* 5. GAP */}
+      {/* 5. Dimension breakdown — mini-radars per dimension (conditional) */}
       {hasCompetencies && (
-        <GapSection snapshots={snapshots} competencies={competencies} />
+        <DimensionBreakdown snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
       )}
 
-      {/* 6. Top 5 / Bottom 5 */}
+      {/* 6. GAP visual bars */}
+      {hasCompetencies && (
+        <GapSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+      )}
+
+      {/* 7. Top 5 / Bottom 5 */}
       {hasCompetencies && (
         <Top5Section snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
       )}
 
-      {/* 7. Scores by relationship */}
+      {/* 8. Scores by relationship */}
       <SnapshotsByRelationship snapshots={snapshots} scaleId={scaleId} />
 
-      {/* 8. Competency breakdown */}
+      {/* 9. Competency breakdown */}
       {hasCompetencies && (
         <CompetencyBreakdown snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
       )}
 
-      {/* 9. Comments */}
+      {/* 10. Comments */}
       {comments.length > 0 && <CommentsSection comments={comments} />}
 
-      {/* 10. Confidentiality notice */}
+      {/* 11. Confidentiality notice */}
       <div className="bg-blue-50 border border-blue-100 rounded-xl px-5 py-4">
         <p className="text-xs text-blue-700 leading-relaxed">
           <strong>Privacidade e anonimato:</strong> Os resultados são apresentados de forma
