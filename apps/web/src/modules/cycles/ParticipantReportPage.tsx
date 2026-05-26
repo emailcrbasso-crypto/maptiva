@@ -14,6 +14,8 @@ import {
   type CompetencyRow,
   type CommentRow,
   type ProfileData,
+  type BenchmarkEntry,
+  type BenchmarkMap,
   ReportDisplay,
 } from './reportShared'
 
@@ -28,6 +30,7 @@ export function ParticipantReportPage() {
   const [profile,      setProfile]      = useState<ProfileData | null>(null)
   const [scaleId,      setScaleId]      = useState<string>('likert_5')
   const [generatedAt,  setGeneratedAt]  = useState<string | null>(null)
+  const [benchmark,    setBenchmark]    = useState<BenchmarkMap | undefined>(undefined)
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState<string | null>(null)
 
@@ -98,6 +101,17 @@ export function ParticipantReportPage() {
           .eq('id', cycleRow.template_id)
           .single()
         if (tmplRow?.scale_id) setScaleId(tmplRow.scale_id)
+      }
+
+      // Load cycle benchmark (best-effort)
+      const { data: bmData } = await supabase.rpc('get_cycle_benchmark', { p_cycle_id: id })
+      if (Array.isArray(bmData) && bmData.length > 0) {
+        const map: BenchmarkMap = {}
+        for (const row of bmData as BenchmarkEntry[]) {
+          const key = row.competency_id ?? '__overall__'
+          map[key] = row
+        }
+        setBenchmark(map)
       }
 
       setLoading(false)
@@ -192,6 +206,7 @@ export function ParticipantReportPage() {
           comments={comments}
           profile={profile}
           scaleId={scaleId}
+          benchmark={benchmark}
         />
       )}
     </div>

@@ -28,12 +28,22 @@ import {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface SnapshotRow {
-  relationship_code: string
-  competency_id:     string | null
-  dimension_code:    string | null
-  score_avg:         number | null
-  response_count:    number
+  relationship_code:  string
+  competency_id:      string | null
+  dimension_code:     string | null
+  score_avg:          number | null
+  response_count:     number
+  score_distribution: Record<string, number> | null | undefined
 }
+
+export interface BenchmarkEntry {
+  competency_id:     string | null
+  score_avg:         number
+  participant_count: number
+}
+
+// key = competency_id (uuid string) or '__overall__' for null
+export type BenchmarkMap = Record<string, BenchmarkEntry>
 
 export interface CompetencyRow {
   id:             string
@@ -888,6 +898,308 @@ export function InsightsPanel({ profile }: { profile: ProfileData }) {
   )
 }
 
+// ─── Self-awareness index ─────────────────────────────────────────────────────
+
+function calcSelfAwarenessIndex(
+  snapshots:    SnapshotRow[],
+  competencies: CompetencyRow[],
+  scale:        ScaleDefinition,
+): number | null {
+  const gaps = competencies
+    .map((c) => {
+      const self = snapshots.find(
+        (s) => s.competency_id === c.id && s.relationship_code === 'self'
+      )?.score_avg
+      const extSnaps = snapshots.filter(
+        (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null
+      )
+      const ext =
+        extSnaps.length > 0
+          ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length
+          : null
+      if (self == null || ext == null) return null
+      return Math.abs(self - ext)
+    })
+    .filter((g): g is number => g != null)
+
+  if (gaps.length === 0) return null
+  const avgGap = gaps.reduce((sum, g) => sum + g, 0) / gaps.length
+  return Math.max(0, Math.round((1 - avgGap / scale.max) * 100))
+}
+
+export function SelfAwarenessIndex({
+  snapshots,
+  competencies,
+  scaleId = 'likert_5',
+}: {
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+  scaleId?:     string
+}) {
+  const scale = getScale(scaleId)
+  const index = calcSelfAwarenessIndex(snapshots, competencies, scale)
+  if (index == null) return null
+
+  const colorBar  = index >= 85 ? 'bg-green-400'  : index >= 70 ? 'bg-yellow-400'  : 'bg-red-400'
+  const colorText = index >= 85 ? 'text-green-600' : index >= 70 ? 'text-yellow-600' : 'text-red-500'
+  const label =
+    index >= 85 ? 'Percepção muito alinhada com os avaliadores'
+    : index >= 70 ? 'Percepção moderadamente alinhada'
+    : 'Divergência significativa — vale refletir sobre os gaps'
+
+  return (
+    <div className="mt-4 pt-4 border-t border-gray-100">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          Índice de Autoconhecimento
+        </p>
+        <span className={`text-xl font-bold tabular-nums ${colorText}`}>{index}%</span>
+      </div>
+      <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          className={`h-2.5 rounded-full transition-all ${colorBar}`}
+          style={{ width: `${index}%` }}
+        />
+      </div>
+      <p className="text-xs text-gray-400 mt-1.5">{label}</p>
+    </div>
+  )
+}
+
+// ─── Score distribution section ───────────────────────────────────────────────
+
+const DIST_COLORS = [
+  'bg-red-400',    // 1
+  'bg-orange-400', // 2
+  'bg-yellow-400', // 3
+  'bg-lime-400',   // 4
+  'bg-green-500',  // 5
+]
+
+function mergeDistributions(distributions: (Record<string, number> | null | undefined)[]): Record<string, number> {
+  const merged: Record<string, number> = {}
+  for (const dist of distributions) {
+    if (!dist) continue
+    for (const [k, v] of Object.entries(dist)) {
+      merged[k] = (merged[k] ?? 0) + v
+    }
+  }
+  return merged
+}
+
+export function ScoreDistributionSection({
+  snapshots,
+  competencies,
+  scaleId = 'likert_5',
+}: {
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+  scaleId?:     string
+}) {
+  const scale = getScale(scaleId)
+  const values = Array.from({ length: scale.max - scale.min + 1 }, (_, i) => scale.min + i)
+
+  // Only external evaluators; only competencies that have distribution data
+  const rows = competencies
+    .map((c) => {
+      const extSnaps = snapshots.filter(
+        (s) =>
+          s.competency_id === c.id &&
+          s.relationship_code !== 'self' &&
+          s.score_avg != null &&
+          s.score_distribution
+      )
+      if (extSnaps.length === 0) return null
+      const dist  = mergeDistributions(extSnaps.map((s) => s.score_distribution))
+      const total = Object.values(dist).reduce((s, n) => s + n, 0)
+      if (total === 0) return null
+      return { id: c.id, name: c.name, dist, total }
+    })
+    .filter(Boolean) as { id: string; name: string; dist: Record<string, number>; total: number }[]
+
+  if (rows.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Distribuição das respostas por competência
+      </h2>
+      <p className="text-xs text-gray-400 mb-4">
+        Como os avaliadores externos distribuíram suas notas — revela consenso ou divergência.
+      </p>
+
+      {/* Legend */}
+      <div className="flex gap-3 mb-5 flex-wrap">
+        {values.map((v, i) => (
+          <div key={v} className="flex items-center gap-1.5 text-xs text-gray-500">
+            <span className={`inline-block w-3 h-3 rounded-sm ${DIST_COLORS[i] ?? 'bg-gray-300'}`} />
+            <span>{v} — {scale.labels.find((l) => l.value === v)?.short ?? v}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-3">
+        {rows.map((r) => (
+          <div key={r.id} className="flex items-center gap-3">
+            <p className="text-sm text-gray-700 w-44 shrink-0 truncate">{r.name}</p>
+            <div className="flex-1 flex h-3.5 rounded-full overflow-hidden gap-px bg-gray-100">
+              {values.map((v, i) => {
+                const count = r.dist[v.toString()] ?? 0
+                const pct   = (count / r.total) * 100
+                if (pct === 0) return null
+                return (
+                  <div
+                    key={v}
+                    className={`h-full ${DIST_COLORS[i] ?? 'bg-gray-300'} transition-all`}
+                    style={{ width: `${pct}%` }}
+                    title={`${v}: ${count} resposta${count !== 1 ? 's' : ''} (${pct.toFixed(0)}%)`}
+                  />
+                )
+              })}
+            </div>
+            <span className="text-xs text-gray-400 w-20 text-right shrink-0">
+              {r.total} resp.
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Cycle benchmark section ──────────────────────────────────────────────────
+
+export function BenchmarkSection({
+  snapshots,
+  competencies,
+  benchmark,
+  scaleId = 'likert_5',
+}: {
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+  benchmark:    BenchmarkMap
+  scaleId?:     string
+}) {
+  const scale = getScale(scaleId)
+
+  // For each competency: person's external avg vs. cycle avg
+  const rows = competencies
+    .map((c) => {
+      const bmKey   = c.id
+      const bmEntry = benchmark[bmKey]
+      if (!bmEntry) return null
+
+      const extSnaps = snapshots.filter(
+        (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null
+      )
+      const myAvg =
+        extSnaps.length > 0
+          ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length
+          : null
+
+      if (myAvg == null) return null
+
+      const delta       = myAvg - bmEntry.score_avg
+      const absDelta    = Math.abs(delta)
+      const myPct       = (myAvg / scale.max) * 100
+      const cyclePct    = (bmEntry.score_avg / scale.max) * 100
+
+      return {
+        id: c.id, name: c.name,
+        myAvg, cycleAvg: bmEntry.score_avg,
+        participantCount: bmEntry.participant_count,
+        delta, absDelta, myPct, cyclePct,
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b!.absDelta - a!.absDelta) as {
+      id: string; name: string
+      myAvg: number; cycleAvg: number; participantCount: number
+      delta: number; absDelta: number; myPct: number; cyclePct: number
+    }[]
+
+  if (rows.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Comparativo com a média do ciclo
+      </h2>
+      <p className="text-xs text-gray-400 mb-5">
+        Sua média (avaliadores externos) versus a média geral de todos os participantes do ciclo.
+        Ordenado pela maior diferença.
+      </p>
+
+      <div className="space-y-4">
+        {rows.map((r) => {
+          const isAbove = r.delta > 0.15
+          const isBelow = r.delta < -0.15
+          const deltaCls = isAbove
+            ? 'bg-green-100 text-green-700 border-green-200'
+            : isBelow
+            ? 'bg-red-100 text-red-700 border-red-200'
+            : 'bg-gray-100 text-gray-500 border-gray-200'
+          const deltaLabel = isAbove ? '▲' : isBelow ? '▼' : '≈'
+
+          return (
+            <div key={r.id} className="flex items-center gap-4">
+              {/* Name */}
+              <div className="w-44 shrink-0">
+                <p className="text-sm font-medium text-gray-700 truncate">{r.name}</p>
+              </div>
+
+              {/* Dual bar */}
+              <div className="flex-1 space-y-1.5 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-indigo-500 w-9 shrink-0">Você</span>
+                  <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-2.5 rounded-full bg-indigo-400 transition-all"
+                      style={{ width: `${r.myPct}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-bold text-indigo-600 w-8 text-right shrink-0">
+                    {r.myAvg.toFixed(1)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-gray-400 w-9 shrink-0">Ciclo</span>
+                  <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-2.5 rounded-full bg-gray-300 transition-all"
+                      style={{ width: `${r.cyclePct}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-bold text-gray-500 w-8 text-right shrink-0">
+                    {r.cycleAvg.toFixed(1)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Delta badge */}
+              <div className="w-28 shrink-0 text-right">
+                <span className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg border ${deltaCls}`}>
+                  <span>{deltaLabel}</span>
+                  <span className="tabular-nums">
+                    {r.delta > 0 ? `+${r.delta.toFixed(2)}` : r.delta.toFixed(2)}
+                  </span>
+                </span>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {r.participantCount} participantes
+                </p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <p className="text-xs text-gray-400 mt-5 pt-4 border-t border-gray-50">
+        ▲ acima da média do ciclo &nbsp;·&nbsp; ▼ abaixo da média &nbsp;·&nbsp; ≈ alinhado com o grupo
+      </p>
+    </div>
+  )
+}
+
 // ─── ReportDisplay — main layout used by both pages ──────────────────────────
 
 export interface ReportDisplayProps {
@@ -896,6 +1208,7 @@ export interface ReportDisplayProps {
   comments:     CommentRow[]
   profile:      ProfileData
   scaleId:      string
+  benchmark?:   BenchmarkMap
 }
 
 export function ReportDisplay({
@@ -904,15 +1217,17 @@ export function ReportDisplay({
   comments,
   profile,
   scaleId,
+  benchmark,
 }: ReportDisplayProps) {
-  const hasCompetencies = competencies.length > 0
+  const hasCompetencies   = competencies.length > 0
+  const hasBenchmark      = benchmark != null && Object.keys(benchmark).length > 0
 
   return (
     <div className="space-y-5">
       {/* 1. Participation summary */}
       <ParticipationPanel snapshots={snapshots} />
 
-      {/* 2. Overall scores */}
+      {/* 2. Overall scores + self-awareness index */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
           Scores consolidados
@@ -928,6 +1243,10 @@ export function ReportDisplay({
           <p className="text-xs text-gray-400 mt-4 text-center">
             Perfil criado mas sem scores calculados. Verifique se as questões têm competências vinculadas.
           </p>
+        )}
+        {/* Self-awareness index — only when we have competency-level self + external data */}
+        {hasCompetencies && (
+          <SelfAwarenessIndex snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
         )}
       </div>
 
@@ -954,18 +1273,33 @@ export function ReportDisplay({
         <Top5Section snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
       )}
 
-      {/* 8. Scores by relationship */}
+      {/* 8. Benchmark — participant vs. cycle avg (conditional on data) */}
+      {hasCompetencies && hasBenchmark && (
+        <BenchmarkSection
+          snapshots={snapshots}
+          competencies={competencies}
+          benchmark={benchmark!}
+          scaleId={scaleId}
+        />
+      )}
+
+      {/* 9. Scores by relationship */}
       <SnapshotsByRelationship snapshots={snapshots} scaleId={scaleId} />
 
-      {/* 9. Competency breakdown */}
+      {/* 10. Score distribution */}
+      {hasCompetencies && (
+        <ScoreDistributionSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+      )}
+
+      {/* 11. Competency breakdown */}
       {hasCompetencies && (
         <CompetencyBreakdown snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
       )}
 
-      {/* 10. Comments */}
+      {/* 12. Comments */}
       {comments.length > 0 && <CommentsSection comments={comments} />}
 
-      {/* 11. Confidentiality notice */}
+      {/* 13. Confidentiality notice */}
       <div className="bg-blue-50 border border-blue-100 rounded-xl px-5 py-4">
         <p className="text-xs text-blue-700 leading-relaxed">
           <strong>Privacidade e anonimato:</strong> Os resultados são apresentados de forma
