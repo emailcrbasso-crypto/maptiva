@@ -1,15 +1,13 @@
 /**
  * MyReportPage — Relatório individual do participante logado
  * Rota: /cycles/:id/my-report
- *
- * Usa o RPC `get_my_report(cycle_id)` que:
- *   - É automaticamente escopado ao usuário logado (via auth.uid → people)
- *   - Requer relatório liberado (report_release_at set) para não-admin
  */
 
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { pdf } from '@react-pdf/renderer'
 import { supabase } from '@/lib/supabase'
+import { useTenant } from '@/modules/auth/TenantContext'
 import {
   type SnapshotRow,
   type CompetencyRow,
@@ -17,24 +15,27 @@ import {
   type ProfileData,
   type BenchmarkEntry,
   type BenchmarkMap,
+  type QuestionScoreRow,
   ReportDisplay,
 } from './reportShared'
-
-// ─── Main page ────────────────────────────────────────────────────────────────
+import { ReportPDFDocument } from './ReportPDF'
 
 export function MyReportPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id }        = useParams<{ id: string }>()
+  const { branding }  = useTenant()
 
-  const [cycleName,    setCycleName]    = useState<string>('')
-  const [snapshots,    setSnapshots]    = useState<SnapshotRow[]>([])
-  const [competencies, setCompetencies] = useState<CompetencyRow[]>([])
-  const [comments,     setComments]     = useState<CommentRow[]>([])
-  const [profile,      setProfile]      = useState<ProfileData | null>(null)
-  const [scaleId,      setScaleId]      = useState<string>('likert_5')
-  const [generatedAt,  setGeneratedAt]  = useState<string | null>(null)
-  const [benchmark,    setBenchmark]    = useState<BenchmarkMap | undefined>(undefined)
-  const [loading,      setLoading]      = useState(true)
-  const [errorCode,    setErrorCode]    = useState<string | null>(null)
+  const [cycleName,      setCycleName]      = useState<string>('')
+  const [snapshots,      setSnapshots]      = useState<SnapshotRow[]>([])
+  const [competencies,   setCompetencies]   = useState<CompetencyRow[]>([])
+  const [comments,       setComments]       = useState<CommentRow[]>([])
+  const [profile,        setProfile]        = useState<ProfileData | null>(null)
+  const [scaleId,        setScaleId]        = useState<string>('likert_5')
+  const [generatedAt,    setGeneratedAt]    = useState<string | null>(null)
+  const [benchmark,      setBenchmark]      = useState<BenchmarkMap | undefined>(undefined)
+  const [questionScores, setQuestionScores] = useState<QuestionScoreRow[]>([])
+  const [loading,        setLoading]        = useState(true)
+  const [errorCode,      setErrorCode]      = useState<string | null>(null)
+  const [pdfLoading,     setPdfLoading]     = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -65,7 +66,6 @@ export function MyReportPage() {
         setGeneratedAt(d.profile.generated_at ?? null)
       }
 
-      // Load competency names
       const compIds = [...new Set(
         (d.snapshots ?? []).map((s) => s.competency_id).filter(Boolean) as string[]
       )]
@@ -77,14 +77,12 @@ export function MyReportPage() {
         setCompetencies((compData ?? []) as CompetencyRow[])
       }
 
-      // Load comments
       const { data: commData } = await supabase
         .from('comments_published')
         .select('id, cycle_id, evaluated_cycle_participant_id, relationship_group, body')
         .eq('cycle_id', id)
       setComments((commData ?? []) as CommentRow[])
 
-      // Load scale_id from template
       const { data: cycleRow } = await supabase
         .from('cycles')
         .select('template_id')
@@ -99,23 +97,53 @@ export function MyReportPage() {
         if (tmplRow?.scale_id) setScaleId(tmplRow.scale_id)
       }
 
-      // Load cycle benchmark (best-effort — no error if fails)
+      // Benchmark (best-effort)
       const { data: bmData } = await supabase.rpc('get_cycle_benchmark', { p_cycle_id: id })
       if (Array.isArray(bmData) && bmData.length > 0) {
         const map: BenchmarkMap = {}
         for (const row of bmData as BenchmarkEntry[]) {
-          const key = row.competency_id ?? '__overall__'
-          map[key] = row
+          map[row.competency_id ?? '__overall__'] = row
         }
         setBenchmark(map)
       }
+
+      // Question scores (best-effort)
+      const { data: qData } = await supabase.rpc('get_my_question_scores', { p_cycle_id: id })
+      if (Array.isArray(qData)) setQuestionScores(qData as QuestionScoreRow[])
 
       setLoading(false)
     }
     load()
   }, [id])
 
-  // ── Loading / Error states ────────────────────────────────────────────────
+  async function handleDownloadPDF() {
+    if (!profile) return
+    setPdfLoading(true)
+    try {
+      const blob = await pdf(
+        <ReportPDFDocument
+          personName={cycleName}
+          cycleName={cycleName}
+          generatedAt={generatedAt}
+          profile={profile}
+          snapshots={snapshots}
+          competencies={competencies}
+          comments={comments}
+          scaleId={scaleId}
+          brandingName={branding.name}
+          brandingLogoUrl={branding.logoUrl ?? null}
+        />
+      ).toBlob()
+      const url = URL.createObjectURL(blob)
+      const a   = document.createElement('a')
+      a.href     = url
+      a.download = `relatorio-${cycleName.replace(/\s+/g, '-')}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setPdfLoading(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -127,33 +155,15 @@ export function MyReportPage() {
 
   if (errorCode) {
     const messages: Record<string, { title: string; body: string; icon: string }> = {
-      not_released: {
-        icon: '🔒',
-        title: 'Relatório ainda não liberado',
-        body: 'O administrador do ciclo ainda não liberou os resultados para os participantes.',
-      },
-      not_participant: {
-        icon: '👤',
-        title: 'Você não é participante deste ciclo',
-        body: 'Sua conta não está vinculada como participante neste ciclo de avaliação.',
-      },
-      not_found: {
-        icon: '🔍',
-        title: 'Ciclo não encontrado',
-        body: 'O ciclo de avaliação solicitado não existe ou você não tem acesso.',
-      },
-      generic: {
-        icon: '⚠️',
-        title: 'Erro ao carregar relatório',
-        body: 'Ocorreu um erro inesperado. Tente novamente mais tarde.',
-      },
+      not_released:  { icon: '🔒', title: 'Relatório ainda não liberado',         body: 'O administrador do ciclo ainda não liberou os resultados para os participantes.' },
+      not_participant: { icon: '👤', title: 'Você não é participante deste ciclo', body: 'Sua conta não está vinculada como participante neste ciclo de avaliação.' },
+      not_found:     { icon: '🔍', title: 'Ciclo não encontrado',                 body: 'O ciclo de avaliação solicitado não existe ou você não tem acesso.' },
+      generic:       { icon: '⚠️', title: 'Erro ao carregar relatório',           body: 'Ocorreu um erro inesperado. Tente novamente mais tarde.' },
     }
     const msg = messages[errorCode] ?? messages.generic
     return (
       <div className="max-w-4xl mx-auto">
-        <Link to="/cycles" className="text-sm text-gray-400 hover:text-gray-600 mb-6 inline-block">
-          ← Voltar
-        </Link>
+        <Link to="/cycles" className="text-sm text-gray-400 hover:text-gray-600 mb-6 inline-block">← Voltar</Link>
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
           <p className="text-4xl mb-4">{msg.icon}</p>
           <h2 className="text-lg font-semibold text-gray-900 mb-2">{msg.title}</h2>
@@ -167,9 +177,7 @@ export function MyReportPage() {
     <div className="max-w-4xl mx-auto">
       {/* Header */}
       <div className="mb-6 no-print">
-        <Link to="/cycles" className="text-sm text-gray-400 hover:text-gray-600">
-          ← Meus ciclos
-        </Link>
+        <Link to="/cycles" className="text-sm text-gray-400 hover:text-gray-600">← Meus ciclos</Link>
         <div className="mt-2 flex items-end justify-between">
           <div>
             <h1 className="text-xl font-semibold text-gray-900">{cycleName}</h1>
@@ -182,6 +190,13 @@ export function MyReportPage() {
               </p>
             )}
             <button
+              onClick={handleDownloadPDF}
+              disabled={pdfLoading || !profile}
+              className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+            >
+              {pdfLoading ? '⏳ Gerando...' : '⬇️ Exportar PDF'}
+            </button>
+            <button
               onClick={() => window.print()}
               className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
             >
@@ -191,18 +206,18 @@ export function MyReportPage() {
         </div>
       </div>
 
-      {/* Print-only header (shown only when printing) */}
+      {/* Print-only header */}
       <div className="hidden print:block mb-6">
         <h1 className="text-2xl font-bold text-gray-900">{cycleName}</h1>
-        <p className="text-sm text-gray-500 mt-1">Relatório individual — {generatedAt ? new Date(generatedAt).toLocaleDateString('pt-BR') : ''}</p>
+        <p className="text-sm text-gray-500 mt-1">
+          Relatório individual — {generatedAt ? new Date(generatedAt).toLocaleDateString('pt-BR') : ''}
+        </p>
       </div>
 
       {!profile ? (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
           <p className="text-3xl mb-4">📊</p>
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">
-            Relatório ainda não gerado
-          </h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Relatório ainda não gerado</h2>
           <p className="text-sm text-gray-500">
             Os scores serão calculados quando o ciclo for encerrado e as pontuações consolidadas.
           </p>
@@ -215,6 +230,7 @@ export function MyReportPage() {
           profile={profile}
           scaleId={scaleId}
           benchmark={benchmark}
+          questionScores={questionScores}
         />
       )}
     </div>

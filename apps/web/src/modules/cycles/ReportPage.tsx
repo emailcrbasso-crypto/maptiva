@@ -287,6 +287,7 @@ export function ReportPage() {
   const [error,        setError]        = useState<string | null>(null)
   const [releasing,    setReleasing]    = useState(false)
   const [exportingPdf, setExportingPdf] = useState(false)
+  const [recalculating, setRecalculating] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -338,6 +339,30 @@ export function ReportPage() {
     const { data } = await supabase.rpc('get_cycle_summary', { p_cycle_id: id })
     if (data) setSummary(data as CycleSummary)
     setReleasing(false)
+  }
+
+  async function handleRecalculate() {
+    if (!id || !confirm('Recalcular scores para todos os participantes? Os dados existentes serão sobrescritos.')) return
+    setRecalculating(true)
+    const { data, error: err } = await supabase.rpc('compute_scores', { p_cycle_id: id })
+    if (err) {
+      alert(`Erro ao recalcular: ${err.message}`)
+      setRecalculating(false)
+      return
+    }
+    // Refresh page data after recalculation
+    const [sumRes, snapRes] = await Promise.all([
+      supabase.rpc('get_cycle_summary', { p_cycle_id: id }),
+      supabase
+        .from('score_snapshots')
+        .select('cycle_participant_id, competency_id, relationship_code, score_avg, response_count, visibility_status')
+        .eq('cycle_id', id),
+    ])
+    if (sumRes.data) setSummary(sumRes.data as CycleSummary)
+    if (snapRes.data) setSnapshots(snapRes.data as SnapshotRow[])
+    const result = data as { snapshot_count: number; profile_count: number } | null
+    alert(`Scores recalculados com sucesso! ${result?.snapshot_count ?? 0} snapshots e ${result?.profile_count ?? 0} perfis gerados.`)
+    setRecalculating(false)
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -396,6 +421,16 @@ export function ReportPage() {
               className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
             >
               {exportingPdf ? 'Gerando...' : '↓ PDF'}
+            </button>
+
+            {/* Recalculate scores */}
+            <button
+              onClick={handleRecalculate}
+              disabled={recalculating}
+              title="Recalcula todos os scores a partir das respostas existentes"
+              className="text-sm px-4 py-2 rounded-lg border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 transition-colors"
+            >
+              {recalculating ? '⏳ Recalculando...' : '🔄 Recalcular scores'}
             </button>
 
             {/* Release / badge */}

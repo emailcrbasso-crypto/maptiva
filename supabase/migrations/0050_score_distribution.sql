@@ -102,10 +102,10 @@ begin
   -- ── score_distribution — count por valor numérico ────────────────
   with dist as (
     select
-      a.evaluated_cycle_participant_id,
-      q.competency_id,
-      a.relationship_code,
-      jsonb_object_agg(bucket::text, cnt) as distribution
+      sub.evaluated_cycle_participant_id,
+      sub.competency_id,
+      sub.relationship_code,
+      jsonb_object_agg(sub.bucket::text, sub.cnt) as distribution
     from (
       select
         a2.evaluated_cycle_participant_id,
@@ -126,9 +126,9 @@ begin
         r2.score::int
     ) sub
     group by
-      evaluated_cycle_participant_id,
-      competency_id,
-      relationship_code
+      sub.evaluated_cycle_participant_id,
+      sub.competency_id,
+      sub.relationship_code
   )
   update public.score_snapshots ss
   set score_distribution = dist.distribution

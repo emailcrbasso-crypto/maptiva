@@ -8,7 +8,9 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { pdf } from '@react-pdf/renderer'
 import { supabase } from '@/lib/supabase'
+import { useTenant } from '@/modules/auth/TenantContext'
 import {
   type SnapshotRow,
   type CompetencyRow,
@@ -16,23 +18,28 @@ import {
   type ProfileData,
   type BenchmarkEntry,
   type BenchmarkMap,
+  type QuestionScoreRow,
   ReportDisplay,
 } from './reportShared'
+import { ReportPDFDocument } from './ReportPDF'
 
 export function ParticipantReportPage() {
-  const { id, cpId } = useParams<{ id: string; cpId: string }>()
+  const { id, cpId }  = useParams<{ id: string; cpId: string }>()
+  const { branding }  = useTenant()
 
-  const [cycleName,    setCycleName]    = useState<string>('')
-  const [personName,   setPersonName]   = useState<string>('')
-  const [snapshots,    setSnapshots]    = useState<SnapshotRow[]>([])
-  const [competencies, setCompetencies] = useState<CompetencyRow[]>([])
-  const [comments,     setComments]     = useState<CommentRow[]>([])
-  const [profile,      setProfile]      = useState<ProfileData | null>(null)
-  const [scaleId,      setScaleId]      = useState<string>('likert_5')
-  const [generatedAt,  setGeneratedAt]  = useState<string | null>(null)
-  const [benchmark,    setBenchmark]    = useState<BenchmarkMap | undefined>(undefined)
-  const [loading,      setLoading]      = useState(true)
-  const [error,        setError]        = useState<string | null>(null)
+  const [cycleName,      setCycleName]      = useState<string>('')
+  const [personName,     setPersonName]     = useState<string>('')
+  const [snapshots,      setSnapshots]      = useState<SnapshotRow[]>([])
+  const [competencies,   setCompetencies]   = useState<CompetencyRow[]>([])
+  const [comments,       setComments]       = useState<CommentRow[]>([])
+  const [profile,        setProfile]        = useState<ProfileData | null>(null)
+  const [scaleId,        setScaleId]        = useState<string>('likert_5')
+  const [generatedAt,    setGeneratedAt]    = useState<string | null>(null)
+  const [benchmark,      setBenchmark]      = useState<BenchmarkMap | undefined>(undefined)
+  const [questionScores, setQuestionScores] = useState<QuestionScoreRow[]>([])
+  const [loading,        setLoading]        = useState(true)
+  const [error,          setError]          = useState<string | null>(null)
+  const [pdfLoading,     setPdfLoading]     = useState(false)
 
   useEffect(() => {
     if (!id || !cpId) return
@@ -44,9 +51,9 @@ export function ParticipantReportPage() {
 
       if (rpcErr) {
         setError(
-          rpcErr.message.includes('not_authorized') ? 'Você não tem permissão para ver este relatório.'
+          rpcErr.message.includes('not_authorized')      ? 'Você não tem permissão para ver este relatório.'
           : rpcErr.message.includes('participant_not_found') ? 'Participante não encontrado neste ciclo.'
-          : rpcErr.message.includes('cycle_not_found') ? 'Ciclo não encontrado.'
+          : rpcErr.message.includes('cycle_not_found')      ? 'Ciclo não encontrado.'
           : rpcErr.message
         )
         setLoading(false)
@@ -80,7 +87,7 @@ export function ParticipantReportPage() {
         setCompetencies((compData ?? []) as CompetencyRow[])
       }
 
-      // Load comments (admin can see all)
+      // Load comments (admin can see all comments for this participant)
       const { data: commData } = await supabase
         .from('comments_published')
         .select('id, cycle_id, evaluated_cycle_participant_id, relationship_group, body')
@@ -114,10 +121,46 @@ export function ParticipantReportPage() {
         setBenchmark(map)
       }
 
+      // Load question-level scores for this participant (best-effort)
+      const { data: qData } = await supabase.rpc('get_question_scores', {
+        p_cycle_id: id,
+        p_cp_id:    cpId,
+      })
+      if (Array.isArray(qData)) setQuestionScores(qData as QuestionScoreRow[])
+
       setLoading(false)
     }
     load()
   }, [id, cpId])
+
+  async function handleDownloadPDF() {
+    if (!profile) return
+    setPdfLoading(true)
+    try {
+      const blob = await pdf(
+        <ReportPDFDocument
+          personName={personName}
+          cycleName={cycleName}
+          generatedAt={generatedAt}
+          profile={profile}
+          snapshots={snapshots}
+          competencies={competencies}
+          comments={comments}
+          scaleId={scaleId}
+          brandingName={branding.name}
+          brandingLogoUrl={branding.logoUrl ?? null}
+        />
+      ).toBlob()
+      const url = URL.createObjectURL(blob)
+      const a   = document.createElement('a')
+      a.href     = url
+      a.download = `relatorio-${personName.replace(/\s+/g, '-')}-${cycleName.replace(/\s+/g, '-')}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setPdfLoading(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -161,7 +204,7 @@ export function ParticipantReportPage() {
               Relatório individual — {cycleName}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap justify-end">
             {generatedAt && (
               <p className="text-xs text-gray-400">
                 Calculado em {new Date(generatedAt).toLocaleString('pt-BR')}
@@ -170,6 +213,13 @@ export function ParticipantReportPage() {
             <span className="text-xs bg-violet-50 text-violet-600 px-3 py-1 rounded-full font-medium">
               Visão Admin
             </span>
+            <button
+              onClick={handleDownloadPDF}
+              disabled={pdfLoading || !profile}
+              className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+            >
+              {pdfLoading ? '⏳ Gerando...' : '⬇️ Exportar PDF'}
+            </button>
             <button
               onClick={() => window.print()}
               className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
@@ -207,6 +257,7 @@ export function ParticipantReportPage() {
           profile={profile}
           scaleId={scaleId}
           benchmark={benchmark}
+          questionScores={questionScores}
         />
       )}
     </div>

@@ -7,6 +7,7 @@
  *   - ParticipantReportPage (/cycles/:id/participants/:cpId/report) — admin view
  */
 
+import { useState } from 'react'
 import {
   Radar,
   RadarChart as RechartsRadarChart,
@@ -44,6 +45,16 @@ export interface BenchmarkEntry {
 
 // key = competency_id (uuid string) or '__overall__' for null
 export type BenchmarkMap = Record<string, BenchmarkEntry>
+
+export interface QuestionScoreRow {
+  question_id:       string
+  prompt:            string
+  order_index:       number
+  competency_id:     string | null
+  relationship_code: string
+  score_avg:         number
+  response_count:    number
+}
 
 export interface CompetencyRow {
   id:             string
@@ -748,12 +759,16 @@ export function CompetencyBreakdown({
   snapshots,
   competencies,
   scaleId = 'likert_5',
+  questionScores = [],
 }: {
-  snapshots:    SnapshotRow[]
-  competencies: CompetencyRow[]
-  scaleId?:     string
+  snapshots:      SnapshotRow[]
+  competencies:   CompetencyRow[]
+  scaleId?:       string
+  questionScores?: QuestionScoreRow[]
 }) {
   const scale    = getScale(scaleId)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
   const withComp = snapshots.filter((s) => s.competency_id && s.score_avg != null)
   if (withComp.length === 0) return null
 
@@ -767,6 +782,26 @@ export function CompetencyBreakdown({
   const relationships = [
     ...new Set(withComp.map((s) => s.relationship_code)),
   ].sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
+
+  // Group question scores by competency then by question_id
+  const qByComp = new Map<string, Map<string, QuestionScoreRow[]>>()
+  for (const q of questionScores) {
+    const cKey = q.competency_id ?? '__none__'
+    if (!qByComp.has(cKey)) qByComp.set(cKey, new Map())
+    const qMap = qByComp.get(cKey)!
+    if (!qMap.has(q.question_id)) qMap.set(q.question_id, [])
+    qMap.get(q.question_id)!.push(q)
+  }
+
+  function toggle(compId: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      next.has(compId) ? next.delete(compId) : next.add(compId)
+      return next
+    })
+  }
+
+  const hasQuestions = questionScores.length > 0
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -785,34 +820,99 @@ export function CompetencyBreakdown({
                   {REL_SHORT[r] ?? r}
                 </th>
               ))}
+              {hasQuestions && <th className="w-10" />}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody>
             {[...byComp.entries()].map(([compId, snaps]) => {
-              const comp = compMap.get(compId)
+              const comp       = compMap.get(compId)
+              const isExpanded = expanded.has(compId)
+              const qMap       = qByComp.get(compId)
+              const hasQ       = hasQuestions && qMap && qMap.size > 0
+
+              // Sort questions by order_index
+              const questionEntries = hasQ
+                ? [...qMap!.entries()].sort((a, b) => {
+                    const oa = a[1][0]?.order_index ?? 0
+                    const ob = b[1][0]?.order_index ?? 0
+                    return oa - ob
+                  })
+                : []
+
               return (
-                <tr key={compId} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="py-3 pr-6 text-gray-700 font-medium">{comp?.name ?? '—'}</td>
-                  {relationships.map((r) => {
-                    const snap = snaps.find((s) => s.relationship_code === r)
-                    return (
-                      <td key={r} className="py-3 px-4 text-center">
-                        {snap?.score_avg != null ? (
-                          <span className={`font-semibold ${scoreColorClass(snap.score_avg, scale)}`}>
-                            {snap.score_avg.toFixed(2)}
-                          </span>
-                        ) : (
-                          <span className="text-gray-300">—</span>
+                <>
+                  {/* Competency row */}
+                  <tr
+                    key={compId}
+                    className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
+                  >
+                    <td className="py-3 pr-6 text-gray-700 font-medium">{comp?.name ?? '—'}</td>
+                    {relationships.map((r) => {
+                      const snap = snaps.find((s) => s.relationship_code === r)
+                      return (
+                        <td key={r} className="py-3 px-4 text-center">
+                          {snap?.score_avg != null ? (
+                            <span className={`font-semibold ${scoreColorClass(snap.score_avg, scale)}`}>
+                              {snap.score_avg.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                        </td>
+                      )
+                    })}
+                    {hasQuestions && (
+                      <td className="py-3 pl-2">
+                        {hasQ && (
+                          <button
+                            onClick={() => toggle(compId)}
+                            className="text-xs text-indigo-500 hover:text-indigo-700 transition-colors font-medium whitespace-nowrap"
+                            title={isExpanded ? 'Ocultar questões' : 'Ver questões'}
+                          >
+                            {isExpanded ? '▲' : '▼'}
+                          </button>
                         )}
                       </td>
+                    )}
+                  </tr>
+
+                  {/* Question drill-down rows */}
+                  {isExpanded && questionEntries.map(([qId, qRows]) => {
+                    const prompt = qRows[0]?.prompt ?? ''
+                    return (
+                      <tr key={qId} className="bg-indigo-50/40 border-b border-indigo-50">
+                        <td className="py-2 pl-8 pr-6 text-xs text-gray-500 italic leading-snug">
+                          {prompt}
+                        </td>
+                        {relationships.map((r) => {
+                          const qRow = qRows.find((q) => q.relationship_code === r)
+                          return (
+                            <td key={r} className="py-2 px-4 text-center">
+                              {qRow ? (
+                                <span className={`text-xs font-semibold ${scoreColorClass(qRow.score_avg, scale)}`}>
+                                  {qRow.score_avg.toFixed(2)}
+                                </span>
+                              ) : (
+                                <span className="text-gray-200 text-xs">—</span>
+                              )}
+                            </td>
+                          )
+                        })}
+                        {hasQuestions && <td />}
+                      </tr>
                     )
                   })}
-                </tr>
+                </>
               )
             })}
           </tbody>
         </table>
       </div>
+      {hasQuestions && (
+        <p className="text-xs text-gray-400 mt-3">
+          Clique em ▼ para expandir o detalhamento por questão de cada competência.
+        </p>
+      )}
     </div>
   )
 }
@@ -1203,12 +1303,13 @@ export function BenchmarkSection({
 // ─── ReportDisplay — main layout used by both pages ──────────────────────────
 
 export interface ReportDisplayProps {
-  snapshots:    SnapshotRow[]
-  competencies: CompetencyRow[]
-  comments:     CommentRow[]
-  profile:      ProfileData
-  scaleId:      string
-  benchmark?:   BenchmarkMap
+  snapshots:      SnapshotRow[]
+  competencies:   CompetencyRow[]
+  comments:       CommentRow[]
+  profile:        ProfileData
+  scaleId:        string
+  benchmark?:     BenchmarkMap
+  questionScores?: QuestionScoreRow[]
 }
 
 export function ReportDisplay({
@@ -1218,6 +1319,7 @@ export function ReportDisplay({
   profile,
   scaleId,
   benchmark,
+  questionScores = [],
 }: ReportDisplayProps) {
   const hasCompetencies   = competencies.length > 0
   const hasBenchmark      = benchmark != null && Object.keys(benchmark).length > 0
@@ -1291,9 +1393,14 @@ export function ReportDisplay({
         <ScoreDistributionSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
       )}
 
-      {/* 11. Competency breakdown */}
+      {/* 11. Competency breakdown with question drill-down */}
       {hasCompetencies && (
-        <CompetencyBreakdown snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        <CompetencyBreakdown
+          snapshots={snapshots}
+          competencies={competencies}
+          scaleId={scaleId}
+          questionScores={questionScores}
+        />
       )}
 
       {/* 12. Comments */}
