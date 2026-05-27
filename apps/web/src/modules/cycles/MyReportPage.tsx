@@ -130,6 +130,7 @@ export function MyReportPage() {
           competencies={competencies}
           comments={comments}
           scaleId={scaleId}
+          benchmark={benchmark}
           brandingName={branding.name}
           brandingLogoUrl={branding.logoUrl ?? null}
         />
