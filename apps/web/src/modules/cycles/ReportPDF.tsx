@@ -380,11 +380,10 @@ function CoverPage({
 // ─── Scores page ─────────────────────────────────────────────────────────────
 
 function ScoresSection({
-  profile, snapshots, competencies, scaleId, personName, cycleName,
+  profile, snapshots, competencies, scaleId,
 }: {
   profile: ProfileData; snapshots: SnapshotRow[]
   competencies: CompetencyRow[]; scaleId: string
-  personName: string; cycleName: string
 }) {
   const scale   = getScale(scaleId)
   const scores  = [
@@ -723,8 +722,6 @@ export function ReportPDFDocument({
           snapshots={snapshots}
           competencies={competencies}
           scaleId={scaleId}
-          personName={personName}
-          cycleName={cycleName}
         />
 
         <GAPSection snapshots={snapshots} competencies={competencies} />
