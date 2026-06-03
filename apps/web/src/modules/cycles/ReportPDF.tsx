@@ -920,13 +920,26 @@ const REL_SHORT_PDF: Record<string, string> = {
 }
 const REL_ORDER_PDF = ['self', 'manager', 'peer', 'subordinate', 'client']
 
+function lrPct(entries: [string, number][]): [string, number][] {
+  const total = entries.reduce((s, [, w]) => s + w, 0)
+  if (total === 0) return entries.map(([c]) => [c, 0])
+  const items = entries.map(([code, w]) => {
+    const exact = (w / total) * 100
+    return { code, floor: Math.floor(exact), remainder: exact - Math.floor(exact) }
+  })
+  let rem = 100 - items.reduce((s, i) => s + i.floor, 0)
+  items.sort((a, b) => b.remainder - a.remainder).forEach((i) => { if (rem > 0) { i.floor++; rem-- } })
+  return items.map((i) => [i.code, i.floor])
+}
+
 function MethodologyBannerPDF({ evaluatorWeights }: { evaluatorWeights: Record<string, number> }) {
   const active = Object.entries(evaluatorWeights).filter(([, w]) => w > 0)
   if (active.length === 0) return null
-  const total = active.reduce((s, [, w]) => s + w, 0)
-  const parts = active
-    .sort((a, b) => REL_ORDER_PDF.indexOf(a[0]) - REL_ORDER_PDF.indexOf(b[0]))
-    .map(([code, w]) => `${REL_SHORT_PDF[code] ?? code} ${Math.round((w / total) * 100)}%`)
+  const sorted = active.sort((a, b) => REL_ORDER_PDF.indexOf(a[0]) - REL_ORDER_PDF.indexOf(b[0]))
+  const withPct = lrPct(sorted)
+  const parts = withPct
+    .filter(([, pct]) => pct > 0)
+    .map(([code, pct]) => `${REL_SHORT_PDF[code] ?? code} ${pct}%`)
     .join('  ·  ')
   return (
     <View style={{ backgroundColor: '#eef2ff', borderRadius: 6, padding: 8, marginBottom: 14, display: 'flex', flexDirection: 'row', alignItems: 'center' }}>

@@ -1313,13 +1313,26 @@ export interface ReportDisplayProps {
   evaluatorWeights?: Record<string, number>
 }
 
+function largestRemainderPct(entries: [string, number][]): [string, number][] {
+  const total = entries.reduce((s, [, w]) => s + w, 0)
+  if (total === 0) return entries.map(([code]) => [code, 0])
+  const items = entries.map(([code, w]) => {
+    const exact = (w / total) * 100
+    return { code, exact, floor: Math.floor(exact), remainder: exact - Math.floor(exact) }
+  })
+  let rem = 100 - items.reduce((s, i) => s + i.floor, 0)
+  items.sort((a, b) => b.remainder - a.remainder).forEach((i) => { if (rem > 0) { i.floor++; rem-- } })
+  return items.map((i) => [i.code, i.floor])
+}
+
 function MethodologyBanner({ evaluatorWeights }: { evaluatorWeights: Record<string, number> }) {
   const active = Object.entries(evaluatorWeights).filter(([, w]) => w > 0)
   if (active.length === 0) return null
-  const total = active.reduce((s, [, w]) => s + w, 0)
-  const parts = active
-    .sort((a, b) => REL_ORDER.indexOf(a[0]) - REL_ORDER.indexOf(b[0]))
-    .map(([code, w]) => `${REL_SHORT[code] ?? code} ${Math.round((w / total) * 100)}%`)
+  const sorted = active.sort((a, b) => REL_ORDER.indexOf(a[0]) - REL_ORDER.indexOf(b[0]))
+  const withPct = largestRemainderPct(sorted)
+  const parts = withPct
+    .filter(([, pct]) => pct > 0)
+    .map(([code, pct]) => `${REL_SHORT[code] ?? code} ${pct}%`)
     .join(' · ')
   return (
     <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-5 py-3 flex items-center gap-3">

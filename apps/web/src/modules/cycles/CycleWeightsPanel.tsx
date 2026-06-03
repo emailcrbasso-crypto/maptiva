@@ -48,16 +48,39 @@ const REL_ROWS: { code: string; label: string }[] = [
 
 /**
  * Converte pesos relativos para percentuais exibíveis.
- * Ex: [2, 1, 1] → ['50%', '25%', '25%']
+ * Usa o método do maior resto para garantir que a soma seja sempre 100%.
+ * Ex: [2, 1, 1, 1, 0.5] → { gestor:'36%', auto:'18%', ... } sempre soma 100.
  */
 function toPct(weights: { code: string; weight: number }[]): Record<string, string> {
   const active = weights.filter((w) => w.weight > 0)
   const total  = active.reduce((s, w) => s + w.weight, 0)
+
+  if (total === 0) {
+    return Object.fromEntries(weights.map((w) => [w.code, '0%']))
+  }
+
+  // Calcula o valor exato e o piso de cada item
+  const items = active.map((w) => {
+    const exact = (w.weight / total) * 100
+    return { code: w.code, exact, floor: Math.floor(exact), remainder: exact - Math.floor(exact) }
+  })
+
+  // Quanto falta para chegar em 100 após somar os pisos
+  const sumFloors = items.reduce((s, i) => s + i.floor, 0)
+  let remaining   = 100 - sumFloors
+
+  // Distribui o restante para os itens de maior fração (maior resto)
+  items
+    .sort((a, b) => b.remainder - a.remainder)
+    .forEach((item) => {
+      if (remaining > 0) { item.floor += 1; remaining-- }
+    })
+
+  // Monta o mapa final (itens com peso 0 ficam como '0%')
   const result: Record<string, string> = {}
   for (const w of weights) {
-    result[w.code] = total > 0 && w.weight > 0
-      ? `${Math.round((w.weight / total) * 100)}%`
-      : '0%'
+    const item = items.find((i) => i.code === w.code)
+    result[w.code] = item ? `${item.floor}%` : '0%'
   }
   return result
 }
