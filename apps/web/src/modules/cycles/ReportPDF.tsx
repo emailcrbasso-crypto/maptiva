@@ -901,27 +901,53 @@ function CommentsSection({ comments }: { comments: CommentRow[] }) {
 // ─── Main document ────────────────────────────────────────────────────────────
 
 export interface ReportPDFProps {
-  personName:      string
-  cycleName:       string
-  generatedAt:     string | null
-  profile:         ProfileData
-  snapshots:       SnapshotRow[]
-  competencies:    CompetencyRow[]
-  comments:        CommentRow[]
-  scaleId:         string
-  benchmark?:      BenchmarkMap
-  brandingName:    string
-  brandingLogoUrl: string | null
+  personName:       string
+  cycleName:        string
+  generatedAt:      string | null
+  profile:          ProfileData
+  snapshots:        SnapshotRow[]
+  competencies:     CompetencyRow[]
+  comments:         CommentRow[]
+  scaleId:          string
+  benchmark?:       BenchmarkMap
+  evaluatorWeights?: Record<string, number>
+  brandingName:     string
+  brandingLogoUrl:  string | null
+}
+
+const REL_SHORT_PDF: Record<string, string> = {
+  self: 'Auto', manager: 'Gestor', peer: 'Pares', subordinate: 'Subord.', client: 'Cliente',
+}
+const REL_ORDER_PDF = ['self', 'manager', 'peer', 'subordinate', 'client']
+
+function MethodologyBannerPDF({ evaluatorWeights }: { evaluatorWeights: Record<string, number> }) {
+  const active = Object.entries(evaluatorWeights).filter(([, w]) => w > 0)
+  if (active.length === 0) return null
+  const total = active.reduce((s, [, w]) => s + w, 0)
+  const parts = active
+    .sort((a, b) => REL_ORDER_PDF.indexOf(a[0]) - REL_ORDER_PDF.indexOf(b[0]))
+    .map(([code, w]) => `${REL_SHORT_PDF[code] ?? code} ${Math.round((w / total) * 100)}%`)
+    .join('  ·  ')
+  return (
+    <View style={{ backgroundColor: '#eef2ff', borderRadius: 6, padding: 8, marginBottom: 14, display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+      <Text style={{ fontSize: 9, color: C.primary, marginRight: 6 }}>⚖</Text>
+      <View>
+        <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.primary }}>Metodologia de ponderação</Text>
+        <Text style={{ fontSize: 7.5, color: '#4f46e5', marginTop: 2 }}>{parts}</Text>
+      </View>
+    </View>
+  )
 }
 
 export function ReportPDFDocument({
   personName, cycleName, generatedAt,
   profile, snapshots, competencies, comments,
-  scaleId, benchmark,
+  scaleId, benchmark, evaluatorWeights,
   brandingName, brandingLogoUrl,
 }: ReportPDFProps) {
   const hasCompetencies = competencies.length > 0
   const hasBenchmark    = benchmark != null && Object.keys(benchmark).length > 0
+  const hasWeights      = evaluatorWeights != null && Object.values(evaluatorWeights).some((w) => w > 0)
 
   return (
     <Document
@@ -942,6 +968,9 @@ export function ReportPDFDocument({
       {/* 2. Content pages — react-pdf paginates automatically */}
       <Page size="A4" style={s.page}>
         <PageFooter name={personName} cycle={cycleName} />
+
+        {/* Metodologia de ponderação */}
+        {hasWeights && <MethodologyBannerPDF evaluatorWeights={evaluatorWeights!} />}
 
         {/* Participação */}
         <ParticipationSectionPDF snapshots={snapshots} />

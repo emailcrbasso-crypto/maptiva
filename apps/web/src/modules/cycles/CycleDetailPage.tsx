@@ -11,6 +11,7 @@ import {
   downloadAssignmentTemplate,
   type ParsedAssignment,
 } from '@/lib/importAssignments'
+import { CycleWeightsPanel } from './CycleWeightsPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -804,6 +805,11 @@ export function CycleDetailPage() {
             </p>
           )}
         </div>
+      )}
+
+      {/* ── Pesos de avaliação ── */}
+      {summary && cycle && cycle.status !== 'draft' && id && (
+        <CycleWeightsPanel cycleId={id} cycleStatus={cycle.status} />
       )}
 
       {/* ── Participants ── */}

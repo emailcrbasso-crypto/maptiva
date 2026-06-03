@@ -1303,13 +1303,33 @@ export function BenchmarkSection({
 // ─── ReportDisplay — main layout used by both pages ──────────────────────────
 
 export interface ReportDisplayProps {
-  snapshots:      SnapshotRow[]
-  competencies:   CompetencyRow[]
-  comments:       CommentRow[]
-  profile:        ProfileData
-  scaleId:        string
-  benchmark?:     BenchmarkMap
-  questionScores?: QuestionScoreRow[]
+  snapshots:        SnapshotRow[]
+  competencies:     CompetencyRow[]
+  comments:         CommentRow[]
+  profile:          ProfileData
+  scaleId:          string
+  benchmark?:       BenchmarkMap
+  questionScores?:  QuestionScoreRow[]
+  evaluatorWeights?: Record<string, number>
+}
+
+function MethodologyBanner({ evaluatorWeights }: { evaluatorWeights: Record<string, number> }) {
+  const active = Object.entries(evaluatorWeights).filter(([, w]) => w > 0)
+  if (active.length === 0) return null
+  const total = active.reduce((s, [, w]) => s + w, 0)
+  const parts = active
+    .sort((a, b) => REL_ORDER.indexOf(a[0]) - REL_ORDER.indexOf(b[0]))
+    .map(([code, w]) => `${REL_SHORT[code] ?? code} ${Math.round((w / total) * 100)}%`)
+    .join(' · ')
+  return (
+    <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-5 py-3 flex items-center gap-3">
+      <span className="text-indigo-500 text-base shrink-0">⚖️</span>
+      <div>
+        <p className="text-xs font-semibold text-indigo-700">Metodologia de ponderação</p>
+        <p className="text-xs text-indigo-600 mt-0.5">{parts}</p>
+      </div>
+    </div>
+  )
 }
 
 export function ReportDisplay({
@@ -1320,12 +1340,17 @@ export function ReportDisplay({
   scaleId,
   benchmark,
   questionScores = [],
+  evaluatorWeights,
 }: ReportDisplayProps) {
   const hasCompetencies   = competencies.length > 0
   const hasBenchmark      = benchmark != null && Object.keys(benchmark).length > 0
+  const hasWeights        = evaluatorWeights != null && Object.keys(evaluatorWeights).length > 0
 
   return (
     <div className="space-y-5">
+      {/* 0. Metodologia de ponderação (se houver pesos) */}
+      {hasWeights && <MethodologyBanner evaluatorWeights={evaluatorWeights!} />}
+
       {/* 1. Participation summary */}
       <ParticipationPanel snapshots={snapshots} />
 

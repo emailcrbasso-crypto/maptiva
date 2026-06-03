@@ -31,9 +31,10 @@ export function MyReportPage() {
   const [profile,        setProfile]        = useState<ProfileData | null>(null)
   const [scaleId,        setScaleId]        = useState<string>('likert_5')
   const [generatedAt,    setGeneratedAt]    = useState<string | null>(null)
-  const [benchmark,      setBenchmark]      = useState<BenchmarkMap | undefined>(undefined)
-  const [questionScores, setQuestionScores] = useState<QuestionScoreRow[]>([])
-  const [loading,        setLoading]        = useState(true)
+  const [benchmark,        setBenchmark]        = useState<BenchmarkMap | undefined>(undefined)
+  const [questionScores,   setQuestionScores]   = useState<QuestionScoreRow[]>([])
+  const [evaluatorWeights, setEvaluatorWeights] = useState<Record<string, number> | undefined>(undefined)
+  const [loading,          setLoading]          = useState(true)
   const [errorCode,      setErrorCode]      = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
 
@@ -111,6 +112,18 @@ export function MyReportPage() {
       const { data: qData } = await supabase.rpc('get_my_question_scores', { p_cycle_id: id })
       if (Array.isArray(qData)) setQuestionScores(qData as QuestionScoreRow[])
 
+      // Evaluator weights (best-effort — shown as methodology banner)
+      const { data: wData } = await supabase.rpc('get_cycle_weights', { p_cycle_id: id })
+      if (wData) {
+        const ew = (wData as { evaluator_weights?: { relationship_code: string; weight: number }[] })
+          .evaluator_weights ?? []
+        if (ew.length > 0) {
+          const map: Record<string, number> = {}
+          for (const row of ew) map[row.relationship_code] = row.weight
+          setEvaluatorWeights(map)
+        }
+      }
+
       setLoading(false)
     }
     load()
@@ -131,6 +144,7 @@ export function MyReportPage() {
           comments={comments}
           scaleId={scaleId}
           benchmark={benchmark}
+          evaluatorWeights={evaluatorWeights}
           brandingName={branding.name}
           brandingLogoUrl={branding.logoUrl ?? null}
         />
@@ -232,6 +246,7 @@ export function MyReportPage() {
           scaleId={scaleId}
           benchmark={benchmark}
           questionScores={questionScores}
+          evaluatorWeights={evaluatorWeights}
         />
       )}
     </div>
