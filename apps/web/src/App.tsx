@@ -14,6 +14,7 @@ import { MyReportPage } from '@/modules/cycles/MyReportPage'
 import { ParticipantReportPage } from '@/modules/cycles/ParticipantReportPage'
 import { TeamReportPage } from '@/modules/cycles/TeamReportPage'
 import { HeatmapPage } from '@/modules/cycles/HeatmapPage'
+import { NineBoxPage } from '@/modules/nine-box/NineBoxPage'
 import { MembersPage } from '@/modules/members/MembersPage'
 import { PeoplePage } from '@/modules/people/PeoplePage'
 import { RespondPage } from '@/modules/respond/RespondPage'
@@ -62,6 +63,7 @@ export default function App() {
             <Route path="/cycles/:id/participants/:cpId/report" element={<ParticipantReportPage />} />
             <Route path="/cycles/:id/team-report" element={<TeamReportPage />} />
             <Route path="/cycles/:id/heatmap" element={<HeatmapPage />} />
+            <Route path="/cycles/:id/nine-box" element={<NineBoxPage />} />
             <Route path="/templates" element={<TemplatesPage />} />
             <Route path="/templates/new" element={<NewTemplatePage />} />
             <Route path="/templates/:id" element={<TemplateDetailPage />} />

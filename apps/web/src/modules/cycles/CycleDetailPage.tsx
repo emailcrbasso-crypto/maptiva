@@ -775,6 +775,14 @@ export function CycleDetailPage() {
                 Ver relatório
               </Link>
             )}
+            {cycle.status === 'closed' && (
+              <Link
+                to={`/cycles/${cycle.id}/nine-box`}
+                className="text-sm px-4 py-2 rounded-lg border border-violet-300 text-violet-700 hover:bg-violet-50 transition-colors"
+              >
+                🎯 Nine Box
+              </Link>
+            )}
             {cycle.report_release_at && (
               <Link
                 to={`/cycles/${cycle.id}/my-report`}
