@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { NineBoxConfigPanel } from './NineBoxConfigPanel'
+import { NineBoxParticipantCard } from './NineBoxParticipantCard'
 import {
   type NineBoxConfig,
   type NineBoxParticipant,
@@ -33,6 +34,7 @@ export function NineBoxPage() {
   const [loading,    setLoading]    = useState(true)
   const [computing,  setComputing]  = useState(false)
   const [selected,   setSelected]   = useState<string | null>(null)
+  const [detailCpId, setDetailCpId] = useState<string | null>(null)
   const [manualDraft, setManualDraft] = useState<Record<string, { perf?: number; pot?: number }>>({})
   const [savingManual, setSavingManual] = useState(false)
 
@@ -125,6 +127,9 @@ export function NineBoxPage() {
 
   const positioned   = grid.filter((p) => p.pot_band && p.perf_band)
   const unpositioned = grid.filter((p) => !p.pot_band || !p.perf_band)
+  const detailParticipant = detailCpId
+    ? grid.find((p) => p.cycle_participant_id === detailCpId) ?? null
+    : null
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -194,9 +199,9 @@ export function NineBoxPage() {
               potLabel={cfg.pot_label}
               positioned={positioned}
               selected={selected}
-              onSelect={(cpId) => setSelected((s) => (s === cpId ? null : cpId))}
+              onOpenDetail={(cpId) => setDetailCpId(cpId)}
               onMoveToCell={handleCalibrate}
-              onResetCalibration={handleResetCalibration}
+              onCancelMove={() => setSelected(null)}
             />
           )}
 
@@ -222,6 +227,18 @@ export function NineBoxPage() {
           )}
         </>
       )}
+
+      {/* Cartão individual (drawer) */}
+      {detailParticipant && cfg && (
+        <NineBoxParticipantCard
+          cycleId={id!}
+          participant={detailParticipant}
+          config={cfg}
+          onClose={() => setDetailCpId(null)}
+          onResetCalibration={async (cpId) => { await handleResetCalibration(cpId); setDetailCpId(null) }}
+          onStartCalibration={(cpId) => { setDetailCpId(null); setSelected(cpId) }}
+        />
+      )}
     </div>
   )
 }
@@ -229,21 +246,29 @@ export function NineBoxPage() {
 // ─── Grid 3×3 ──────────────────────────────────────────────────────────
 
 function NineBoxGrid({
-  perfLabel, potLabel, positioned, selected, onSelect, onMoveToCell, onResetCalibration,
+  perfLabel, potLabel, positioned, selected, onOpenDetail, onMoveToCell, onCancelMove,
 }: {
   perfLabel: string
   potLabel: string
   positioned: NineBoxParticipant[]
   selected: string | null
-  onSelect: (cpId: string) => void
+  onOpenDetail: (cpId: string) => void
   onMoveToCell: (cpId: string, pot: Band, perf: Band) => void
-  onResetCalibration: (cpId: string) => void
+  onCancelMove: () => void
 }) {
+  const selectedName = selected
+    ? positioned.find((p) => p.cycle_participant_id === selected)?.person_name ?? ''
+    : ''
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5">
       {selected && (
-        <div className="mb-4 text-xs bg-indigo-50 text-indigo-700 px-3 py-2 rounded-lg">
-          Pessoa selecionada — clique em uma célula para movê-la (calibração manual).
+        <div className="mb-4 text-xs bg-indigo-50 text-indigo-700 px-3 py-2 rounded-lg flex items-center justify-between">
+          <span>
+            Calibrando <strong>{selectedName}</strong> — clique em uma célula para mover.
+          </span>
+          <button onClick={onCancelMove} className="text-indigo-400 hover:text-indigo-700">
+            cancelar
+          </button>
         </div>
       )}
       <div className="flex">
@@ -273,13 +298,24 @@ function NineBoxGrid({
                       selected ? 'cursor-pointer hover:ring-2 hover:ring-indigo-300' : ''
                     }`}
                   >
-                    <p className="text-[11px] font-semibold text-gray-700">{meta.title}</p>
+                    <div className="flex items-start justify-between gap-1">
+                      <p className="text-[11px] font-semibold text-gray-700">{meta.title}</p>
+                      {/* Ícone de explicação com tooltip */}
+                      <span className="relative group shrink-0">
+                        <span className="text-[10px] text-gray-400 cursor-help border border-gray-300 rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">
+                          i
+                        </span>
+                        <span className="pointer-events-none absolute z-20 right-0 top-5 w-52 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-[10px] leading-snug rounded-lg p-2 shadow-lg">
+                          <strong>{meta.title}.</strong> {meta.development}
+                        </span>
+                      </span>
+                    </div>
                     <p className="text-[10px] text-gray-400 leading-tight mb-1.5">{meta.desc}</p>
                     <div className="flex flex-wrap gap-1">
                       {people.map((p) => (
                         <button
                           key={p.cycle_participant_id}
-                          onClick={(e) => { e.stopPropagation(); onSelect(p.cycle_participant_id) }}
+                          onClick={(e) => { e.stopPropagation(); onOpenDetail(p.cycle_participant_id) }}
                           title={p.calibrated ? 'Posição calibrada manualmente' : undefined}
                           className={`text-[11px] px-2 py-0.5 rounded-full border transition-all ${
                             selected === p.cycle_participant_id
@@ -309,17 +345,11 @@ function NineBoxGrid({
         </div>
       </div>
 
-      {/* Reset calibração da pessoa selecionada */}
-      {selected && (
-        <div className="mt-4 flex items-center gap-3">
-          <button
-            onClick={() => onResetCalibration(selected)}
-            className="text-xs text-gray-400 hover:text-red-500 transition-colors"
-          >
-            ↺ Remover calibração (voltar à posição automática)
-          </button>
-        </div>
-      )}
+      <p className="text-[11px] text-gray-400 mt-4">
+        Clique em uma pessoa para ver o cartão individual e calibrar. Passe o mouse no ícone
+        <span className="mx-1 inline-flex items-center justify-center border border-gray-300 rounded-full w-3.5 h-3.5 text-[8px]">i</span>
+        de cada quadrante para a leitura da posição.
+      </p>
     </div>
   )
 }

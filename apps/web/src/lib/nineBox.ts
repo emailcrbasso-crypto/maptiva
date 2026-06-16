@@ -43,6 +43,25 @@ export interface NineBoxParticipant {
   notes:          string | null
 }
 
+export interface NineBoxHistoryEntry {
+  cycle_id:    string
+  cycle_name:  string
+  is_current:  boolean
+  perf_value:  number | null
+  pot_value:   number | null
+  perf_band:   Band | null
+  pot_band:    Band | null
+  calibrated:  boolean
+  computed_at: string | null
+  cycle_at:    string | null
+}
+
+/** Retorna o CellMeta para um par de faixas, ou null se incompleto. */
+export function cellFor(potBand: Band | null, perfBand: Band | null): CellMeta | null {
+  if (!potBand || !perfBand) return null
+  return NINE_BOX_CELLS[`${potBand}-${perfBand}`] ?? null
+}
+
 /** Default: fonte do JSON da RPC vem como array em jsonb; normaliza. */
 export function normalizeConfig(raw: Record<string, unknown>): NineBoxConfig {
   const arr = (v: unknown): string[] =>
@@ -86,6 +105,8 @@ export interface CellMeta {
   key:    string
   title:  string
   desc:   string
+  /** leitura de desenvolvimento associada à posição (ação recomendada) */
+  development: string
   /** classe Tailwind de cor de fundo da célula */
   bg:     string
   border: string
@@ -97,17 +118,35 @@ export interface CellMeta {
  */
 export const NINE_BOX_CELLS: Record<string, CellMeta> = {
   // Potencial ALTO (topo)
-  '3-1': { key: '3-1', title: 'Enigma',            desc: 'Alto potencial, desempenho a desenvolver', bg: 'bg-amber-50',   border: 'border-amber-200' },
-  '3-2': { key: '3-2', title: 'Forte potencial',   desc: 'Alto potencial, bom desempenho',           bg: 'bg-lime-50',    border: 'border-lime-200' },
-  '3-3': { key: '3-3', title: 'Estrela',           desc: 'Alto potencial e alto desempenho',         bg: 'bg-emerald-50', border: 'border-emerald-300' },
+  '3-1': { key: '3-1', title: 'Enigma',            desc: 'Alto potencial, desempenho a desenvolver',
+    development: 'Alto potencial ainda não convertido em entrega. Investigar barreiras (função, contexto, gestão), dar desafios estruturados e acompanhamento próximo.',
+    bg: 'bg-amber-50',   border: 'border-amber-200' },
+  '3-2': { key: '3-2', title: 'Forte potencial',   desc: 'Alto potencial, bom desempenho',
+    development: 'Candidato natural a evolução. Ampliar escopo, exposição a liderança e projetos estratégicos para acelerar a prontidão.',
+    bg: 'bg-lime-50',    border: 'border-lime-200' },
+  '3-3': { key: '3-3', title: 'Estrela',           desc: 'Alto potencial e alto desempenho',
+    development: 'Top talent. Foco em retenção, plano de sucessão e desafios que mantenham o engajamento. Risco alto se subaproveitado.',
+    bg: 'bg-emerald-50', border: 'border-emerald-300' },
   // Potencial MÉDIO
-  '2-1': { key: '2-1', title: 'Em observação',     desc: 'Potencial médio, desempenho a desenvolver', bg: 'bg-orange-50',  border: 'border-orange-200' },
-  '2-2': { key: '2-2', title: 'Mantenedor',        desc: 'Potencial e desempenho medianos',           bg: 'bg-yellow-50',  border: 'border-yellow-200' },
-  '2-3': { key: '2-3', title: 'Alto desempenho',   desc: 'Potencial médio, alto desempenho',          bg: 'bg-lime-50',    border: 'border-lime-200' },
+  '2-1': { key: '2-1', title: 'Em observação',     desc: 'Potencial médio, desempenho a desenvolver',
+    development: 'Acompanhar de perto. Definir metas claras de curto prazo e reavaliar; pode evoluir com feedback e suporte direcionado.',
+    bg: 'bg-orange-50',  border: 'border-orange-200' },
+  '2-2': { key: '2-2', title: 'Mantenedor',        desc: 'Potencial e desempenho medianos',
+    development: 'Profissional sólido e consistente — espinha dorsal do time. Desenvolver pontos específicos e reconhecer a contribuição estável.',
+    bg: 'bg-yellow-50',  border: 'border-yellow-200' },
+  '2-3': { key: '2-3', title: 'Alto desempenho',   desc: 'Potencial médio, alto desempenho',
+    development: 'Entrega forte e confiável. Explorar se há apetite/espaço para mais potencial; valorizar e reter na função atual.',
+    bg: 'bg-lime-50',    border: 'border-lime-200' },
   // Potencial BAIXO (base)
-  '1-1': { key: '1-1', title: 'Risco',             desc: 'Baixo potencial e baixo desempenho',        bg: 'bg-red-50',     border: 'border-red-200' },
-  '1-2': { key: '1-2', title: 'Eficaz',            desc: 'Baixo potencial, desempenho mediano',       bg: 'bg-orange-50',  border: 'border-orange-200' },
-  '1-3': { key: '1-3', title: 'Especialista',      desc: 'Baixo potencial, alto desempenho',          bg: 'bg-lime-50',    border: 'border-lime-200' },
+  '1-1': { key: '1-1', title: 'Risco',             desc: 'Baixo potencial e baixo desempenho',
+    development: 'Atenção prioritária. Plano de melhoria com prazos, avaliação de aderência à função e decisão consciente de continuidade.',
+    bg: 'bg-red-50',     border: 'border-red-200' },
+  '1-2': { key: '1-2', title: 'Eficaz',            desc: 'Baixo potencial, desempenho mediano',
+    development: 'Cumpre o esperado na função. Manter, dar feedback pontual e direcionar para consistência; baixa prioridade de movimentação.',
+    bg: 'bg-orange-50',  border: 'border-orange-200' },
+  '1-3': { key: '1-3', title: 'Especialista',      desc: 'Baixo potencial, alto desempenho',
+    development: 'Especialista valioso na função atual. Reter pelo domínio técnico, reconhecer e usar como referência/mentor; pouco interesse em mudar de trilha.',
+    bg: 'bg-lime-50',    border: 'border-lime-200' },
 }
 
 /** Ordem de renderização das linhas: potencial alto (3) no topo. */
