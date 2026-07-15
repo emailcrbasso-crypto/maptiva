@@ -11,7 +11,7 @@
  */
 
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -48,6 +48,41 @@ function newPergunta(): Pergunta {
   }
 }
 
+// Config salva de um projeto existente (para "Duplicar")
+interface SeedConfigPergunta {
+  id?:            string
+  texto?:         string
+  tipo?:          'escala_5' | 'texto_livre' | 'multipla_escolha'
+  obrigatoria?:   boolean
+  opcoes?:        string[]
+  multi?:         boolean
+  max_escolhas?:  number
+  permite_outro?: boolean
+}
+interface SeedConfig {
+  label_unidade?: string
+  perguntas?:     SeedConfigPergunta[]
+}
+interface SeedState {
+  nome?:      string
+  descricao?: string | null
+  config?:    SeedConfig
+}
+
+// Converte a config persistida de volta para o formato do construtor
+function perguntaFromSeed(p: SeedConfigPergunta): Pergunta {
+  return {
+    id:           p.id || crypto.randomUUID(),
+    texto:        p.texto || '',
+    tipo:         p.tipo || 'escala_5',
+    obrigatoria:  p.obrigatoria ?? true,
+    opcoes:       Array.isArray(p.opcoes) ? p.opcoes.join(', ') : '',
+    multi:        !!p.multi,
+    maxEscolhas:  p.max_escolhas ? String(p.max_escolhas) : '',
+    permiteOutro: !!p.permite_outro,
+  }
+}
+
 function parseCsv(text: string, labelUnidade: string): Participante[] {
   const lines = text.trim().split('\n').filter(Boolean)
   const header = lines[0].toLowerCase().split(',').map((h) => h.trim().replace(/"/g, ''))
@@ -71,14 +106,19 @@ function parseCsv(text: string, labelUnidade: string): Participante[] {
 
 export function DpaNewProjectPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const seed     = (location.state as { seed?: SeedState } | null)?.seed
+  const seedPerguntas = (seed?.config?.perguntas ?? []).map(perguntaFromSeed)
 
-  // Basic info
-  const [nome,         setNome]         = useState('')
-  const [descricao,    setDescricao]    = useState('')
-  const [labelUnidade, setLabelUnidade] = useState('Departamento')
+  // Basic info (pré-preenchido quando duplicando)
+  const [nome,         setNome]         = useState(seed ? `${seed.nome ?? ''} (cópia)`.trim() : '')
+  const [descricao,    setDescricao]    = useState(seed?.descricao ?? '')
+  const [labelUnidade, setLabelUnidade] = useState(seed?.config?.label_unidade ?? 'Departamento')
 
   // Questions
-  const [perguntas, setPerguntas] = useState<Pergunta[]>([newPergunta()])
+  const [perguntas, setPerguntas] = useState<Pergunta[]>(
+    seedPerguntas.length > 0 ? seedPerguntas : [newPergunta()]
+  )
 
   // Participants
   const [participantes, setParticipantes] = useState<Participante[]>([])
@@ -228,7 +268,15 @@ export function DpaNewProjectPage() {
         <Link to="/dpa" className="text-sm text-gray-400 hover:text-gray-600">
           ← Diagnósticos
         </Link>
-        <h1 className="text-xl font-semibold text-gray-900 mt-2">Novo diagnóstico</h1>
+        <h1 className="text-xl font-semibold text-gray-900 mt-2">
+          {seed ? 'Duplicar diagnóstico' : 'Novo diagnóstico'}
+        </h1>
+        {seed && (
+          <p className="text-xs text-gray-500 mt-1 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 inline-block">
+            ⧉ Perguntas e configurações reaproveitadas de <strong>{seed.nome}</strong>. Ajuste o que precisar
+            e adicione os participantes do novo cliente — nada é copiado dos participantes/respostas originais.
+          </p>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} noValidate className="space-y-8">

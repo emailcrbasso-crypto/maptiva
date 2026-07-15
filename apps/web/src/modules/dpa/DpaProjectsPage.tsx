@@ -18,6 +18,7 @@ interface DpaProject {
   descricao:  string | null
   status:     'rascunho' | 'ativo' | 'encerrado'
   created_at: string
+  config:     unknown
   total:      number
   respondidos: number
 }
@@ -47,7 +48,7 @@ export function DpaProjectsPage() {
     // Load projects with participant counts via joined query
     const { data } = await supabase
       .from('dpa_projetos')
-      .select('id, nome, descricao, status, created_at, dpa_participantes(id, status)')
+      .select('id, nome, descricao, status, created_at, config, dpa_participantes(id, status)')
       .order('created_at', { ascending: false })
 
     if (data) {
@@ -58,6 +59,7 @@ export function DpaProjectsPage() {
           descricao: string | null
           status: 'rascunho' | 'ativo' | 'encerrado'
           created_at: string
+          config: unknown
           dpa_participantes: Array<{ id: string; status: string }>
         }>).map((p) => ({
           id:          p.id,
@@ -65,6 +67,7 @@ export function DpaProjectsPage() {
           descricao:   p.descricao,
           status:      p.status,
           created_at:  p.created_at,
+          config:      p.config,
           total:       p.dpa_participantes.length,
           respondidos: p.dpa_participantes.filter((x) => x.status === 'respondido').length,
         }))
@@ -153,9 +156,23 @@ export function DpaProjectsPage() {
                   )}
                 </div>
 
-                <p className="mt-2 text-xs text-gray-400">
-                  Criado em {new Date(p.created_at).toLocaleDateString('pt-BR')}
-                </p>
+                <div className="mt-2 flex items-center justify-between">
+                  <p className="text-xs text-gray-400">
+                    Criado em {new Date(p.created_at).toLocaleDateString('pt-BR')}
+                  </p>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate('/dpa/new', {
+                        state: { seed: { nome: p.nome, descricao: p.descricao, config: p.config } },
+                      })
+                    }}
+                    className="text-xs text-gray-400 hover:text-gray-800 transition-colors"
+                    title="Criar um novo diagnóstico reaproveitando estas perguntas"
+                  >
+                    ⧉ Duplicar
+                  </button>
+                </div>
               </div>
             )
           })}
