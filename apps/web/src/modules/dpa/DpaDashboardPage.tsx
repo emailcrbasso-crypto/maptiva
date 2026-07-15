@@ -25,6 +25,9 @@ interface Pergunta {
   tipo:        'escala_5' | 'texto_livre' | 'multipla_escolha'
   obrigatoria: boolean
   opcoes?:     string[]
+  multi?:         boolean
+  max_escolhas?:  number
+  permite_outro?: boolean
 }
 
 interface DpaConfig {
@@ -44,7 +47,7 @@ interface Resposta {
   id:            string
   unidade:       string | null
   respondido_em: string | null
-  respostas:     Record<string, string | number>
+  respostas:     Record<string, string | number | string[]>
 }
 
 interface UnidadeStat {
@@ -277,7 +280,10 @@ export function DpaDashboardPage() {
     const rows = dashboard.respostas.map((r) => [
       r.unidade ?? '',
       r.respondido_em ? new Date(r.respondido_em).toLocaleDateString('pt-BR') : '',
-      ...perguntas.map((p) => r.respostas[p.id] ?? ''),
+      ...perguntas.map((p) => {
+        const v = r.respostas[p.id]
+        return Array.isArray(v) ? v.join('; ') : (v ?? '')
+      }),
     ])
 
     const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
@@ -310,7 +316,8 @@ export function DpaDashboardPage() {
     if (!dashboard) return null
     const values = dashboard.respostas
       .map((r) => r.respostas[pId])
-      .filter((v) => v !== undefined && v !== null && v !== '')
+      .filter((v) => v !== undefined && v !== null && v !== ''
+        && !(Array.isArray(v) && v.length === 0))
 
     if (tipo === 'escala_5') {
       const nums = values.map(Number).filter((v) => !isNaN(v))
@@ -319,6 +326,17 @@ export function DpaDashboardPage() {
       const dist: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
       for (const v of nums) dist[v] = (dist[v] || 0) + 1
       return { kind: 'scale', avg, dist, total: nums.length }
+    }
+
+    if (tipo === 'multipla_escolha') {
+      // total = nº de respondentes; texts = todas as seleções achatadas
+      // (multi-escolha guarda arrays). Percentuais são sobre respondentes.
+      const selections: string[] = []
+      for (const v of values) {
+        if (Array.isArray(v)) selections.push(...v.map(String))
+        else selections.push(String(v))
+      }
+      return { kind: 'text', texts: selections, total: values.length }
     }
 
     return { kind: 'text', texts: values as string[], total: values.length }
@@ -549,26 +567,45 @@ export function DpaDashboardPage() {
                     {/* Multiple choice stats */}
                     {p.tipo === 'multipla_escolha' && stats?.kind === 'text' && (() => {
                       const ts = stats as TextStats
+                      // Entradas "Outro: <texto>" (da opção Outro)
+                      const outros     = ts.texts.filter((t) => t.startsWith('Outro:'))
+                      const outroCount = outros.length
+                      const bar = (label: string, count: number, key: string) => {
+                        const pct = ts.total > 0 ? (count / ts.total) * 100 : 0
+                        return (
+                          <div key={key} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-700 w-32 truncate shrink-0" title={label}>{label}</span>
+                            <div className="flex-1 h-5 bg-gray-100 rounded overflow-hidden">
+                              <div className="h-full bg-blue-500 transition-all" style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="text-xs text-gray-400 w-16 text-right">
+                              {count} ({pct.toFixed(0)}%)
+                            </span>
+                          </div>
+                        )
+                      }
                       return (
                         <div className="ml-9 space-y-1.5">
-                          {(p.opcoes ?? []).map((opcao) => {
-                            const count = ts.texts.filter((t) => t === opcao).length
-                            const pct   = ts.total > 0 ? (count / ts.total) * 100 : 0
-                            return (
-                              <div key={opcao} className="flex items-center gap-2">
-                                <span className="text-xs text-gray-700 w-32 truncate shrink-0" title={opcao}>{opcao}</span>
-                                <div className="flex-1 h-5 bg-gray-100 rounded overflow-hidden">
-                                  <div
-                                    className="h-full bg-blue-500 transition-all"
-                                    style={{ width: `${pct}%` }}
-                                  />
-                                </div>
-                                <span className="text-xs text-gray-400 w-16 text-right">
-                                  {count} ({pct.toFixed(0)}%)
-                                </span>
+                          {(p.opcoes ?? []).map((opcao) =>
+                            bar(opcao, ts.texts.filter((t) => t === opcao).length, opcao),
+                          )}
+                          {p.permite_outro && outroCount > 0 && (
+                            <>
+                              {bar('Outro', outroCount, '__outro__')}
+                              <div className="pl-2 border-l-2 border-gray-100 ml-1 space-y-1 mt-1">
+                                {outros.slice(0, 20).map((t, i) => (
+                                  <p key={i} className="text-xs text-gray-500">
+                                    — {t.replace(/^Outro:\s*/, '')}
+                                  </p>
+                                ))}
+                                {outros.length > 20 && (
+                                  <p className="text-xs text-gray-400">
+                                    + {outros.length - 20} mais — exporte o Excel para ver todas.
+                                  </p>
+                                )}
                               </div>
-                            )
-                          })}
+                            </>
+                          )}
                         </div>
                       )
                     })()}

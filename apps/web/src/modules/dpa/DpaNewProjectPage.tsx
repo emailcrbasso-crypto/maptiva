@@ -22,6 +22,9 @@ interface Pergunta {
   tipo:        'escala_5' | 'texto_livre' | 'multipla_escolha'
   obrigatoria: boolean
   opcoes:      string   // comma-separated string for UI
+  multi:        boolean  // permite selecionar mais de uma opção
+  maxEscolhas:  string   // limite de seleções quando multi (vazio = sem limite)
+  permiteOutro: boolean  // exibe opção "Outro" com campo de detalhe
 }
 
 interface Participante {
@@ -39,6 +42,9 @@ function newPergunta(): Pergunta {
     tipo:        'escala_5',
     obrigatoria: true,
     opcoes:      '',
+    multi:        false,
+    maxEscolhas:  '',
+    permiteOutro: false,
   }
 }
 
@@ -175,6 +181,11 @@ export function DpaNewProjectPage() {
           obrigatoria: p.obrigatoria,
           ...(p.tipo === 'multipla_escolha' && {
             opcoes: p.opcoes.split(',').map((o) => o.trim()).filter(Boolean),
+            multi:         p.multi,
+            permite_outro: p.permiteOutro,
+            ...(p.multi && p.maxEscolhas.trim() && {
+              max_escolhas: Math.max(1, parseInt(p.maxEscolhas, 10) || 0),
+            }),
           }),
         })),
       }
@@ -341,15 +352,53 @@ export function DpaNewProjectPage() {
                     </div>
 
                     {p.tipo === 'multipla_escolha' && (
-                      <div>
-                        <input
-                          type="text"
-                          value={p.opcoes}
-                          onChange={(e) => updatePergunta(p.id, 'opcoes', e.target.value)}
-                          placeholder="Opção A, Opção B, Opção C"
-                          className="w-full text-xs border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
-                        />
-                        <p className="text-xs text-gray-400 mt-1">Separe as opções com vírgula.</p>
+                      <div className="space-y-2.5">
+                        <div>
+                          <input
+                            type="text"
+                            value={p.opcoes}
+                            onChange={(e) => updatePergunta(p.id, 'opcoes', e.target.value)}
+                            placeholder="Opção A, Opção B, Opção C"
+                            className="w-full text-xs border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Separe as opções com vírgula.</p>
+                        </div>
+
+                        <div className="flex items-center gap-4 flex-wrap">
+                          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={p.multi}
+                              onChange={(e) => updatePergunta(p.id, 'multi', e.target.checked)}
+                              className="rounded"
+                            />
+                            Permitir múltiplas seleções
+                          </label>
+
+                          {p.multi && (
+                            <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                              Máximo de escolhas
+                              <input
+                                type="number"
+                                min={1}
+                                value={p.maxEscolhas}
+                                onChange={(e) => updatePergunta(p.id, 'maxEscolhas', e.target.value)}
+                                placeholder="sem limite"
+                                className="w-20 text-xs border border-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                              />
+                            </label>
+                          )}
+
+                          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={p.permiteOutro}
+                              onChange={(e) => updatePergunta(p.id, 'permiteOutro', e.target.checked)}
+                              className="rounded"
+                            />
+                            Incluir opção "Outro" (com campo de detalhe)
+                          </label>
+                        </div>
                       </div>
                     )}
                   </div>

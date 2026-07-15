@@ -41,7 +41,7 @@ interface Resposta {
   id:            string
   unidade:       string | null
   respondido_em: string | null
-  respostas:     Record<string, string | number>
+  respostas:     Record<string, string | number | string[]>
 }
 
 interface DashboardData {
@@ -129,15 +129,31 @@ function computeScaleStats(perguntaId: string, respostas: Resposta[]) {
 }
 
 function computeChoiceStats(perguntaId: string, opcoes: string[], respostas: Resposta[]) {
-  const vals = respostas
+  // Respostas podem ser string (escolha única) ou string[] (múltipla).
+  const raw = respostas
     .map((r) => r.respostas[perguntaId])
-    .filter((v) => v !== undefined && v !== null && v !== '') as string[]
+    .filter((v) => v !== undefined && v !== null && v !== ''
+      && !(Array.isArray(v) && v.length === 0))
+  const respondents = raw.length
 
-  return opcoes.map((o) => ({
+  const selections: string[] = []
+  for (const v of raw) {
+    if (Array.isArray(v)) selections.push(...v.map(String))
+    else selections.push(String(v))
+  }
+
+  const rows = opcoes.map((o) => ({
     opcao: o,
-    count: vals.filter((v) => v === o).length,
-    total: vals.length,
+    count: selections.filter((v) => v === o).length,
+    total: respondents,
   }))
+
+  // Linha agregada de "Outro" quando há entradas "Outro: <texto>"
+  const outroCount = selections.filter((v) => v.startsWith('Outro:')).length
+  if (outroCount > 0) {
+    rows.push({ opcao: 'Outro', count: outroCount, total: respondents })
+  }
+  return rows
 }
 
 function computeTextAnswers(perguntaId: string, respostas: Resposta[]) {

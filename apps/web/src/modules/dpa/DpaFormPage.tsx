@@ -19,7 +19,13 @@ interface Pergunta {
   tipo:       'escala_5' | 'texto_livre' | 'multipla_escolha'
   opcoes?:    string[]
   obrigatoria: boolean
+  multi?:        boolean
+  max_escolhas?: number
+  permite_outro?: boolean
 }
+
+// Sentinela interna para a seleção "Outro"; convertida em "Outro: <texto>" no envio.
+const OUTRO = '__outro__'
 
 interface DpaConfig {
   label_unidade: string
@@ -56,7 +62,8 @@ export function DpaFormPage() {
 
   const [loading,    setLoading]    = useState(true)
   const [tokenData,  setTokenData]  = useState<TokenData | null>(null)
-  const [answers,    setAnswers]    = useState<Record<string, string | number>>({})
+  const [answers,    setAnswers]    = useState<Record<string, string | number | string[]>>({})
+  const [outroTexts, setOutroTexts] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [errors,     setErrors]     = useState<Record<string, string>>({})
 
@@ -100,6 +107,10 @@ export function DpaFormPage() {
 
   function handleText(perguntaId: string, value: string) {
     setAnswers((prev) => ({ ...prev, [perguntaId]: value }))
+    clearError(perguntaId)
+  }
+
+  function clearError(perguntaId: string) {
     setErrors((prev) => {
       const next = { ...prev }
       delete next[perguntaId]
@@ -107,18 +118,78 @@ export function DpaFormPage() {
     })
   }
 
+  // Múltipla escolha com seleção única (radio)
+  function handleSingleChoice(perguntaId: string, value: string) {
+    setAnswers((prev) => ({ ...prev, [perguntaId]: value }))
+    clearError(perguntaId)
+  }
+
+  // Múltipla escolha com várias seleções (checkbox), respeitando o limite
+  function toggleMultiChoice(pergunta: Pergunta, value: string) {
+    setAnswers((prev) => {
+      const current = Array.isArray(prev[pergunta.id]) ? (prev[pergunta.id] as string[]) : []
+      const has     = current.includes(value)
+      if (!has && pergunta.max_escolhas && current.length >= pergunta.max_escolhas) {
+        return prev // atingiu o limite — ignora nova seleção
+      }
+      const next = has ? current.filter((v) => v !== value) : [...current, value]
+      return { ...prev, [pergunta.id]: next }
+    })
+    clearError(pergunta.id)
+  }
+
+  function handleOutroText(perguntaId: string, value: string) {
+    setOutroTexts((prev) => ({ ...prev, [perguntaId]: value }))
+    clearError(perguntaId)
+  }
+
+  // true se a opção "Outro" está marcada na pergunta
+  function isOutroSelected(pergunta: Pergunta): boolean {
+    const a = answers[pergunta.id]
+    return Array.isArray(a) ? a.includes(OUTRO) : a === OUTRO
+  }
+
   function validate(): boolean {
     if (!tokenData?.config) return false
     const errs: Record<string, string> = {}
     for (const p of tokenData.config.perguntas) {
-      if (!p.obrigatoria) continue
-      const ans = answers[p.id]
-      if (ans === undefined || ans === null || ans === '') {
+      const ans   = answers[p.id]
+      const empty = ans === undefined || ans === null || ans === ''
+        || (Array.isArray(ans) && ans.length === 0)
+
+      if (p.obrigatoria && empty) {
         errs[p.id] = 'Esta pergunta é obrigatória'
+        continue
+      }
+      // Se "Outro" foi selecionado, o detalhe é obrigatório
+      if (p.tipo === 'multipla_escolha' && isOutroSelected(p)
+          && !(outroTexts[p.id] || '').trim()) {
+        errs[p.id] = 'Descreva a opção "Outro".'
       }
     }
     setErrors(errs)
     return Object.keys(errs).length === 0
+  }
+
+  // Converte a sentinela __outro__ em "Outro: <texto>" para persistência
+  function buildPayload(): Record<string, string | number | string[]> {
+    const out: Record<string, string | number | string[]> = {}
+    const cfg = tokenData?.config
+    if (!cfg) return out
+    for (const p of cfg.perguntas) {
+      const a = answers[p.id]
+      if (a === undefined) continue
+      const outroLabel = `Outro: ${(outroTexts[p.id] || '').trim()}`
+      if (Array.isArray(a)) {
+        if (a.length === 0) continue
+        out[p.id] = a.map((v) => (v === OUTRO ? outroLabel : v))
+      } else if (a === OUTRO) {
+        out[p.id] = outroLabel
+      } else if (a !== '') {
+        out[p.id] = a
+      }
+    }
+    return out
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -129,7 +200,7 @@ export function DpaFormPage() {
     try {
       const { data, error } = await supabase.rpc('submit_dpa_response', {
         p_token:     token,
-        p_respostas: answers,
+        p_respostas: buildPayload(),
       })
 
       if (error) throw error
@@ -272,44 +343,83 @@ export function DpaFormPage() {
                   </div>
                 )}
 
-                {/* Multiple choice */}
-                {pergunta.tipo === 'multipla_escolha' && pergunta.opcoes && (
-                  <div className="space-y-2 ml-10">
-                    {pergunta.opcoes.map((opcao) => (
+                {/* Multiple choice (single ou multi) + opção "Outro" */}
+                {pergunta.tipo === 'multipla_escolha' && pergunta.opcoes && (() => {
+                  const isMulti  = !!pergunta.multi
+                  const selected = answers[pergunta.id]
+                  const isChecked = (opcao: string) =>
+                    isMulti
+                      ? Array.isArray(selected) && selected.includes(opcao)
+                      : selected === opcao
+                  const count = Array.isArray(selected) ? selected.length : 0
+                  const atLimit = isMulti && !!pergunta.max_escolhas && count >= pergunta.max_escolhas
+
+                  const choose = (opcao: string) =>
+                    isMulti ? toggleMultiChoice(pergunta, opcao) : handleSingleChoice(pergunta.id, opcao)
+
+                  const renderOption = (value: string, label: string) => {
+                    const on       = isChecked(value)
+                    const disabled = isMulti && !on && atLimit
+                    return (
                       <label
-                        key={opcao}
-                        className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                          answers[pergunta.id] === opcao
-                            ? 'border-gray-900 bg-gray-50'
-                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        key={value}
+                        className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+                          on ? 'border-gray-900 bg-gray-50'
+                             : disabled ? 'border-gray-100 opacity-50 cursor-not-allowed'
+                             : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 cursor-pointer'
                         }`}
                       >
                         <input
-                          type="radio"
+                          type={isMulti ? 'checkbox' : 'radio'}
                           name={pergunta.id}
-                          value={opcao}
-                          checked={answers[pergunta.id] === opcao}
-                          onChange={() => handleText(pergunta.id, opcao)}
+                          checked={on}
+                          disabled={disabled}
+                          onChange={() => choose(value)}
                           className="sr-only"
                         />
-                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                          answers[pergunta.id] === opcao
-                            ? 'border-gray-900 bg-gray-900'
-                            : 'border-gray-300'
+                        <div className={`w-5 h-5 ${isMulti ? 'rounded' : 'rounded-full'} border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                          on ? 'border-gray-900 bg-gray-900' : 'border-gray-300'
                         }`}>
-                          {answers[pergunta.id] === opcao && (
-                            <div className="w-2 h-2 rounded-full bg-white" />
-                          )}
+                          {on && (isMulti
+                            ? <span className="text-white text-[10px] leading-none">✓</span>
+                            : <div className="w-2 h-2 rounded-full bg-white" />)}
                         </div>
-                        <span className={`text-sm ${
-                          answers[pergunta.id] === opcao ? 'font-medium text-gray-900' : 'text-gray-700'
-                        }`}>
-                          {opcao}
+                        <span className={`text-sm ${on ? 'font-medium text-gray-900' : 'text-gray-700'}`}>
+                          {label}
                         </span>
                       </label>
-                    ))}
-                  </div>
-                )}
+                    )
+                  }
+
+                  return (
+                    <div className="space-y-2 ml-10">
+                      {isMulti && pergunta.max_escolhas && (
+                        <p className="text-xs text-gray-400">
+                          Escolha até {pergunta.max_escolhas} {pergunta.max_escolhas > 1 ? 'opções' : 'opção'}
+                          {count > 0 ? ` · ${count} selecionada${count > 1 ? 's' : ''}` : ''}.
+                        </p>
+                      )}
+
+                      {pergunta.opcoes.map((opcao) => renderOption(opcao, opcao))}
+
+                      {/* Opção "Outro" */}
+                      {pergunta.permite_outro && (
+                        <>
+                          {renderOption(OUTRO, 'Outro')}
+                          {isOutroSelected(pergunta) && (
+                            <input
+                              type="text"
+                              value={outroTexts[pergunta.id] || ''}
+                              onChange={(e) => handleOutroText(pergunta.id, e.target.value)}
+                              placeholder="Descreva sua resposta..."
+                              className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2.5 ml-0 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                            />
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* Error */}
                 {errors[pergunta.id] && (
