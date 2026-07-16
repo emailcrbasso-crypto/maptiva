@@ -3,6 +3,7 @@ import { AuthProvider } from '@/modules/auth/AuthContext'
 import { SuperAdminProvider } from '@/modules/auth/SuperAdminContext'
 import { TenantProvider } from '@/modules/auth/TenantContext'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Layout } from '@/components/Layout'
 import { LoginPage } from '@/modules/auth/LoginPage'
 import { DashboardPage } from '@/modules/dashboard/DashboardPage'
@@ -32,6 +33,7 @@ import { DpaDashboardPage } from '@/modules/dpa/DpaDashboardPage'
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <BrowserRouter>
       <AuthProvider>
         <SuperAdminProvider>
@@ -83,5 +85,6 @@ export default function App() {
         </SuperAdminProvider>
       </AuthProvider>
     </BrowserRouter>
+    </ErrorBoundary>
   )
 }
