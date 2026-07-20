@@ -114,6 +114,11 @@ export function DpaDashboardPage() {
   const [emailFeedback,  setEmailFeedback]  = useState<string | null>(null)
 
   // ── New participant form ──────────────────────────────────────────────────
+  const [editingTitle,  setEditingTitle]  = useState(false)
+  const [titleDraft,    setTitleDraft]    = useState('')
+  const [descDraft,     setDescDraft]     = useState('')
+  const [savingTitle,   setSavingTitle]   = useState(false)
+
   const [showAddForm,   setShowAddForm]   = useState(false)
   const [addNome,       setAddNome]       = useState('')
   const [addEmail,      setAddEmail]      = useState('')
@@ -165,6 +170,34 @@ export function DpaDashboardPage() {
   }
 
   useEffect(() => { load() }, [id])
+
+  // ── Title / description edit ─────────────────────────────────────────────
+
+  function startEditTitle() {
+    if (!project) return
+    setTitleDraft(project.nome)
+    setDescDraft(project.descricao ?? '')
+    setEditingTitle(true)
+  }
+
+  async function saveTitle() {
+    if (!id || !titleDraft.trim()) return
+    setSavingTitle(true)
+    const { error: updErr } = await supabase
+      .from('dpa_projetos')
+      .update({ nome: titleDraft.trim(), descricao: descDraft.trim() || null })
+      .eq('id', id)
+
+    if (updErr) {
+      alert(`Erro ao salvar: ${updErr.message}`)
+      setSavingTitle(false)
+      return
+    }
+
+    setProject((prev) => prev ? { ...prev, nome: titleDraft.trim(), descricao: descDraft.trim() || null } : prev)
+    setSavingTitle(false)
+    setEditingTitle(false)
+  }
 
   // ── Status change ──────────────────────────────────────────────────────────
 
@@ -358,15 +391,60 @@ export function DpaDashboardPage() {
           ← Diagnósticos
         </Link>
         <div className="flex items-start justify-between mt-2 gap-4">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-xl font-semibold text-gray-900">{project.nome}</h1>
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[project.status]}`}>
-                {STATUS_LABELS[project.status]}
-              </span>
-            </div>
-            {project.descricao && (
-              <p className="text-sm text-gray-500 mt-0.5">{project.descricao}</p>
+          <div className="flex-1 min-w-0">
+            {editingTitle ? (
+              <div className="space-y-2 max-w-xl">
+                <input
+                  type="text"
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  placeholder="Nome do diagnóstico"
+                  className="w-full text-lg font-semibold text-gray-900 border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                  autoFocus
+                />
+                <textarea
+                  rows={2}
+                  value={descDraft}
+                  onChange={(e) => setDescDraft(e.target.value)}
+                  placeholder="Descrição / instruções para o participante"
+                  className="w-full text-sm text-gray-600 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900 resize-none"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={saveTitle}
+                    disabled={savingTitle || !titleDraft.trim()}
+                    className="text-xs bg-gray-900 text-white px-3 py-1.5 rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                  >
+                    {savingTitle ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button
+                    onClick={() => setEditingTitle(false)}
+                    disabled={savingTitle}
+                    className="text-xs text-gray-500 px-3 py-1.5 hover:text-gray-700 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <h1 className="text-xl font-semibold text-gray-900">{project.nome}</h1>
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[project.status]}`}>
+                    {STATUS_LABELS[project.status]}
+                  </span>
+                  <button
+                    onClick={startEditTitle}
+                    className="text-xs text-gray-400 hover:text-gray-800 transition-colors"
+                    title="Editar título e descrição"
+                  >
+                    ✎ Editar
+                  </button>
+                </div>
+                {project.descricao && (
+                  <p className="text-sm text-gray-500 mt-0.5">{project.descricao}</p>
+                )}
+              </>
             )}
           </div>
 
