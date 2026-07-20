@@ -73,6 +73,7 @@ interface Participante {
   status:        'pendente' | 'respondido'
   token:         string
   respondido_em: string | null
+  email_enviado_em: string | null
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -139,7 +140,7 @@ export function DpaDashboardPage() {
         .single(),
       supabase
         .from('dpa_participantes')
-        .select('id, nome, email, unidade, status, token, respondido_em')
+        .select('id, nome, email, unidade, status, token, respondido_em, email_enviado_em')
         .eq('projeto_id', id)
         .order('created_at', { ascending: true }),
     ])
@@ -879,7 +880,16 @@ export function DpaDashboardPage() {
                           ✓ Respondido
                         </span>
                       ) : (
-                        <span className="text-xs text-gray-400">Pendente</span>
+                        <div>
+                          <span className="text-xs text-gray-400">Pendente</span>
+                          {p.email_enviado_em ? (
+                            <p className="text-[11px] text-blue-500 mt-0.5" title={new Date(p.email_enviado_em).toLocaleString('pt-BR')}>
+                              ✓ e-mail enviado {new Date(p.email_enviado_em).toLocaleDateString('pt-BR')}
+                            </p>
+                          ) : (
+                            <p className="text-[11px] text-amber-500 mt-0.5">e-mail ainda não enviado</p>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3">
