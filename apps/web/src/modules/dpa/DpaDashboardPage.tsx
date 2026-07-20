@@ -119,6 +119,8 @@ export function DpaDashboardPage() {
   const [descDraft,     setDescDraft]     = useState('')
   const [savingTitle,   setSavingTitle]   = useState(false)
 
+  const [removingId,    setRemovingId]    = useState<string | null>(null)
+
   const [showAddForm,   setShowAddForm]   = useState(false)
   const [addNome,       setAddNome]       = useState('')
   const [addEmail,      setAddEmail]      = useState('')
@@ -197,6 +199,32 @@ export function DpaDashboardPage() {
     setProject((prev) => prev ? { ...prev, nome: titleDraft.trim(), descricao: descDraft.trim() || null } : prev)
     setSavingTitle(false)
     setEditingTitle(false)
+  }
+
+  // ── Remove participant ───────────────────────────────────────────────────
+  // Bloqueado para quem já respondeu — a resposta é anônima e ligada ao
+  // participante apenas para controle de status; remover quebraria a
+  // consolidação sem trazer benefício (a pessoa não pode ser re-notificada
+  // de forma útil já que a resposta já foi coletada).
+
+  async function removeParticipant(p: Participante) {
+    if (p.status === 'respondido') return
+    if (!confirm(`Remover ${p.nome || p.email} da lista de participantes?`)) return
+
+    setRemovingId(p.id)
+    const { error: delErr } = await supabase
+      .from('dpa_participantes')
+      .delete()
+      .eq('id', p.id)
+
+    if (delErr) {
+      alert(`Erro ao remover: ${delErr.message}`)
+      setRemovingId(null)
+      return
+    }
+
+    setParticipantes((prev) => prev.filter((x) => x.id !== p.id))
+    setRemovingId(null)
   }
 
   // ── Status change ──────────────────────────────────────────────────────────
@@ -877,6 +905,16 @@ export function DpaDashboardPage() {
                                 Enviando...
                               </>
                             ) : 'Enviar e-mail'}
+                          </button>
+                        )}
+                        {p.status !== 'respondido' && (
+                          <button
+                            onClick={() => removeParticipant(p)}
+                            disabled={removingId === p.id}
+                            className="text-xs text-gray-400 hover:text-red-500 disabled:opacity-50 transition-colors"
+                            title="Remover participante"
+                          >
+                            {removingId === p.id ? 'Removendo...' : 'Remover'}
                           </button>
                         )}
                       </div>
