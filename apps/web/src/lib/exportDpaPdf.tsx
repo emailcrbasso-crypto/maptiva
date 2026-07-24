@@ -119,6 +119,16 @@ const S = StyleSheet.create({
   outroLabel:  { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#9ca3af', marginBottom: 2 },
   outroText:   { fontSize: 7, color: '#4b5563', lineHeight: 1.4, marginBottom: 2 },
 
+  // Keywords (respostas de texto livre)
+  keywordsText: { fontSize: 6.5, color: '#2563eb', marginBottom: 6, lineHeight: 1.4 },
+
+  // Cross-tab por unidade
+  crossTab:      { marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
+  crossTabLabel: { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#9ca3af', marginBottom: 3 },
+  crossTabRow:   { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 1.5 },
+  crossTabUnit:  { fontSize: 7, color: '#4b5563', flex: 2 },
+  crossTabValue: { fontSize: 7, color: '#111827', fontFamily: 'Helvetica-Bold', flex: 1, textAlign: 'right' },
+
   // Footer
   footer:      { position: 'absolute', bottom: 22, left: 36, right: 36, flexDirection: 'row', justifyContent: 'space-between' },
   footerText:  { fontSize: 7, color: '#9ca3af' },
@@ -213,6 +223,73 @@ function isFillerAnswer(text: string): boolean {
   return n.length <= 2 || FILLER_TEXTS.has(n)
 }
 
+// ─── Palavras-chave mais citadas (respostas de texto livre) ────────────────────
+
+const STOPWORDS_PT = new Set([
+  'de', 'a', 'o', 'que', 'e', 'do', 'da', 'em', 'um', 'para', 'com', 'nao', 'uma',
+  'os', 'no', 'se', 'na', 'por', 'mais', 'as', 'dos', 'como', 'mas', 'ao', 'ele',
+  'das', 'tem', 'seu', 'sua', 'ou', 'ser', 'quando', 'muito', 'ha', 'nos', 'ja',
+  'esta', 'eu', 'tambem', 'so', 'pelo', 'pela', 'ate', 'isso', 'ela', 'entre',
+  'era', 'depois', 'sem', 'mesmo', 'aos', 'ter', 'seus', 'quem', 'nas', 'me',
+  'esse', 'eles', 'estao', 'voce', 'tinha', 'foram', 'essa', 'num', 'nem', 'suas',
+  'meu', 'minha', 'numa', 'pelos', 'elas', 'havia', 'seja', 'qual', 'sera',
+  'tenho', 'lhe', 'deles', 'essas', 'esses', 'pelas', 'este', 'fosse', 'dele',
+  'tu', 'te', 'voces', 'vos', 'lhes', 'meus', 'minhas', 'teu', 'tua', 'teus',
+  'tuas', 'nosso', 'nossa', 'nossos', 'nossas', 'dela', 'delas', 'estes', 'estas',
+  'aquele', 'aquela', 'aqueles', 'aquelas', 'isto', 'aquilo', 'estou', 'estamos',
+  'sou', 'somos', 'sao', 'eramos', 'eram', 'fui', 'foi', 'fomos', 'temos',
+  'tinham', 'tive', 'teve', 'tivemos', 'tiveram', 'todo', 'toda', 'todos',
+  'todas', 'outro', 'outra', 'outros', 'outras', 'algum', 'alguma', 'alguns',
+  'algumas', 'nenhum', 'nenhuma', 'qualquer', 'quaisquer', 'cada', 'tudo',
+  'nada', 'algo', 'alguem', 'ninguem', 'onde', 'aqui', 'ali', 'la', 'assim',
+  'entao', 'porque', 'porem', 'portanto', 'contudo', 'todavia', 'enquanto',
+  'durante', 'ainda', 'sempre', 'nunca', 'hoje', 'ontem', 'amanha', 'agora',
+  'antes', 'apos', 'sobre', 'sob', 'atraves', 'dentro', 'fora', 'acima',
+  'abaixo', 'perto', 'longe', 'pouco', 'bastante', 'demais', 'tanto', 'tao',
+  'menos', 'bem', 'mal',
+])
+
+function extractKeywords(
+  perguntaId: string, respostas: Resposta[], limit = 6,
+): { word: string; count: number }[] {
+  const texts = computeTextAnswers(perguntaId, respostas).filter((t) => !isFillerAnswer(t))
+  const freq: Record<string, number> = {}
+
+  for (const t of texts) {
+    const words = t
+      .toLowerCase()
+      .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      .replace(/[^a-z\s]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean)
+
+    // Conta cada palavra 1x por resposta (evita 1 resposta longa dominar)
+    const seen = new Set<string>()
+    for (const w of words) {
+      if (w.length < 4 || STOPWORDS_PT.has(w) || seen.has(w)) continue
+      seen.add(w)
+      freq[w] = (freq[w] || 0) + 1
+    }
+  }
+
+  return Object.entries(freq)
+    .filter(([, c]) => c >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([word, count]) => ({ word, count }))
+}
+
+// ─── Cross-tab por unidade (perguntas quantitativas) ───────────────────────────
+
+function groupByUnidade(respostas: Resposta[]): Record<string, Resposta[]> {
+  const groups: Record<string, Resposta[]> = {}
+  for (const r of respostas) {
+    const key = r.unidade?.trim() || 'Sem unidade'
+    ;(groups[key] ??= []).push(r)
+  }
+  return groups
+}
+
 // ─── Executive highlights (síntese das perguntas objetivas) ────────────────────
 
 interface Highlight { label: string; value: string }
@@ -249,6 +326,8 @@ function DpaDocument({
   const today     = new Date().toLocaleDateString('pt-BR')
   const config    = project.config
   const perguntas = config.perguntas
+  // Cross-tab só faz sentido quando o projeto de fato segmenta por mais de 1 unidade
+  const unidadesMultiplas = dashboard.por_unidade.length > 1
 
   const footerLeft = branding.hideMaptiva
     ? `${branding.companyName} · ${branding.footerText}`
@@ -382,6 +461,21 @@ function DpaDocument({
                   ) : (
                     <Text style={{ fontSize: 8, color: '#9ca3af' }}>Sem respostas.</Text>
                   )}
+                  {stats && unidadesMultiplas && (
+                    <View style={S.crossTab}>
+                      <Text style={S.crossTabLabel}>MÉDIA POR {config.label_unidade.toUpperCase()}</Text>
+                      {Object.entries(groupByUnidade(dashboard.respostas)).map(([unidade, group]) => {
+                        const gStats = computeScaleStats(p.id, group)
+                        if (!gStats) return null
+                        return (
+                          <View key={unidade} style={S.crossTabRow}>
+                            <Text style={S.crossTabUnit}>{unidade}</Text>
+                            <Text style={S.crossTabValue}>{gStats.avg.toFixed(2)} / 5.0</Text>
+                          </View>
+                        )
+                      })}
+                    </View>
+                  )}
                 </View>
               )
             }
@@ -415,6 +509,23 @@ function DpaDocument({
                       ))}
                     </View>
                   )}
+                  {unidadesMultiplas && (
+                    <View style={S.crossTab}>
+                      <Text style={S.crossTabLabel}>OPÇÃO MAIS CITADA POR {config.label_unidade.toUpperCase()}</Text>
+                      {Object.entries(groupByUnidade(dashboard.respostas)).map(([unidade, group]) => {
+                        const gRows = computeChoiceStats(p.id, p.opcoes!, group)
+                        const gTop  = [...gRows].sort((a, b) => b.count - a.count)[0]
+                        if (!gTop || gTop.count === 0) return null
+                        const gPct = gTop.total > 0 ? Math.round((gTop.count / gTop.total) * 100) : 0
+                        return (
+                          <View key={unidade} style={S.crossTabRow}>
+                            <Text style={S.crossTabUnit}>{unidade}</Text>
+                            <Text style={S.crossTabValue}>{gTop.opcao} ({gPct}%)</Text>
+                          </View>
+                        )
+                      })}
+                    </View>
+                  )}
                 </View>
               )
             }
@@ -423,14 +534,20 @@ function DpaDocument({
               const texts       = computeTextAnswers(p.id, dashboard.respostas)
               const substantive = texts.filter((t) => !isFillerAnswer(t))
               const filler      = texts.filter((t) => isFillerAnswer(t))
+              const keywords    = extractKeywords(p.id, dashboard.respostas)
               return (
                 <View key={p.id} style={S.qCard}>
                   <Text style={S.qNum}>Pergunta {idx + 1}</Text>
                   <Text style={S.qTexto}>{p.texto}</Text>
-                  <Text style={{ fontSize: 7, color: '#9ca3af', marginBottom: 6 }}>
+                  <Text style={{ fontSize: 7, color: '#9ca3af', marginBottom: keywords.length > 0 ? 2 : 6 }}>
                     {texts.length} resposta{texts.length !== 1 ? 's' : ''}
                     {filler.length > 0 ? ` · ${substantive.length} com conteúdo` : ''}
                   </Text>
+                  {keywords.length > 0 && (
+                    <Text style={S.keywordsText}>
+                      Palavras mais citadas: {keywords.map((k) => `${k.word} (${k.count})`).join(' · ')}
+                    </Text>
+                  )}
                   {substantive.map((text, i) => (
                     <View key={i} style={S.textBubble} wrap={false}>
                       <Text style={S.textAnswer}>{text}</Text>
