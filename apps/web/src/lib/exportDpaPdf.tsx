@@ -106,6 +106,18 @@ const S = StyleSheet.create({
   scalePct:    { fontSize: 7, color: '#9ca3af', width: 30, textAlign: 'right' },
   textBubble:  { backgroundColor: '#f9fafb', borderRadius: 4, padding: 6, marginBottom: 4 },
   textAnswer:  { fontSize: 7, color: '#374151', lineHeight: 1.4 },
+  fillerBlock: { marginTop: 2 },
+  fillerText:  { fontSize: 6.5, color: '#9ca3af', lineHeight: 1.5 },
+
+  // Highlights (executive summary)
+  hlRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  hlLabel:     { flex: 3, fontSize: 7.5, color: '#374151' },
+  hlValue:     { flex: 1, fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#111827', textAlign: 'right' },
+
+  // Outro (write-in) block
+  outroBlock:  { marginTop: 4, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: '#e5e7eb' },
+  outroLabel:  { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#9ca3af', marginBottom: 2 },
+  outroText:   { fontSize: 7, color: '#4b5563', lineHeight: 1.4, marginBottom: 2 },
 
   // Footer
   footer:      { position: 'absolute', bottom: 22, left: 36, right: 36, flexDirection: 'row', justifyContent: 'space-between' },
@@ -160,6 +172,67 @@ function computeTextAnswers(perguntaId: string, respostas: Resposta[]) {
   return respostas
     .map((r) => r.respostas[perguntaId])
     .filter((v) => typeof v === 'string' && (v as string).trim() !== '') as string[]
+}
+
+// Texto digitado nas seleções "Outro: <texto>" de perguntas de múltipla escolha
+function computeOutroDetails(perguntaId: string, respostas: Resposta[]): string[] {
+  const out: string[] = []
+  for (const r of respostas) {
+    const v   = r.respostas[perguntaId]
+    const arr = Array.isArray(v) ? v : v !== undefined && v !== null ? [v] : []
+    for (const item of arr) {
+      const s = String(item)
+      if (s.startsWith('Outro:')) {
+        const detail = s.replace(/^Outro:\s*/, '').trim()
+        if (detail) out.push(detail)
+      }
+    }
+  }
+  return out
+}
+
+// ─── Filler detection (respostas sem conteúdo analítico: "n/a", "nenhuma"...) ──
+
+const FILLER_TEXTS = new Set([
+  'na', 'nao', 'n a', 'nda', 'nenhuma', 'nenhum', 'nenhuma observacao',
+  'nenhuma opiniao', 'sem resposta', 'sem observacao', 'sem comentario',
+  'sem comentarios', 'nulo', 'nao tenho', 'nao sei',
+])
+
+function normalizeFiller(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+function isFillerAnswer(text: string): boolean {
+  const n = normalizeFiller(text)
+  return n.length <= 2 || FILLER_TEXTS.has(n)
+}
+
+// ─── Executive highlights (síntese das perguntas objetivas) ────────────────────
+
+interface Highlight { label: string; value: string }
+
+function buildHighlights(perguntas: Pergunta[], respostas: Resposta[]): Highlight[] {
+  const items: Highlight[] = []
+  for (const p of perguntas) {
+    if (p.tipo === 'escala_5') {
+      const stats = computeScaleStats(p.id, respostas)
+      if (stats) items.push({ label: p.texto, value: `${stats.avg.toFixed(2)} / 5.0` })
+    } else if (p.tipo === 'multipla_escolha' && p.opcoes) {
+      const rows = computeChoiceStats(p.id, p.opcoes, respostas)
+      const top  = [...rows].sort((a, b) => b.count - a.count)[0]
+      if (top && top.count > 0) {
+        const pct = top.total > 0 ? Math.round((top.count / top.total) * 100) : 0
+        items.push({ label: p.texto, value: `${top.opcao} (${pct}%)` })
+      }
+    }
+  }
+  return items
 }
 
 // ─── PDF Document ─────────────────────────────────────────────────────────────
@@ -224,6 +297,25 @@ function DpaDocument({
             <Text style={S.kpiLabel}>Pendentes</Text>
           </View>
         </View>
+
+        {/* ── Highlights (síntese executiva) ── */}
+        {(() => {
+          const highlights = buildHighlights(perguntas, dashboard.respostas)
+          if (highlights.length === 0) return null
+          return (
+            <View style={S.section}>
+              <Text style={S.sectionTitle}>Principais destaques</Text>
+              <View style={{ borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6, paddingHorizontal: 10 }}>
+                {highlights.map((h, i) => (
+                  <View key={i} style={[S.hlRow, i === highlights.length - 1 ? { borderBottomWidth: 0 } : {}]}>
+                    <Text style={S.hlLabel}>{h.label}</Text>
+                    <Text style={S.hlValue}>{h.value}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )
+        })()}
 
         {/* ── Participation by unit ── */}
         {dashboard.por_unidade.length > 0 && (
@@ -296,6 +388,7 @@ function DpaDocument({
 
             if (p.tipo === 'multipla_escolha' && p.opcoes) {
               const choiceStats = computeChoiceStats(p.id, p.opcoes, dashboard.respostas)
+              const outroTexts  = computeOutroDetails(p.id, dashboard.respostas)
               return (
                 <View key={p.id} style={S.qCard} wrap={false}>
                   <Text style={S.qNum}>Pergunta {idx + 1}</Text>
@@ -312,28 +405,43 @@ function DpaDocument({
                       </View>
                     )
                   })}
+                  {outroTexts.length > 0 && (
+                    <View style={S.outroBlock}>
+                      <Text style={S.outroLabel}>
+                        DETALHAMENTO DE "OUTRO" ({outroTexts.length})
+                      </Text>
+                      {outroTexts.map((t, i) => (
+                        <Text key={i} style={S.outroText}>— {t}</Text>
+                      ))}
+                    </View>
+                  )}
                 </View>
               )
             }
 
             if (p.tipo === 'texto_livre') {
-              const texts = computeTextAnswers(p.id, dashboard.respostas)
+              const texts       = computeTextAnswers(p.id, dashboard.respostas)
+              const substantive = texts.filter((t) => !isFillerAnswer(t))
+              const filler      = texts.filter((t) => isFillerAnswer(t))
               return (
                 <View key={p.id} style={S.qCard}>
                   <Text style={S.qNum}>Pergunta {idx + 1}</Text>
                   <Text style={S.qTexto}>{p.texto}</Text>
                   <Text style={{ fontSize: 7, color: '#9ca3af', marginBottom: 6 }}>
                     {texts.length} resposta{texts.length !== 1 ? 's' : ''}
+                    {filler.length > 0 ? ` · ${substantive.length} com conteúdo` : ''}
                   </Text>
-                  {texts.slice(0, 10).map((text, i) => (
-                    <View key={i} style={S.textBubble}>
+                  {substantive.map((text, i) => (
+                    <View key={i} style={S.textBubble} wrap={false}>
                       <Text style={S.textAnswer}>{text}</Text>
                     </View>
                   ))}
-                  {texts.length > 10 && (
-                    <Text style={{ fontSize: 7, color: '#9ca3af' }}>
-                      + {texts.length - 10} respostas adicionais no export Excel.
-                    </Text>
+                  {filler.length > 0 && (
+                    <View style={S.fillerBlock} wrap={false}>
+                      <Text style={S.fillerText}>
+                        Sem observação relevante ({filler.length}): {filler.join(' · ')}
+                      </Text>
+                    </View>
                   )}
                 </View>
               )
