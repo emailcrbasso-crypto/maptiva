@@ -53,6 +53,17 @@ interface DashboardData {
   respostas:           Resposta[]
 }
 
+// ─── Modo do relatório ──────────────────────────────────────────────────────────
+// 'interno'   → uso da CR BASSO: mostra respostas de texto livre e write-ins.
+// 'compilado' → entregável ao cliente: só dados agregados/anônimos, nenhum
+//               comentário individual (podem conter nomes ou detalhes que
+//               identifiquem a pessoa). Grupos pequenos (< N_MIN_UNIDADE)
+//               também são ocultados para não permitir reidentificação por
+//               cruzamento (ex.: "só 2 pessoas no RH" + comentário específico).
+export type DpaReportMode = 'interno' | 'compilado'
+
+const N_MIN_UNIDADE = 3
+
 // ─── Color helpers ────────────────────────────────────────────────────────────
 
 function scoreBarColor(avg: number): string {
@@ -132,6 +143,11 @@ const S = StyleSheet.create({
   // Footer
   footer:      { position: 'absolute', bottom: 22, left: 36, right: 36, flexDirection: 'row', justifyContent: 'space-between' },
   footerText:  { fontSize: 7, color: '#9ca3af' },
+
+  // Confidentiality banner (modo compilado)
+  confBanner:  { backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', borderRadius: 6, padding: 10, marginBottom: 16 },
+  confText:    { fontSize: 7.5, color: '#1e40af', lineHeight: 1.4 },
+  noticeText:  { fontSize: 7, color: '#9ca3af', fontStyle: 'italic', marginTop: 2 },
 })
 
 // ─── Question stats ───────────────────────────────────────────────────────────
@@ -318,16 +334,23 @@ function DpaDocument({
   project,
   dashboard,
   branding,
+  mode = 'interno',
 }: {
   project:   DpaProject
   dashboard: DashboardData
   branding:  PdfBranding
+  mode?:     DpaReportMode
 }) {
-  const today     = new Date().toLocaleDateString('pt-BR')
-  const config    = project.config
-  const perguntas = config.perguntas
+  const today       = new Date().toLocaleDateString('pt-BR')
+  const config      = project.config
+  const perguntas   = config.perguntas
+  const isCompilado = mode === 'compilado'
   // Cross-tab só faz sentido quando o projeto de fato segmenta por mais de 1 unidade
   const unidadesMultiplas = dashboard.por_unidade.length > 1
+  const unidadesVisiveis  = isCompilado
+    ? dashboard.por_unidade.filter((u) => u.total >= N_MIN_UNIDADE)
+    : dashboard.por_unidade
+  const unidadesOcultas   = dashboard.por_unidade.length - unidadesVisiveis.length
 
   const footerLeft = branding.hideMaptiva
     ? `${branding.companyName} · ${branding.footerText}`
@@ -352,11 +375,24 @@ function DpaDocument({
                 <Text style={S.companyName}>{branding.companyName}</Text>
               )}
               <Text style={S.title}>{project.nome}</Text>
-              <Text style={S.subtitle}>Diagnóstico Prévio Anônimo — Relatório Executivo</Text>
+              <Text style={S.subtitle}>
+                Diagnóstico Prévio Anônimo — {isCompilado ? 'Relatório Compilado' : 'Relatório Executivo'}
+              </Text>
             </View>
             <Text style={S.dateText}>Gerado em {today}</Text>
           </View>
         </View>
+
+        {/* ── Confidentiality banner (modo compilado) ── */}
+        {isCompilado && (
+          <View style={S.confBanner}>
+            <Text style={S.confText}>
+              🔒 Este relatório apresenta apenas dados agregados e anônimos. Comentários individuais
+              não são incluídos, e grupos com menos de {N_MIN_UNIDADE} respondentes são omitidos, para
+              preservar o sigilo de cada participante.
+            </Text>
+          </View>
+        )}
 
         {/* ── KPIs ── */}
         <View style={S.kpiRow}>
@@ -397,7 +433,7 @@ function DpaDocument({
         })()}
 
         {/* ── Participation by unit ── */}
-        {dashboard.por_unidade.length > 0 && (
+        {unidadesVisiveis.length > 0 && (
           <View style={S.section}>
             <Text style={S.sectionTitle}>Participação por {config.label_unidade}</Text>
             <View style={{ borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6, overflow: 'hidden' }}>
@@ -407,7 +443,7 @@ function DpaDocument({
                 <Text style={[S.cellCount, S.headerLabel]}>TOTAL</Text>
                 <Text style={[S.cellPct, S.headerLabel]}>TAXA</Text>
               </View>
-              {dashboard.por_unidade.map((u) => {
+              {unidadesVisiveis.map((u) => {
                 const pct = u.total > 0 ? Math.round((u.respondidos / u.total) * 100) : 0
                 return (
                   <View key={u.unidade} style={S.tableRow}>
@@ -422,6 +458,12 @@ function DpaDocument({
                 )
               })}
             </View>
+            {unidadesOcultas > 0 && (
+              <Text style={S.noticeText}>
+                {unidadesOcultas} {unidadesOcultas > 1 ? 'unidades com menos' : 'unidade com menos'} de{' '}
+                {N_MIN_UNIDADE} respondentes {unidadesOcultas > 1 ? 'foram omitidas' : 'foi omitida'} por confidencialidade.
+              </Text>
+            )}
           </View>
         )}
 
@@ -465,6 +507,7 @@ function DpaDocument({
                     <View style={S.crossTab}>
                       <Text style={S.crossTabLabel}>MÉDIA POR {config.label_unidade.toUpperCase()}</Text>
                       {Object.entries(groupByUnidade(dashboard.respostas)).map(([unidade, group]) => {
+                        if (isCompilado && group.length < N_MIN_UNIDADE) return null
                         const gStats = computeScaleStats(p.id, group)
                         if (!gStats) return null
                         return (
@@ -499,7 +542,7 @@ function DpaDocument({
                       </View>
                     )
                   })}
-                  {outroTexts.length > 0 && (
+                  {!isCompilado && outroTexts.length > 0 && (
                     <View style={S.outroBlock}>
                       <Text style={S.outroLabel}>
                         DETALHAMENTO DE "OUTRO" ({outroTexts.length})
@@ -509,10 +552,16 @@ function DpaDocument({
                       ))}
                     </View>
                   )}
+                  {isCompilado && outroTexts.length > 0 && (
+                    <Text style={S.noticeText}>
+                      Detalhamento de "Outro" disponível apenas na versão interna.
+                    </Text>
+                  )}
                   {unidadesMultiplas && (
                     <View style={S.crossTab}>
                       <Text style={S.crossTabLabel}>OPÇÃO MAIS CITADA POR {config.label_unidade.toUpperCase()}</Text>
                       {Object.entries(groupByUnidade(dashboard.respostas)).map(([unidade, group]) => {
+                        if (isCompilado && group.length < N_MIN_UNIDADE) return null
                         const gRows = computeChoiceStats(p.id, p.opcoes!, group)
                         const gTop  = [...gRows].sort((a, b) => b.count - a.count)[0]
                         if (!gTop || gTop.count === 0) return null
@@ -548,17 +597,28 @@ function DpaDocument({
                       Palavras mais citadas: {keywords.map((k) => `${k.word} (${k.count})`).join(' · ')}
                     </Text>
                   )}
-                  {substantive.map((text, i) => (
-                    <View key={i} style={S.textBubble} wrap={false}>
-                      <Text style={S.textAnswer}>{text}</Text>
-                    </View>
-                  ))}
-                  {filler.length > 0 && (
-                    <View style={S.fillerBlock} wrap={false}>
-                      <Text style={S.fillerText}>
-                        Sem observação relevante ({filler.length}): {filler.join(' · ')}
+                  {isCompilado ? (
+                    substantive.length > 0 && (
+                      <Text style={S.noticeText}>
+                        Respostas individuais disponíveis apenas na versão interna, para preservar o
+                        sigilo dos participantes.
                       </Text>
-                    </View>
+                    )
+                  ) : (
+                    <>
+                      {substantive.map((text, i) => (
+                        <View key={i} style={S.textBubble} wrap={false}>
+                          <Text style={S.textAnswer}>{text}</Text>
+                        </View>
+                      ))}
+                      {filler.length > 0 && (
+                        <View style={S.fillerBlock} wrap={false}>
+                          <Text style={S.fillerText}>
+                            Sem observação relevante ({filler.length}): {filler.join(' · ')}
+                          </Text>
+                        </View>
+                      )}
+                    </>
                   )}
                 </View>
               )
@@ -588,16 +648,18 @@ export async function exportDpaPdf(
   project:   DpaProject,
   dashboard: DashboardData,
   branding:  PdfBranding,
+  mode:      DpaReportMode = 'interno',
 ): Promise<void> {
   const blob = await pdf(
-    <DpaDocument project={project} dashboard={dashboard} branding={branding} />
+    <DpaDocument project={project} dashboard={dashboard} branding={branding} mode={mode} />
   ).toBlob()
 
   const url      = URL.createObjectURL(blob)
   const a        = document.createElement('a')
   const safeName = project.nome.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_')
+  const suffix   = mode === 'compilado' ? '_compilado' : ''
   a.href         = url
-  a.download     = `DPA_${safeName}_${new Date().toISOString().slice(0, 10)}.pdf`
+  a.download     = `DPA_${safeName}${suffix}_${new Date().toISOString().slice(0, 10)}.pdf`
   a.click()
   URL.revokeObjectURL(url)
 }

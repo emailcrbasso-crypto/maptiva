@@ -107,7 +107,8 @@ export function DpaDashboardPage() {
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState<string | null>(null)
   const [tab,          setTab]          = useState<'resultados' | 'participantes'>('resultados')
-  const [exportingPdf, setExportingPdf] = useState(false)
+  const [exportingPdf,      setExportingPdf]      = useState(false)
+  const [exportingCompilado, setExportingCompilado] = useState(false)
   const [updating,     setUpdating]     = useState(false)
   const [copied,       setCopied]       = useState<string | null>(null)
   const [sendingEmail,   setSendingEmail]   = useState<string | null>(null)  // participant id being sent
@@ -516,13 +517,32 @@ export function DpaDashboardPage() {
                       primaryColor: branding.primaryColor,
                       footerText:   branding.pdfFooterText,
                       hideMaptiva:  branding.hideMaptiva,
-                    })
+                    }, 'interno')
                     setExportingPdf(false)
                   }}
                   disabled={exportingPdf}
+                  title="Relatório completo, com respostas individuais — uso interno da consultoria"
                   className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
                 >
-                  {exportingPdf ? 'Gerando...' : '↓ PDF'}
+                  {exportingPdf ? 'Gerando...' : '↓ PDF Interno'}
+                </button>
+                <button
+                  onClick={async () => {
+                    setExportingCompilado(true)
+                    await exportDpaPdf(project, dashboard, {
+                      companyName:  branding.name,
+                      logoUrl:      branding.logoUrl,
+                      primaryColor: branding.primaryColor,
+                      footerText:   branding.pdfFooterText,
+                      hideMaptiva:  branding.hideMaptiva,
+                    }, 'compilado')
+                    setExportingCompilado(false)
+                  }}
+                  disabled={exportingCompilado}
+                  title="Somente dados agregados e anônimos — apto para envio ao cliente"
+                  className="text-sm px-4 py-2 rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 transition-colors"
+                >
+                  {exportingCompilado ? 'Gerando...' : '🔒 PDF Compilado (Cliente)'}
                 </button>
               </>
             )}
