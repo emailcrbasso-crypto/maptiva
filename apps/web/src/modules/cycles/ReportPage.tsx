@@ -530,7 +530,7 @@ export function ReportPage() {
 
                 {/* Score grid */}
                 <div className="grid grid-cols-5 gap-2">
-                  <ScoreBadge value={p.overall_score}     label="Overall" />
+                  <ScoreBadge value={p.overall_score}     label="Média Geral" />
                   <ScoreBadge value={p.self_score}        label="Autoaval." />
                   <ScoreBadge value={p.manager_score}     label="Gestor" />
                   <ScoreBadge value={p.peer_score}        label="Pares" />

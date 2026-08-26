@@ -86,7 +86,7 @@ function exportTeamExcel(cycleName: string, grouped: [string, ParticipantWithDep
   const wb = XLSX.utils.book_new()
 
   const headers = [
-    'Departamento', 'Participante', 'Cargo', 'Rank', 'Overall',
+    'Departamento', 'Participante', 'Cargo', 'Rank', 'Média Geral',
     'Autoavaliação', 'Gestor', 'Pares', 'Subordinados',
     'Pontos Cegos', 'Forças Ocultas',
   ]
@@ -306,7 +306,7 @@ export function TeamReportPage() {
                   {/* Header row */}
                   <div className="px-5 py-2 grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 text-xs font-medium text-gray-400 uppercase tracking-wide">
                     <span>Participante</span>
-                    <span className="text-center">Overall</span>
+                    <span className="text-center">Média Geral</span>
                     <span className="text-center">Self</span>
                     <span className="text-center">Gestor</span>
                     <span className="text-center">Pares</span>

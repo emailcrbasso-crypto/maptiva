@@ -252,7 +252,7 @@ function TeamReportDocument({
                   <View style={S.tableHead}>
                     <View style={S.colRank}><Text style={S.headText}>#</Text></View>
                     <View style={S.colName}><Text style={S.headText}>Participante</Text></View>
-                    <View style={S.colOverall}><Text style={S.headText}>Overall</Text></View>
+                    <View style={S.colOverall}><Text style={S.headText}>Média Geral</Text></View>
                     <View style={S.colScore}><Text style={[S.headText, { textAlign: 'center' }]}>Self</Text></View>
                     <View style={S.colScore}><Text style={[S.headText, { textAlign: 'center' }]}>Gestor</Text></View>
                     <View style={S.colScore}><Text style={[S.headText, { textAlign: 'center' }]}>Pares</Text></View>

@@ -528,7 +528,7 @@ function ParticipantCard({
 
       {/* Score grid */}
       <View style={S.scoreRow}>
-        <ScoreBox value={p.overall_score}     label="Overall" />
+        <ScoreBox value={p.overall_score}     label="Média Geral" />
         <ScoreBox value={p.self_score}        label="Autoaval." />
         <ScoreBox value={p.manager_score}     label="Gestor" />
         <ScoreBox value={p.peer_score}        label="Pares" />

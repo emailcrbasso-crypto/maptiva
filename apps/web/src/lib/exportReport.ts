@@ -116,7 +116,7 @@ export function exportCycleReportExcel(
   // ── Sheet 2: Participantes ─────────────────────────────────────────────────
   const headers = [
     'Participante',
-    'Overall',
+    'Média Geral',
     'Autoavaliação',
     'Gestor',
     'Pares',

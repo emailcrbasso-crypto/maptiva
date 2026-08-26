@@ -975,7 +975,7 @@ export function CycleDetailPage() {
                       {summaryRow && summaryRow.has_profile && (
                         <div className="mt-4 pt-3 border-t border-gray-200 grid grid-cols-4 gap-3">
                           {[
-                            { label: 'Overall', value: summaryRow.overall_score },
+                            { label: 'Média Geral', value: summaryRow.overall_score },
                             { label: 'Self', value: summaryRow.self_score },
                             { label: 'Gestor', value: summaryRow.manager_score },
                             { label: 'Pares', value: summaryRow.peer_score },

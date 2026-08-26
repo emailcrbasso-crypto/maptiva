@@ -323,7 +323,7 @@ function ScoresSection({
 }) {
   const scale  = getScale(scaleId)
   const scores = [
-    { label: 'Overall',    value: profile.overall_score },
+    { label: 'Média Geral', value: profile.overall_score },
     { label: 'Autoaval.',  value: profile.self_score },
     { label: 'Gestor',     value: profile.manager_score },
     { label: 'Pares',      value: profile.peer_score },
@@ -812,6 +812,51 @@ function ScoreDistributionSectionPDF({
   )
 }
 
+// ─── 8b. Análise demográfica (Opção A — best-effort) ──────────────────────────
+
+function DemographicBreakdownSectionPDF({ groups }: { groups: DemographicGroupPDF[] }) {
+  if (groups.length === 0) return null
+
+  const byDimension = groups.reduce<Record<string, DemographicGroupPDF[]>>((acc, g) => {
+    ;(acc[g.dimension] ??= []).push(g)
+    return acc
+  }, {})
+  const maxScore = Math.max(...groups.map((g) => g.avg_score), 1)
+
+  return (
+    <View style={s.section} break>
+      <SectionTitle>Análise demográfica</SectionTitle>
+      <Text style={s.sectionSubtitle}>
+        Média geral (excluindo autoavaliação) por perfil do avaliador. Grupos com poucos
+        respondentes são omitidos para preservar o anonimato.
+      </Text>
+
+      <View style={{ display: 'flex', flexDirection: 'row', gap: 16 }}>
+        {(Object.keys(byDimension) as DemographicGroupPDF['dimension'][]).map((dim) => (
+          <View key={dim} style={{ flex: 1 }}>
+            <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.text, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+              {DEMOGRAPHIC_DIMENSION_LABEL_PDF[dim]}
+            </Text>
+            {byDimension[dim].map((g) => (
+              <View key={g.value} style={{ marginBottom: 6 }} wrap={false}>
+                <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+                  <Text style={{ fontSize: 7, color: C.text }}>{g.value}</Text>
+                  <Text style={{ fontSize: 6.5, color: C.light }}>
+                    {g.avg_score.toFixed(2)} · {g.respondent_count} resp.
+                  </Text>
+                </View>
+                <View style={{ height: 4, backgroundColor: '#f3f4f6', borderRadius: 2, overflow: 'hidden' }}>
+                  <View style={{ width: `${(g.avg_score / maxScore) * 100}%`, height: 4, backgroundColor: C.primary, borderRadius: 2 }} />
+                </View>
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+    </View>
+  )
+}
+
 // ─── 9. Competency breakdown table ────────────────────────────────────────────
 
 function CompetencyDetailSection({ snapshots, competencies, scaleId }: { snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string }) {
@@ -900,6 +945,19 @@ function CommentsSection({ comments }: { comments: CommentRow[] }) {
 
 // ─── Main document ────────────────────────────────────────────────────────────
 
+export interface DemographicGroupPDF {
+  dimension:        'geracao' | 'cargo' | 'tempo_casa'
+  value:             string
+  avg_score:         number
+  respondent_count:  number
+}
+
+const DEMOGRAPHIC_DIMENSION_LABEL_PDF: Record<DemographicGroupPDF['dimension'], string> = {
+  geracao:    'Geração',
+  cargo:      'Tipo de Cargo',
+  tempo_casa: 'Tempo de Casa',
+}
+
 export interface ReportPDFProps {
   personName:       string
   cycleName:        string
@@ -911,6 +969,7 @@ export interface ReportPDFProps {
   scaleId:          string
   benchmark?:       BenchmarkMap
   evaluatorWeights?: Record<string, number>
+  demographics?:    DemographicGroupPDF[]
   brandingName:     string
   brandingLogoUrl:  string | null
 }
@@ -955,12 +1014,13 @@ function MethodologyBannerPDF({ evaluatorWeights }: { evaluatorWeights: Record<s
 export function ReportPDFDocument({
   personName, cycleName, generatedAt,
   profile, snapshots, competencies, comments,
-  scaleId, benchmark, evaluatorWeights,
+  scaleId, benchmark, evaluatorWeights, demographics,
   brandingName, brandingLogoUrl,
 }: ReportPDFProps) {
   const hasCompetencies = competencies.length > 0
   const hasBenchmark    = benchmark != null && Object.keys(benchmark).length > 0
   const hasWeights      = evaluatorWeights != null && Object.values(evaluatorWeights).some((w) => w > 0)
+  const hasDemographics = demographics != null && demographics.length > 0
 
   return (
     <Document
@@ -1022,6 +1082,11 @@ export function ReportPDFDocument({
         {/* Avaliação por competência */}
         {hasCompetencies && (
           <CompetencyDetailSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        )}
+
+        {/* Análise demográfica */}
+        {hasDemographics && (
+          <DemographicBreakdownSectionPDF groups={demographics!} />
         )}
 
         {/* Comentários */}

@@ -1373,7 +1373,7 @@ export function ReportDisplay({
           Scores consolidados
         </h2>
         <div className="grid grid-cols-5 gap-3">
-          <ScoreBadge value={profile.overall_score}     label="Overall"    scaleId={scaleId} />
+          <ScoreBadge value={profile.overall_score}     label="Média Geral" scaleId={scaleId} />
           <ScoreBadge value={profile.self_score}        label="Autoaval."  scaleId={scaleId} />
           <ScoreBadge value={profile.manager_score}     label="Gestor"     scaleId={scaleId} />
           <ScoreBadge value={profile.peer_score}        label="Pares"      scaleId={scaleId} />

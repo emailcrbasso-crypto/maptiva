@@ -23,6 +23,69 @@ import {
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
 
+// ─── Corte demográfico (Opção A — lê metadata_json do avaliador quando existir) ─
+
+export interface DemographicGroup {
+  dimension:        'geracao' | 'cargo' | 'tempo_casa'
+  value:             string
+  avg_score:         number
+  respondent_count:  number
+}
+
+const DEMOGRAPHIC_DIMENSION_LABEL: Record<DemographicGroup['dimension'], string> = {
+  geracao:    'Geração',
+  cargo:      'Tipo de Cargo',
+  tempo_casa: 'Tempo de Casa',
+}
+
+function DemographicBreakdownSection({ groups }: { groups: DemographicGroup[] }) {
+  if (groups.length === 0) return null
+
+  const byDimension = groups.reduce<Record<string, DemographicGroup[]>>((acc, g) => {
+    ;(acc[g.dimension] ??= []).push(g)
+    return acc
+  }, {})
+
+  const maxScore = Math.max(...groups.map((g) => g.avg_score), 1)
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 mt-5 print-page-break">
+      <h2 className="text-sm font-semibold text-gray-900 mb-1">Análise demográfica</h2>
+      <p className="text-xs text-gray-400 mb-5">
+        Média geral (excluindo autoavaliação) por perfil do avaliador. Grupos com poucos
+        respondentes são omitidos para preservar o anonimato.
+      </p>
+      <div className="grid sm:grid-cols-3 gap-6">
+        {(Object.keys(byDimension) as DemographicGroup['dimension'][]).map((dim) => (
+          <div key={dim}>
+            <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
+              {DEMOGRAPHIC_DIMENSION_LABEL[dim]}
+            </h3>
+            <div className="space-y-2.5">
+              {byDimension[dim].map((g) => (
+                <div key={g.value}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-gray-700 truncate">{g.value}</span>
+                    <span className="text-gray-400 shrink-0 ml-2">
+                      {g.avg_score.toFixed(2)} · {g.respondent_count} resp.
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-400 rounded-full"
+                      style={{ width: `${(g.avg_score / maxScore) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function ParticipantReportPage() {
   const { id, cpId }  = useParams<{ id: string; cpId: string }>()
   const { branding }  = useTenant()
@@ -38,6 +101,7 @@ export function ParticipantReportPage() {
   const [benchmark,        setBenchmark]        = useState<BenchmarkMap | undefined>(undefined)
   const [questionScores,   setQuestionScores]   = useState<QuestionScoreRow[]>([])
   const [evaluatorWeights, setEvaluatorWeights] = useState<Record<string, number> | undefined>(undefined)
+  const [demographics,     setDemographics]     = useState<DemographicGroup[]>([])
   const [loading,          setLoading]          = useState(true)
   const [error,          setError]          = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
@@ -141,6 +205,13 @@ export function ParticipantReportPage() {
         }
       }
 
+      // Corte demográfico (best-effort — só aparece se houver metadata_json nos avaliadores)
+      const { data: demoData } = await supabase.rpc('get_participant_demographic_breakdown', {
+        p_cycle_id: id,
+        p_cp_id:    cpId,
+      })
+      if (Array.isArray(demoData)) setDemographics(demoData as DemographicGroup[])
+
       setLoading(false)
     }
     load()
@@ -162,6 +233,7 @@ export function ParticipantReportPage() {
           scaleId={scaleId}
           benchmark={benchmark}
           evaluatorWeights={evaluatorWeights}
+          demographics={demographics}
           brandingName={branding.name}
           brandingLogoUrl={branding.logoUrl ?? null}
         />
@@ -265,16 +337,19 @@ export function ParticipantReportPage() {
           </p>
         </div>
       ) : (
-        <ReportDisplay
-          snapshots={snapshots}
-          competencies={competencies}
-          comments={comments}
-          profile={profile}
-          scaleId={scaleId}
-          benchmark={benchmark}
-          questionScores={questionScores}
-          evaluatorWeights={evaluatorWeights}
-        />
+        <>
+          <ReportDisplay
+            snapshots={snapshots}
+            competencies={competencies}
+            comments={comments}
+            profile={profile}
+            scaleId={scaleId}
+            benchmark={benchmark}
+            questionScores={questionScores}
+            evaluatorWeights={evaluatorWeights}
+          />
+          <DemographicBreakdownSection groups={demographics} />
+        </>
       )}
     </div>
   )
