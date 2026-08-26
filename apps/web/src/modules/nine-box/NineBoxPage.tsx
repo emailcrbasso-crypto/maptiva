@@ -133,8 +133,8 @@ export function NineBoxPage() {
 
   return (
     <div className="max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="mb-6">
+      {/* Header (interativo) */}
+      <div className="mb-6 no-print">
         <Link to={`/cycles/${id}`} className="text-sm text-gray-400 hover:text-gray-600">
           ← Voltar ao ciclo
         </Link>
@@ -143,22 +143,44 @@ export function NineBoxPage() {
             <h1 className="text-xl font-semibold text-gray-900">Nine Box</h1>
             <p className="text-sm text-gray-400 mt-0.5">{cycleName}</p>
           </div>
-          <button
-            onClick={handleCompute}
-            disabled={computing}
-            className="text-sm px-4 py-2 rounded-lg border border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors disabled:opacity-50"
-          >
-            {computing ? '⏳ Recalculando…' : '🔄 Recalcular posições'}
-          </button>
+          <div className="flex items-center gap-3">
+            {cfg?.enabled && grid.length > 0 && (
+              <button
+                onClick={() => window.print()}
+                className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                🖨️ Imprimir
+              </button>
+            )}
+            <button
+              onClick={handleCompute}
+              disabled={computing}
+              className="text-sm px-4 py-2 rounded-lg border border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+            >
+              {computing ? '⏳ Recalculando…' : '🔄 Recalcular posições'}
+            </button>
+          </div>
         </div>
+      </div>
+
+      {/* Print-only header */}
+      <div className="hidden print:block mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Nine Box — {cycleName}</h1>
+        {cfg && (
+          <p className="text-sm text-gray-500 mt-1">
+            {cfg.pot_label} × {cfg.perf_label} · {new Date().toLocaleDateString('pt-BR')}
+          </p>
+        )}
       </div>
 
       {/* Config */}
       {id && (
-        <NineBoxConfigPanel
-          cycleId={id}
-          onSaved={(c) => setCfg(c)}
-        />
+        <div className="no-print">
+          <NineBoxConfigPanel
+            cycleId={id}
+            onSaved={(c) => setCfg(c)}
+          />
+        </div>
       )}
 
       {!cfg?.enabled ? (
@@ -173,17 +195,19 @@ export function NineBoxPage() {
         <>
           {/* Entrada manual */}
           {needsManual && (
-            <ManualEntry
-              grid={grid}
-              perfManual={perfManual}
-              potManual={potManual}
-              perfLabel={cfg.perf_label}
-              potLabel={cfg.pot_label}
-              draft={manualDraft}
-              setDraft={setManualDraft}
-              saving={savingManual}
-              onSave={handleSaveManual}
-            />
+            <div className="no-print">
+              <ManualEntry
+                grid={grid}
+                perfManual={perfManual}
+                potManual={potManual}
+                perfLabel={cfg.perf_label}
+                potLabel={cfg.pot_label}
+                draft={manualDraft}
+                setDraft={setManualDraft}
+                saving={savingManual}
+                onSave={handleSaveManual}
+              />
+            </div>
           )}
 
           {/* Grid 3×3 */}
@@ -262,7 +286,7 @@ function NineBoxGrid({
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5">
       {selected && (
-        <div className="mb-4 text-xs bg-indigo-50 text-indigo-700 px-3 py-2 rounded-lg flex items-center justify-between">
+        <div className="mb-4 text-xs bg-indigo-50 text-indigo-700 px-3 py-2 rounded-lg flex items-center justify-between no-print">
           <span>
             Calibrando <strong>{selectedName}</strong> — clique em uma célula para mover.
           </span>
@@ -345,11 +369,28 @@ function NineBoxGrid({
         </div>
       </div>
 
-      <p className="text-[11px] text-gray-400 mt-4">
+      <p className="text-[11px] text-gray-400 mt-4 no-print">
         Clique em uma pessoa para ver o cartão individual e calibrar. Passe o mouse no ícone
         <span className="mx-1 inline-flex items-center justify-center border border-gray-300 rounded-full w-3.5 h-3.5 text-[8px]">i</span>
         de cada quadrante para a leitura da posição.
       </p>
+
+      {/* Legenda das células — só na impressão (substitui o tooltip de hover) */}
+      <div className="hidden print:block mt-4 pt-4 border-t border-gray-200">
+        <p className="text-xs font-semibold text-gray-700 mb-2">Leitura de cada posição</p>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+          {POT_BANDS_TOP_DOWN.flatMap((pot) =>
+            PERF_BANDS_LEFT_RIGHT.map((perf) => {
+              const meta = NINE_BOX_CELLS[`${pot}-${perf}`]
+              return (
+                <p key={`${pot}-${perf}`} className="text-[10px] text-gray-600 leading-snug">
+                  <strong className="text-gray-800">{meta.title}</strong> — {meta.development}
+                </p>
+              )
+            }),
+          )}
+        </div>
+      </div>
     </div>
   )
 }

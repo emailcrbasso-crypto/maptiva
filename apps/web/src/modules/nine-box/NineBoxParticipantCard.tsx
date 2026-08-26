@@ -52,11 +52,11 @@ export function NineBoxParticipantCard({
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/20 z-40"
+        className="fixed inset-0 bg-black/20 z-40 no-print"
         onClick={onClose}
       />
       {/* Drawer */}
-      <aside className="fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-xl z-50 overflow-y-auto">
+      <aside className="fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-xl z-50 overflow-y-auto no-print">
         <div className="p-6">
           {/* Header */}
           <div className="flex items-start justify-between mb-4">
