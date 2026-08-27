@@ -236,6 +236,7 @@ export function ParticipantReportPage() {
           benchmark={benchmark}
           evaluatorWeights={evaluatorWeights}
           demographics={demographics}
+          questionScores={questionScores}
           brandingName={branding.name}
           brandingLogoUrl={branding.logoUrl ?? null}
         />

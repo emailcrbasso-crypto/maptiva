@@ -145,6 +145,7 @@ export function MyReportPage() {
           scaleId={scaleId}
           benchmark={benchmark}
           evaluatorWeights={evaluatorWeights}
+          questionScores={questionScores}
           brandingName={branding.name}
           brandingLogoUrl={branding.logoUrl ?? null}
         />

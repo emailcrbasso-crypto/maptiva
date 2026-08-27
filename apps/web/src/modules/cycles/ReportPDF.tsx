@@ -17,10 +17,12 @@ import {
   type CompetencyRow,
   type CommentRow,
   type BenchmarkMap,
+  type QuestionScoreRow,
   REL_LABEL,
   REL_ORDER,
   REL_SHORT,
   RADAR_PALETTE,
+  computeFavorability,
 } from './reportShared'
 import { getScale, scoreToPercent } from '@/lib/scales'
 
@@ -153,11 +155,14 @@ function PdfRadarChart({
   datasets,
   scaleMax,
   size = 180,
+  goalValue,
 }: {
   N:        number
   datasets: Array<{ color: string; fillOpacity: number; values: number[] }>
   scaleMax: number
   size?:    number
+  /** Valor (na escala) da meta — desenhado como polígono tracejado, sem preenchimento. */
+  goalValue?: number
 }) {
   if (N < 3) return null
 
@@ -186,6 +191,13 @@ function PdfRadarChart({
     }).join(' ')
   }))
 
+  const goalPoints = goalValue != null
+    ? Array.from({ length: N }, (_, i) => {
+        const frac = Math.min(Math.max(goalValue / scaleMax, 0), 1)
+        return `${ptX(frac, i).toFixed(1)},${ptY(frac, i).toFixed(1)}`
+      }).join(' ')
+    : null
+
   // Tip positions for axis numbers
   const tipPositions = Array.from({ length: N }, (_, i) => {
     const angle = axisAngle(i)
@@ -208,6 +220,10 @@ function PdfRadarChart({
       ))}
       {/* Center dot */}
       <Circle cx={cx} cy={cy} r={2} fill="#d1d5db" />
+      {/* Goal polygon (tracejado, sem preenchimento) */}
+      {goalPoints && (
+        <Polygon points={goalPoints} fill="none" stroke="#16a34a" strokeWidth={1} strokeDasharray="3,2" />
+      )}
       {/* Data polygons */}
       {[...dataPolys].reverse().map((dp, ri) => (
         <Polygon key={`d${ri}`} points={dp.points} fill={dp.color} fillOpacity={dp.fillOpacity} stroke={dp.color} strokeWidth={1.5} />
@@ -392,14 +408,91 @@ function ScoresSection({
   )
 }
 
-// ─── 3. Roda da liderança (Dual Radar) ───────────────────────────────────────
+// ─── 2.5 Favorabilidade geral ─────────────────────────────────────────────────
 
-function DualRadarSectionPDF({
+function FavorabilityBarPDF({ fav }: { fav: { favoravel: number; neutro: number; desfavoravel: number } }) {
+  return (
+    <View style={{ display: 'flex', flexDirection: 'row', height: 10, borderRadius: 4, overflow: 'hidden', backgroundColor: '#f3f4f6' }}>
+      {fav.favoravel > 0 && <View style={{ width: `${fav.favoravel}%`, height: 10, backgroundColor: '#22c55e' }} />}
+      {fav.neutro > 0 && <View style={{ width: `${fav.neutro}%`, height: 10, backgroundColor: '#93c5fd' }} />}
+      {fav.desfavoravel > 0 && <View style={{ width: `${fav.desfavoravel}%`, height: 10, backgroundColor: '#f87171' }} />}
+    </View>
+  )
+}
+
+function FavorabilitySectionPDF({
   snapshots, competencies, scaleId,
 }: {
   snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
 }) {
   const scale = getScale(scaleId)
+
+  function mergeDist(snaps: SnapshotRow[]): Record<string, number> {
+    const dist: Record<string, number> = {}
+    for (const snap of snaps) {
+      if (!snap.score_distribution) continue
+      for (const [k, v] of Object.entries(snap.score_distribution)) {
+        dist[k] = (dist[k] ?? 0) + v
+      }
+    }
+    return dist
+  }
+
+  const allExtSnaps = snapshots.filter((s) => s.relationship_code !== 'self' && s.score_distribution)
+  const overall = computeFavorability(mergeDist(allExtSnaps), scale)
+  if (overall.total === 0) return null
+
+  const rows = competencies
+    .map((c) => {
+      const extSnaps = snapshots.filter(
+        (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution
+      )
+      if (extSnaps.length === 0) return null
+      const fav = computeFavorability(mergeDist(extSnaps), scale)
+      if (fav.total === 0) return null
+      return { id: c.id, name: c.name, fav }
+    })
+    .filter(Boolean) as { id: string; name: string; fav: ReturnType<typeof computeFavorability> }[]
+  rows.sort((a, b) => b.fav.favoravel - a.fav.favoravel)
+
+  return (
+    <View style={s.section}>
+      <SectionTitle>Favorabilidade geral</SectionTitle>
+      <Text style={s.sectionSubtitle}>
+        Favorável = notas {scale.max - 1} e {scale.max} · Neutro = intermediárias · Desfavorável = notas {scale.min} e {scale.min + 1}.
+      </Text>
+
+      <View style={{ backgroundColor: '#f0fdf4', borderRadius: 6, padding: 10, marginBottom: 10 }}>
+        <Text style={{ fontSize: 22, fontFamily: 'Helvetica-Bold', color: '#15803d' }}>{overall.favoravel.toFixed(1)}%</Text>
+        <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 2 }}>
+          {overall.neutro.toFixed(1)}% neutro · {overall.desfavoravel.toFixed(1)}% desfavorável
+        </Text>
+      </View>
+
+      {rows.map((r) => (
+        <View key={r.id} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 5 }} wrap={false}>
+          <Text style={{ fontSize: 8, color: C.text, width: 130 }}>{r.name.length > 22 ? r.name.slice(0, 20) + '…' : r.name}</Text>
+          <View style={{ flex: 1 }}><FavorabilityBarPDF fav={r.fav} /></View>
+          <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.text, width: 32, textAlign: 'right' }}>
+            {r.fav.favoravel.toFixed(0)}%
+          </Text>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+// ─── 3. Roda da liderança (Dual Radar) ───────────────────────────────────────
+
+function DualRadarSectionPDF({
+  snapshots, competencies, scaleId, goalPct = 80,
+}: {
+  snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
+  /** Meta de favorabilidade (%) exibida como polígono tracejado. Passe null para ocultar. */
+  goalPct?: number | null
+}) {
+  const scale = getScale(scaleId)
+  const goalValue = goalPct != null ? (goalPct / 100) * scale.max : undefined
 
   const compWithSnaps = competencies.filter((c) =>
     snapshots.some((s) => s.competency_id === c.id && s.score_avg != null)
@@ -443,6 +536,7 @@ function DualRadarSectionPDF({
       <SectionTitle>Roda da liderança</SectionTitle>
       <Text style={s.sectionSubtitle}>
         Escala de 0 a {scale.max}. Os números nos eixos correspondem às competências listadas abaixo.
+        {goalValue != null ? ` Linha tracejada verde indica a meta de ${goalPct}%.` : ''}
       </Text>
 
       <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-around', marginBottom: 8 }}>
@@ -457,6 +551,7 @@ function DualRadarSectionPDF({
               datasets={[{ color: C.primary, fillOpacity: 0.18, values: selfValues }]}
               scaleMax={scale.max}
               size={CHART_SIZE}
+              goalValue={goalValue}
             />
           ) : (
             <View style={{ width: CHART_SIZE, height: CHART_SIZE, alignItems: 'center', justifyContent: 'center' }}>
@@ -476,6 +571,7 @@ function DualRadarSectionPDF({
               datasets={externalDatasets}
               scaleMax={scale.max}
               size={CHART_SIZE}
+              goalValue={goalValue}
             />
           ) : (
             <View style={{ width: CHART_SIZE, height: CHART_SIZE, alignItems: 'center', justifyContent: 'center' }}>
@@ -667,6 +763,92 @@ function TopBottomSection({ snapshots, competencies, scaleId }: { snapshots: Sna
             Oportunidades
           </Text>
           <RankList items={bottom} color={C.yellow} />
+        </View>
+      </View>
+    </View>
+  )
+}
+
+// ─── 6.5 Top 5 / Bottom 5 por PERGUNTA ───────────────────────────────────────
+
+function TopBottomQuestionsSectionPDF({
+  questionScores, competencies, scaleId,
+}: {
+  questionScores: QuestionScoreRow[]; competencies: CompetencyRow[]; scaleId: string
+}) {
+  const scale   = getScale(scaleId)
+  const compMap = new Map(competencies.map((c) => [c.id, c.name]))
+
+  const byQuestion = new Map<string, { prompt: string; competencyName: string | null; scores: number[] }>()
+  for (const q of questionScores) {
+    if (q.relationship_code === 'self' || q.score_avg == null) continue
+    if (!byQuestion.has(q.question_id)) {
+      byQuestion.set(q.question_id, {
+        prompt: q.prompt,
+        competencyName: q.competency_id ? compMap.get(q.competency_id) ?? null : null,
+        scores: [],
+      })
+    }
+    byQuestion.get(q.question_id)!.scores.push(q.score_avg)
+  }
+
+  const scored = [...byQuestion.entries()]
+    .map(([id, q]) => ({
+      id, prompt: q.prompt, competencyName: q.competencyName,
+      avg: q.scores.reduce((s, v) => s + v, 0) / q.scores.length,
+    }))
+    .sort((a, b) => b.avg - a.avg)
+
+  if (scored.length < 3) return null
+
+  const top    = scored.slice(0, Math.min(5, scored.length))
+  const bottom = [...scored].reverse().slice(0, Math.min(5, scored.length))
+
+  function QRankList({ items, color }: { items: typeof top; color: string }) {
+    return (
+      <View>
+        {items.map((q, i) => {
+          const pct = (q.avg / scale.max) * 100
+          return (
+            <View key={q.id} style={s.rankRow} wrap={false}>
+              <Text style={[s.rankNumber, { color }]}>{i + 1}.</Text>
+              <View style={{ flex: 1 }}>
+                <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start' }}>
+                  <Text style={[s.rankName, { fontSize: 7.5 }]}>{q.prompt}</Text>
+                  <Text style={[s.rankScore, { color }]}>{q.avg.toFixed(2)}</Text>
+                </View>
+                {q.competencyName && (
+                  <Text style={{ fontSize: 6.5, color: C.light, marginBottom: 2 }}>{q.competencyName}</Text>
+                )}
+                <View style={[s.rankBarBg]}>
+                  <View style={{ height: 3, width: `${pct}%`, backgroundColor: color, borderRadius: 2 }} />
+                </View>
+              </View>
+            </View>
+          )
+        })}
+      </View>
+    )
+  }
+
+  return (
+    <View style={s.section} break>
+      <SectionTitle>Perguntas com maiores e menores notas</SectionTitle>
+      <Text style={s.sectionSubtitle}>
+        Granularidade por pergunta — mais específico que a visão por competência.
+      </Text>
+      <View style={{ display: 'flex', flexDirection: 'row' }}>
+        <View style={{ flex: 1, marginRight: 24 }}>
+          <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.green, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Pontos fortes
+          </Text>
+          <QRankList items={top} color={C.green} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.yellow, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Oportunidades
+          </Text>
+          <QRankList items={bottom} color={C.yellow} />
         </View>
       </View>
     </View>
@@ -970,6 +1152,9 @@ export interface ReportPDFProps {
   benchmark?:       BenchmarkMap
   evaluatorWeights?: Record<string, number>
   demographics?:    DemographicGroupPDF[]
+  questionScores?:  QuestionScoreRow[]
+  /** Meta de favorabilidade (%) no radar. Default 80; passe null para ocultar. */
+  goalPct?:         number | null
   brandingName:     string
   brandingLogoUrl:  string | null
 }
@@ -1014,7 +1199,7 @@ function MethodologyBannerPDF({ evaluatorWeights }: { evaluatorWeights: Record<s
 export function ReportPDFDocument({
   personName, cycleName, generatedAt,
   profile, snapshots, competencies, comments,
-  scaleId, benchmark, evaluatorWeights, demographics,
+  scaleId, benchmark, evaluatorWeights, demographics, questionScores = [], goalPct = 80,
   brandingName, brandingLogoUrl,
 }: ReportPDFProps) {
   const hasCompetencies = competencies.length > 0
@@ -1051,9 +1236,14 @@ export function ReportPDFDocument({
         {/* Scores consolidados + Autoconhecimento + Insights */}
         <ScoresSection profile={profile} snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
 
+        {/* Favorabilidade geral */}
+        {hasCompetencies && (
+          <FavorabilitySectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        )}
+
         {/* Roda da liderança */}
         {hasCompetencies && (
-          <DualRadarSectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+          <DualRadarSectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} goalPct={goalPct} />
         )}
 
         {/* GAP autoavaliação × avaliadores */}
@@ -1064,9 +1254,14 @@ export function ReportPDFDocument({
         {/* Scores por perspectiva */}
         <SnapshotsByRelationshipPDF snapshots={snapshots} scaleId={scaleId} />
 
-        {/* Top 5 / Bottom 5 */}
+        {/* Top 5 / Bottom 5 (por competência) */}
         {hasCompetencies && (
           <TopBottomSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        )}
+
+        {/* Top 5 / Bottom 5 (por pergunta) */}
+        {questionScores.length > 0 && (
+          <TopBottomQuestionsSectionPDF questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
         )}
 
         {/* Benchmark */}

@@ -202,13 +202,17 @@ export function DualRadarSection({
   snapshots,
   competencies,
   scaleId = 'likert_5',
+  goalPct = 80,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
   scaleId?:     string
+  /** Meta de favorabilidade (%) exibida como linha tracejada no radar. Passe null para ocultar. */
+  goalPct?:     number | null
 }) {
   const scale    = getScale(scaleId)
   const scaleMax = scale.max
+  const goalValue = goalPct != null ? (goalPct / 100) * scaleMax : null
 
   const compWithSnaps = competencies.filter((c) =>
     snapshots.some((s) => s.competency_id === c.id && s.score_avg != null)
@@ -222,6 +226,7 @@ export function DualRadarSection({
     self: snapshots.find(
       (s) => s.competency_id === c.id && s.relationship_code === 'self'
     )?.score_avg ?? 0,
+    ...(goalValue != null && { goal: goalValue }),
   }))
   const hasSelf = selfData.some((d) => d.self > 0)
 
@@ -241,6 +246,7 @@ export function DualRadarSection({
       )
       row[rel] = snap?.score_avg ?? 0
     }
+    if (goalValue != null) row.goal = goalValue
     return row
   })
   const hasExternal = externalRels.length > 0
@@ -252,6 +258,7 @@ export function DualRadarSection({
       </h2>
       <p className="text-xs text-gray-400 mb-5">
         Escala de 0 a {scaleMax} — quanto mais próximo da borda, maior o score.
+        {goalValue != null && <> A linha tracejada verde indica a meta de {goalPct}%.</>}
       </p>
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -264,6 +271,9 @@ export function DualRadarSection({
                 <PolarGrid stroke="#e5e7eb" />
                 <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: '#6b7280' }} />
                 <PolarRadiusAxis domain={[0, scaleMax]} tick={{ fontSize: 8, fill: '#9ca3af' }} tickCount={scaleMax + 1} />
+                {goalValue != null && (
+                  <Radar name={`Meta ${goalPct}%`} dataKey="goal" stroke="#16a34a" strokeDasharray="4 3" fill="none" strokeWidth={1.5} dot={false} />
+                )}
                 <Radar name="Autoavaliação" dataKey="self" stroke="#6366f1" fill="#6366f1" fillOpacity={0.18} strokeWidth={2.5} dot={false} />
                 <Tooltip formatter={(val) => (typeof val === 'number' ? val.toFixed(2) : '—')} />
               </RechartsRadarChart>
@@ -284,6 +294,9 @@ export function DualRadarSection({
                 <PolarGrid stroke="#e5e7eb" />
                 <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: '#6b7280' }} />
                 <PolarRadiusAxis domain={[0, scaleMax]} tick={{ fontSize: 8, fill: '#9ca3af' }} tickCount={scaleMax + 1} />
+                {goalValue != null && (
+                  <Radar name={`Meta ${goalPct}%`} dataKey="goal" stroke="#16a34a" strokeDasharray="4 3" fill="none" strokeWidth={1.5} dot={false} />
+                )}
                 {externalRels.map((rel) => (
                   <Radar
                     key={rel}
@@ -693,6 +706,112 @@ export function Top5Section({
   )
 }
 
+// ─── Top 5 / Bottom 5 por PERGUNTA (granularidade mais fina que por competência) ─
+
+export function Top5QuestionsSection({
+  questionScores,
+  competencies,
+  scaleId = 'likert_5',
+}: {
+  questionScores: QuestionScoreRow[]
+  competencies:   CompetencyRow[]
+  scaleId?:       string
+}) {
+  const scale   = getScale(scaleId)
+  const compMap = new Map(competencies.map((c) => [c.id, c.name]))
+
+  const byQuestion = new Map<string, { prompt: string; competency_id: string | null; scores: number[] }>()
+  for (const q of questionScores) {
+    if (q.relationship_code === 'self' || q.score_avg == null) continue
+    if (!byQuestion.has(q.question_id)) {
+      byQuestion.set(q.question_id, { prompt: q.prompt, competency_id: q.competency_id, scores: [] })
+    }
+    byQuestion.get(q.question_id)!.scores.push(q.score_avg)
+  }
+
+  const scored = [...byQuestion.entries()]
+    .map(([id, q]) => ({
+      id,
+      prompt: q.prompt,
+      competencyName: q.competency_id ? compMap.get(q.competency_id) ?? null : null,
+      avg: q.scores.reduce((s, v) => s + v, 0) / q.scores.length,
+    }))
+
+  if (scored.length < 3) return null
+
+  const sorted  = [...scored].sort((a, b) => b.avg - a.avg)
+  const top5    = sorted.slice(0, Math.min(5, scored.length))
+  const bottom5 = sorted.slice(-Math.min(5, scored.length)).reverse()
+
+  function QScoreBar({ value, color }: { value: number; color: 'green' | 'amber' }) {
+    const pct = (value / scale.max) * 100
+    return (
+      <div className="h-1.5 bg-gray-100 rounded-full mt-1">
+        <div
+          className={`h-1.5 rounded-full ${color === 'green' ? 'bg-green-400' : 'bg-amber-400'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    )
+  }
+
+  function QuestionRow({ q, i, color }: { q: typeof scored[number]; i: number; color: 'green' | 'amber' }) {
+    return (
+      <div>
+        <div className="flex items-start justify-between gap-3">
+          <span className="text-sm text-gray-700 flex items-start gap-2 min-w-0">
+            <span className={`text-xs font-bold shrink-0 w-4 pt-0.5 ${color === 'green' ? 'text-green-400' : 'text-amber-400'}`}>
+              {i + 1}.
+            </span>
+            <span className="min-w-0">
+              <span className="block leading-snug">{q.prompt}</span>
+              {q.competencyName && (
+                <span className="text-xs text-gray-400">{q.competencyName}</span>
+              )}
+            </span>
+          </span>
+          <span className={`text-sm font-bold shrink-0 ml-2 ${color === 'green' ? 'text-green-600' : 'text-amber-600'}`}>
+            {q.avg.toFixed(2)}
+          </span>
+        </div>
+        <QScoreBar value={q.avg} color={color} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Perguntas com maiores e menores notas
+      </h2>
+      <p className="text-xs text-gray-400 mb-5">
+        Granularidade por pergunta — mais específico que a visão por competência.
+      </p>
+      <div className="grid grid-cols-2 gap-8">
+        <div>
+          <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-3">
+            🏆 Top {top5.length} — Pontos Fortes
+          </p>
+          <div className="space-y-4">
+            {top5.map((q, i) => <QuestionRow key={q.id} q={q} i={i} color="green" />)}
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-3">
+            🎯 Top {bottom5.length} — Oportunidades de Melhoria
+          </p>
+          <div className="space-y-4">
+            {bottom5.map((q, i) => <QuestionRow key={q.id} q={q} i={i} color="amber" />)}
+          </div>
+        </div>
+      </div>
+      <p className="text-xs text-gray-400 mt-5">
+        Ranking baseado na média das avaliações externas (gestor, pares e subordinados) por pergunta individual.
+      </p>
+    </div>
+  )
+}
+
 // ─── Scores by relationship ───────────────────────────────────────────────────
 
 function barBgClass(score: number | null, scale: ScaleDefinition): string {
@@ -1066,6 +1185,133 @@ export function SelfAwarenessIndex({
   )
 }
 
+// ─── Favorabilidade (% Favorável / Neutro / Desfavorável) ─────────────────────
+// Favorável = 2 valores mais altos da escala · Desfavorável = 2 mais baixos ·
+// Neutro = o(s) valor(es) intermediário(s). Generaliza para qualquer escala.
+
+export interface Favorability { favoravel: number; neutro: number; desfavoravel: number; total: number }
+
+export function computeFavorability(dist: Record<string, number>, scale: ScaleDefinition): Favorability {
+  let favoravel = 0, neutro = 0, desfavoravel = 0, total = 0
+  for (const [k, count] of Object.entries(dist)) {
+    const v = Number(k)
+    total += count
+    if (v >= scale.max - 1) favoravel += count
+    else if (v <= scale.min + 1) desfavoravel += count
+    else neutro += count
+  }
+  if (total === 0) return { favoravel: 0, neutro: 0, desfavoravel: 0, total: 0 }
+  return {
+    favoravel:    (favoravel / total) * 100,
+    neutro:       (neutro / total) * 100,
+    desfavoravel: (desfavoravel / total) * 100,
+    total,
+  }
+}
+
+function FavorabilityBar({ fav, showLabel = true }: { fav: Favorability; showLabel?: boolean }) {
+  return (
+    <div className="flex h-5 rounded-full overflow-hidden bg-gray-100">
+      {fav.favoravel > 0 && (
+        <div className="h-full bg-green-500 flex items-center justify-center" style={{ width: `${fav.favoravel}%` }}>
+          {showLabel && fav.favoravel >= 12 && (
+            <span className="text-[10px] font-semibold text-white">{fav.favoravel.toFixed(0)}%</span>
+          )}
+        </div>
+      )}
+      {fav.neutro > 0 && (
+        <div className="h-full bg-blue-300 flex items-center justify-center" style={{ width: `${fav.neutro}%` }}>
+          {showLabel && fav.neutro >= 12 && (
+            <span className="text-[10px] font-semibold text-white">{fav.neutro.toFixed(0)}%</span>
+          )}
+        </div>
+      )}
+      {fav.desfavoravel > 0 && (
+        <div className="h-full bg-red-400 flex items-center justify-center" style={{ width: `${fav.desfavoravel}%` }}>
+          {showLabel && fav.desfavoravel >= 12 && (
+            <span className="text-[10px] font-semibold text-white">{fav.desfavoravel.toFixed(0)}%</span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function FavorabilitySection({
+  snapshots,
+  competencies,
+  scaleId = 'likert_5',
+}: {
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+  scaleId?:     string
+}) {
+  const scale = getScale(scaleId)
+
+  // Favorabilidade geral: todas as respostas externas (todas as competências)
+  const allExtDist = mergeDistributions(
+    snapshots
+      .filter((s) => s.relationship_code !== 'self' && s.score_distribution)
+      .map((s) => s.score_distribution)
+  )
+  const overall = computeFavorability(allExtDist, scale)
+  if (overall.total === 0) return null
+
+  const rows = competencies
+    .map((c) => {
+      const extSnaps = snapshots.filter(
+        (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution
+      )
+      if (extSnaps.length === 0) return null
+      const dist = mergeDistributions(extSnaps.map((s) => s.score_distribution))
+      const fav  = computeFavorability(dist, scale)
+      if (fav.total === 0) return null
+      return { id: c.id, name: c.name, fav }
+    })
+    .filter(Boolean) as { id: string; name: string; fav: Favorability }[]
+
+  rows.sort((a, b) => b.fav.favoravel - a.fav.favoravel)
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Favorabilidade geral
+      </h2>
+      <p className="text-xs text-gray-400 mb-4">
+        Favorável = notas {scale.max - 1} e {scale.max} · Neutro = notas intermediárias ·
+        Desfavorável = notas {scale.min} e {scale.min + 1} · avaliadores externos.
+      </p>
+
+      <div className="bg-gradient-to-br from-green-50 to-white border border-green-100 rounded-xl p-5 mb-5">
+        <p className="text-4xl font-bold text-green-700">{overall.favoravel.toFixed(1)}%</p>
+        <p className="text-xs text-gray-500 mt-1">
+          {overall.neutro.toFixed(1)}% neutro · {overall.desfavoravel.toFixed(1)}% desfavorável
+        </p>
+      </div>
+
+      {rows.length > 0 && (
+        <div className="space-y-3">
+          {rows.map((r) => (
+            <div key={r.id} className="flex items-center gap-3">
+              <p className="text-sm text-gray-700 w-44 shrink-0 truncate">{r.name}</p>
+              <div className="flex-1"><FavorabilityBar fav={r.fav} /></div>
+              <span className="text-xs font-semibold text-gray-600 w-12 text-right shrink-0">
+                {r.fav.favoravel.toFixed(0)}%
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center gap-4 mt-4 text-xs text-gray-400">
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" /> Favorável</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-300 inline-block" /> Neutro</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-400 inline-block" /> Desfavorável</span>
+      </div>
+    </div>
+  )
+}
+
 // ─── Score distribution section ───────────────────────────────────────────────
 
 const DIST_COLORS = [
@@ -1390,6 +1636,11 @@ export function ReportDisplay({
         )}
       </div>
 
+      {/* 2.5 Favorabilidade geral */}
+      {hasCompetencies && (
+        <FavorabilitySection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+      )}
+
       {/* 3. Insights */}
       <InsightsPanel profile={profile} />
 
@@ -1408,9 +1659,14 @@ export function ReportDisplay({
         <GapSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
       )}
 
-      {/* 7. Top 5 / Bottom 5 */}
+      {/* 7. Top 5 / Bottom 5 (por competência) */}
       {hasCompetencies && (
         <Top5Section snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+      )}
+
+      {/* 7.5 Top 5 / Bottom 5 (por pergunta — granularidade mais fina) */}
+      {questionScores.length > 0 && (
+        <Top5QuestionsSection questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
       )}
 
       {/* 8. Benchmark — participant vs. cycle avg (conditional on data) */}
