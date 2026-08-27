@@ -1473,9 +1473,9 @@ function MethodologyAppendixSectionPDF({
       <Block title="Matriz de Johari">
         <Text style={{ fontSize: 7, color: C.light, marginBottom: 2 }}>
           Classifica cada competência em quatro quadrantes, cruzando autoavaliação e percepção
-          externa como "alta" ou "baixa": Arena (auto alta, externa alta), Ponto cego (auto alta,
-          externa baixa), Fachada (auto baixa, externa alta) e Desconhecido (auto baixa, externa
-          baixa).
+          externa como "alta" ou "baixa": Arena (autoavaliação alta, externa alta), Ponto cego
+          (autoavaliação alta, externa baixa), Fachada (autoavaliação baixa, externa alta) e
+          Desconhecido (autoavaliação baixa, externa baixa).
         </Text>
         <Text style={{ fontSize: 7, color: C.light }}>
           O corte alto/baixo em cada eixo é a mediana das próprias competências da pessoa, não um

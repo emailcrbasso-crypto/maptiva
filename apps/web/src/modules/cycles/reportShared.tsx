@@ -475,22 +475,22 @@ interface JohariEntry { id: string; name: string; selfScore: number; extAvg: num
 
 const JOHARI_QUADRANTS = [
   {
-    key: 'arena', title: 'Arena', subtitle: 'Auto alta · Externa alta',
+    key: 'arena', title: 'Arena', subtitle: 'Autoavaliação alta · Externa alta',
     desc: 'Comportamento reconhecido tanto por você quanto pelos avaliadores — força consolidada e visível.',
     color: 'bg-green-50 border-green-200 text-green-800',
   },
   {
-    key: 'blind', title: 'Ponto cego', subtitle: 'Auto alta · Externa baixa',
+    key: 'blind', title: 'Ponto cego', subtitle: 'Autoavaliação alta · Externa baixa',
     desc: 'Você se avalia bem, mas os avaliadores percebem de forma menos favorável — vale investigar a divergência.',
     color: 'bg-amber-50 border-amber-200 text-amber-800',
   },
   {
-    key: 'facade', title: 'Fachada', subtitle: 'Auto baixa · Externa alta',
+    key: 'facade', title: 'Fachada', subtitle: 'Autoavaliação baixa · Externa alta',
     desc: 'Os avaliadores reconhecem uma força que você mesmo subestima — força oculta a explorar.',
     color: 'bg-blue-50 border-blue-200 text-blue-800',
   },
   {
-    key: 'unknown', title: 'Desconhecido', subtitle: 'Auto baixa · Externa baixa',
+    key: 'unknown', title: 'Desconhecido', subtitle: 'Autoavaliação baixa · Externa baixa',
     desc: 'Nem você nem os avaliadores reconhecem força consolidada aqui — oportunidade de desenvolvimento clara.',
     color: 'bg-gray-50 border-gray-200 text-gray-600',
   },
@@ -2298,10 +2298,10 @@ export function MethodologyAppendixSection({
             externa como "alta" ou "baixa":
           </p>
           <ul className="text-xs text-gray-500 space-y-0.5">
-            <li><strong>Arena</strong> — auto alta e externa alta: força reconhecida por todos.</li>
-            <li><strong>Ponto cego</strong> — auto alta e externa baixa: você se avalia bem, mas os avaliadores discordam.</li>
-            <li><strong>Fachada</strong> — auto baixa e externa alta: os avaliadores reconhecem uma força que você subestima.</li>
-            <li><strong>Desconhecido</strong> — auto baixa e externa baixa: nem você nem os avaliadores reconhecem força consolidada.</li>
+            <li><strong>Arena</strong> — autoavaliação alta e externa alta: força reconhecida por todos.</li>
+            <li><strong>Ponto cego</strong> — autoavaliação alta e externa baixa: você se avalia bem, mas os avaliadores discordam.</li>
+            <li><strong>Fachada</strong> — autoavaliação baixa e externa alta: os avaliadores reconhecem uma força que você subestima.</li>
+            <li><strong>Desconhecido</strong> — autoavaliação baixa e externa baixa: nem você nem os avaliadores reconhecem força consolidada.</li>
           </ul>
           <p className="text-xs text-gray-500 mt-1.5">
             O corte "alta/baixa" em cada eixo é a mediana das próprias competências dessa pessoa (não
