@@ -46,7 +46,7 @@ interface Objective {
 interface CompetencyRow { id: string; name: string }
 
 interface Suggestions {
-  low_competencies: { competency_id: string; name: string; score_avg: number }[]
+  low_competencies: { competency_id: string; name: string; score_avg: number; cycle_avg: number; gap: number }[]
   blind_spots:      { competency_id: string; name: string; self_score: number; others_avg: number; gap: number }[]
   nine_box:         { perf_value: number | null; pot_value: number | null; perf_band: number | null; pot_band: number | null } | null
 }
@@ -219,9 +219,10 @@ export function PdiDetailPage() {
     )
   }
 
-  const hasSuggestions = suggestions && (
-    suggestions.low_competencies.length > 0 || suggestions.blind_spots.length > 0 || suggestions.nine_box
-  )
+  // Mostra o painel sempre que houver dado de avaliação de origem — mesmo
+  // quando nenhuma competência representa uma oportunidade real, o sistema
+  // deve dizer isso explicitamente em vez de simplesmente omitir a seção.
+  const hasSuggestions = suggestions !== null
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -275,22 +276,30 @@ export function PdiDetailPage() {
             clique em "usar" para preencher o formulário abaixo e revise antes de salvar.
           </p>
 
-          {suggestions!.low_competencies.length > 0 && (
-            <div className="mb-3">
-              <p className="text-xs font-medium text-indigo-700 mb-1.5">Competências com menor percepção externa</p>
-              <div className="flex flex-wrap gap-2">
+          <div className="mb-3">
+            <p className="text-xs font-medium text-indigo-700 mb-1.5">Competências abaixo da média do ciclo</p>
+            {suggestions!.low_competencies.length === 0 ? (
+              <p className="text-xs text-indigo-400 italic">
+                Nenhuma competência identificada como oportunidade real — os resultados estão
+                em linha com ou acima da média do ciclo.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
                 {suggestions!.low_competencies.map((c) => (
                   <button
                     key={c.competency_id}
-                    onClick={() => useSuggestion(c.competency_id, `Desenvolver a competência "${c.name}" (média atual: ${c.score_avg.toFixed(2)}).`)}
-                    className="text-xs bg-white border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded-full hover:bg-indigo-100 transition-colors"
+                    onClick={() => useSuggestion(c.competency_id, `Desenvolver a competência "${c.name}" — percepção externa (${c.score_avg.toFixed(2)}) está ${c.gap.toFixed(2)} pontos abaixo da média do ciclo (${c.cycle_avg.toFixed(2)}).`)}
+                    className="w-full text-left text-xs bg-white border border-indigo-200 text-indigo-700 px-3 py-2 rounded-lg hover:bg-indigo-100 transition-colors"
                   >
-                    + {c.name} ({c.score_avg.toFixed(2)})
+                    <span className="font-medium">+ {c.name}</span>
+                    <span className="text-indigo-400 ml-2">
+                      Percepção externa: {c.score_avg.toFixed(2)} · Média do ciclo: {c.cycle_avg.toFixed(2)} · Gap: {c.gap.toFixed(2)}
+                    </span>
                   </button>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {suggestions!.blind_spots.length > 0 && (
             <div className="mb-3">
