@@ -275,6 +275,72 @@ function CommentsSection({ cpId, comments }: { cpId: string; comments: CommentRo
   )
 }
 
+// ─── Cycle-level demographic breakdown (síntese executiva) ────────────────────
+
+interface CycleDemographicGroup {
+  dimension:        'sexo' | 'geracao' | 'cargo' | 'tempo_casa'
+  value:             string
+  avg_score:         number
+  respondent_count:  number
+}
+
+const CYCLE_DEMOGRAPHIC_LABEL: Record<CycleDemographicGroup['dimension'], string> = {
+  sexo:       'Sexo',
+  geracao:    'Geração',
+  cargo:      'Tipo de Cargo',
+  tempo_casa: 'Tempo de Casa',
+}
+
+function CycleDemographicSection({ groups }: { groups: CycleDemographicGroup[] }) {
+  if (groups.length === 0) return null
+
+  const byDimension = groups.reduce<Record<string, CycleDemographicGroup[]>>((acc, g) => {
+    ;(acc[g.dimension] ??= []).push(g)
+    return acc
+  }, {})
+
+  const maxScore = Math.max(...groups.map((g) => g.avg_score), 1)
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 mt-6 print-page-break">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Corte demográfico da liderança
+      </h2>
+      <p className="text-xs text-gray-400 mb-5">
+        Média geral do ciclo (excluindo autoavaliação) por perfil do avaliador, somando todos os
+        avaliados. Grupos com poucos respondentes são omitidos para preservar o anonimato.
+      </p>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {(Object.keys(byDimension) as CycleDemographicGroup['dimension'][]).map((dim) => (
+          <div key={dim}>
+            <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
+              {CYCLE_DEMOGRAPHIC_LABEL[dim]}
+            </h3>
+            <div className="space-y-2.5">
+              {byDimension[dim].map((g) => (
+                <div key={g.value}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-gray-700 truncate">{g.value}</span>
+                    <span className="text-gray-400 shrink-0 ml-2">
+                      {g.avg_score.toFixed(2)} · {g.respondent_count} resp.
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-400 rounded-full"
+                      style={{ width: `${(g.avg_score / maxScore) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function ReportPage() {
@@ -286,6 +352,7 @@ export function ReportPage() {
   const [snapshots,    setSnapshots]    = useState<SnapshotRow[]>([])
   const [competencies, setCompetencies] = useState<CompetencyRow[]>([])
   const [comments,     setComments]     = useState<CommentRow[]>([])
+  const [demographics, setDemographics] = useState<CycleDemographicGroup[]>([])
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState<string | null>(null)
   const [releasing,    setReleasing]    = useState(false)
@@ -328,6 +395,10 @@ export function ReportPage() {
           .in('id', compIds)
         setCompetencies((compData ?? []) as CompetencyRow[])
       }
+
+      // Corte demográfico do ciclo (best-effort — só aparece se houver metadata_json)
+      const { data: demoData } = await supabase.rpc('get_cycle_demographic_breakdown', { p_cycle_id: id })
+      if (Array.isArray(demoData)) setDemographics(demoData as CycleDemographicGroup[])
 
       setLoading(false)
     }
@@ -507,6 +578,7 @@ export function ReportPage() {
             competencies={competencies}
             participantCount={withProfile.length}
           />
+          <CycleDemographicSection groups={demographics} />
         </div>
       )}
 

@@ -1131,13 +1131,14 @@ function CommentsSection({ comments }: { comments: CommentRow[] }) {
 // ─── Main document ────────────────────────────────────────────────────────────
 
 export interface DemographicGroupPDF {
-  dimension:        'geracao' | 'cargo' | 'tempo_casa'
+  dimension:        'sexo' | 'geracao' | 'cargo' | 'tempo_casa'
   value:             string
   avg_score:         number
   respondent_count:  number
 }
 
 const DEMOGRAPHIC_DIMENSION_LABEL_PDF: Record<DemographicGroupPDF['dimension'], string> = {
+  sexo:       'Sexo',
   geracao:    'Geração',
   cargo:      'Tipo de Cargo',
   tempo_casa: 'Tempo de Casa',
