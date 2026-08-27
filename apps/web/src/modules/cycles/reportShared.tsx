@@ -92,10 +92,10 @@ export const REL_LABEL: Record<string, string> = {
 }
 
 export const REL_SHORT: Record<string, string> = {
-  self:        'Self',
+  self:        'Autoavaliação',
   manager:     'Gestor',
   peer:        'Pares',
-  subordinate: 'Subord.',
+  subordinate: 'Subordinados',
   client:      'Cliente',
 }
 
