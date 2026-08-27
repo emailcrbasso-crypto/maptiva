@@ -1467,8 +1467,20 @@ function MethodologyAppendixSectionPDF({
       <Block title="Ponto cego / força oculta">
         <Text style={{ fontSize: 7, color: C.light }}>
           Autoavaliação supera a média externa em 1,0 ponto ou mais = ponto cego; média externa supera
-          a autoavaliação em 1,0 ponto ou mais = força oculta. A Matriz de Johari usa critério
-          diferente (70% da escala como corte alto/baixo).
+          a autoavaliação em 1,0 ponto ou mais = força oculta.
+        </Text>
+      </Block>
+      <Block title="Matriz de Johari">
+        <Text style={{ fontSize: 7, color: C.light, marginBottom: 2 }}>
+          Classifica cada competência em quatro quadrantes, cruzando autoavaliação e percepção
+          externa como "alta" ou "baixa": Arena (auto alta, externa alta), Ponto cego (auto alta,
+          externa baixa), Fachada (auto baixa, externa alta) e Desconhecido (auto baixa, externa
+          baixa).
+        </Text>
+        <Text style={{ fontSize: 7, color: C.light }}>
+          O corte alto/baixo em cada eixo é a mediana das próprias competências da pessoa, não um
+          valor fixo da escala — critério diferente do ponto cego/força oculta acima, complementar
+          a ele.
         </Text>
       </Block>
       <Block title="Pesos por avaliador">

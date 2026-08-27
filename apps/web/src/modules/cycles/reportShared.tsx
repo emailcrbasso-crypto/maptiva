@@ -2287,8 +2287,28 @@ export function MethodologyAppendixSection({
           <p className="text-xs text-gray-500">
             Quando a autoavaliação supera a média externa em 1,0 ponto ou mais numa competência, é
             classificado como ponto cego; quando a média externa supera a autoavaliação em 1,0 ponto
-            ou mais, como força oculta. A Matriz de Johari usa um critério diferente (70% da escala
-            como corte "alto/baixo" em cada eixo), complementar a essa métrica de gap.
+            ou mais, como força oculta.
+          </p>
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold text-gray-800 mb-1">Matriz de Johari</p>
+          <p className="text-xs text-gray-500 mb-1.5">
+            Classifica cada competência num de quatro quadrantes, cruzando autoavaliação e percepção
+            externa como "alta" ou "baixa":
+          </p>
+          <ul className="text-xs text-gray-500 space-y-0.5">
+            <li><strong>Arena</strong> — auto alta e externa alta: força reconhecida por todos.</li>
+            <li><strong>Ponto cego</strong> — auto alta e externa baixa: você se avalia bem, mas os avaliadores discordam.</li>
+            <li><strong>Fachada</strong> — auto baixa e externa alta: os avaliadores reconhecem uma força que você subestima.</li>
+            <li><strong>Desconhecido</strong> — auto baixa e externa baixa: nem você nem os avaliadores reconhecem força consolidada.</li>
+          </ul>
+          <p className="text-xs text-gray-500 mt-1.5">
+            O corte "alta/baixa" em cada eixo é a mediana das próprias competências dessa pessoa (não
+            um valor fixo da escala) — assim a matriz sempre mostra onde ela se destaca ou fica abaixo
+            do seu próprio padrão, mesmo quando as notas em geral são altas ou baixas. É um critério
+            diferente do usado em "Ponto cego / força oculta" acima (que compara ao gap absoluto de
+            1,0 ponto); os dois são complementares, não intercambiáveis.
           </p>
         </div>
 
