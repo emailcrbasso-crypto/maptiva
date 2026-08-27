@@ -1262,6 +1262,10 @@ export function FavorabilitySection({
   const overall = computeFavorability(allExtDist, scale)
   if (overall.total === 0) return null
 
+  // Mesmo limiar usado em app.compute_scores (v_blind_threshold) para
+  // ponto cego: autoavaliação supera a média externa em >= 1.0 ponto.
+  const BLIND_SPOT_THRESHOLD = 1.0
+
   const rows = competencies
     .map((c) => {
       const extSnaps = snapshots.filter(
@@ -1271,9 +1275,17 @@ export function FavorabilitySection({
       const dist = mergeDistributions(extSnaps.map((s) => s.score_distribution))
       const fav  = computeFavorability(dist, scale)
       if (fav.total === 0) return null
-      return { id: c.id, name: c.name, fav }
+
+      const selfSnap  = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')
+      const extAvgSum = extSnaps.reduce((acc, s) => acc + (s.score_avg ?? 0) * s.response_count, 0)
+      const extAvgN   = extSnaps.reduce((acc, s) => acc + s.response_count, 0)
+      const extAvg    = extAvgN > 0 ? extAvgSum / extAvgN : null
+      const gap       = selfSnap?.score_avg != null && extAvg != null ? selfSnap.score_avg - extAvg : null
+      const isBlindSpot = gap != null && gap >= BLIND_SPOT_THRESHOLD && fav.favoravel < 80
+
+      return { id: c.id, name: c.name, fav, isBlindSpot }
     })
-    .filter(Boolean) as { id: string; name: string; fav: Favorability }[]
+    .filter(Boolean) as { id: string; name: string; fav: Favorability; isBlindSpot: boolean }[]
 
   rows.sort((a, b) => b.fav.favoravel - a.fav.favoravel)
 
@@ -1285,6 +1297,9 @@ export function FavorabilitySection({
       <p className="text-xs text-gray-400 mb-4">
         Favorável = notas {scale.max - 1} e {scale.max} · Neutro = notas intermediárias ·
         Desfavorável = notas {scale.min} e {scale.min + 1} · avaliadores externos.
+        {rows.some((r) => r.isBlindSpot) && (
+          <> · <span className="text-amber-700">🔍 ponto cego</span> = autoavaliação destoa da percepção externa nessa competência.</>
+        )}
       </p>
 
       <div className="bg-gradient-to-br from-green-50 to-white border border-green-100 rounded-xl p-5 mb-5">
@@ -1298,7 +1313,17 @@ export function FavorabilitySection({
         <div className="space-y-3">
           {rows.map((r) => (
             <div key={r.id} className="flex items-center gap-3">
-              <p className="text-sm text-gray-700 w-44 shrink-0 truncate">{r.name}</p>
+              <p className="text-sm text-gray-700 w-44 shrink-0 truncate flex items-center gap-1.5">
+                {r.name}
+                {r.isBlindSpot && (
+                  <span
+                    title="Autoavaliação bem acima da percepção externa — ponto cego"
+                    className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded shrink-0"
+                  >
+                    🔍 ponto cego
+                  </span>
+                )}
+              </p>
               <div className="flex-1"><FavorabilityBar fav={r.fav} /></div>
               <span className="text-xs font-semibold text-gray-600 w-12 text-right shrink-0">
                 {r.fav.favoravel.toFixed(0)}%
@@ -1312,6 +1337,132 @@ export function FavorabilitySection({
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" /> Favorável</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-300 inline-block" /> Neutro</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-400 inline-block" /> Desfavorável</span>
+      </div>
+    </div>
+  )
+}
+
+// ─── Síntese executiva da liderança (visão agregada do ciclo, todos os avaliados) ─
+
+// Snapshot no nível do ciclo — igual ao SnapshotRow mas identificando a
+// qual participante cada linha pertence (necessário para cruzar
+// autoavaliação x externo pessoa a pessoa e contar pontos cegos).
+export interface CycleSnapshotRow extends SnapshotRow {
+  cycle_participant_id: string
+}
+
+export function ExecutiveSynthesisSection({
+  snapshots,
+  competencies,
+  scaleId = 'likert_5',
+  participantCount,
+}: {
+  snapshots:        CycleSnapshotRow[]
+  competencies:     CompetencyRow[]
+  scaleId?:         string
+  participantCount: number
+}) {
+  const scale = getScale(scaleId)
+  const BLIND_SPOT_THRESHOLD = 1.0
+
+  const compRows = competencies
+    .map((c) => {
+      const compSnaps = snapshots.filter((s) => s.competency_id === c.id)
+      const extSnaps  = compSnaps.filter((s) => s.relationship_code !== 'self' && s.score_distribution)
+      if (extSnaps.length === 0) return null
+
+      const dist = mergeDistributions(extSnaps.map((s) => s.score_distribution))
+      const fav  = computeFavorability(dist, scale)
+      if (fav.total === 0) return null
+
+      // Ponto cego coletivo: em quantas pessoas distintas a autoavaliação
+      // supera a percepção externa em >= 1.0 ponto nessa competência.
+      const byPerson = new Map<string, { self: number | null; extSum: number; extN: number }>()
+      for (const s of compSnaps) {
+        const cur = byPerson.get(s.cycle_participant_id) ?? { self: null, extSum: 0, extN: 0 }
+        if (s.relationship_code === 'self') {
+          cur.self = s.score_avg
+        } else if (s.score_avg != null) {
+          cur.extSum += s.score_avg * s.response_count
+          cur.extN   += s.response_count
+        }
+        byPerson.set(s.cycle_participant_id, cur)
+      }
+      let blindSpotPeople = 0
+      for (const p of byPerson.values()) {
+        if (p.self != null && p.extN > 0 && p.self - p.extSum / p.extN >= BLIND_SPOT_THRESHOLD) {
+          blindSpotPeople++
+        }
+      }
+
+      return { id: c.id, name: c.name, fav, blindSpotPeople }
+    })
+    .filter(Boolean) as { id: string; name: string; fav: Favorability; blindSpotPeople: number }[]
+
+  if (compRows.length === 0) return null
+
+  const strengths = [...compRows].sort((a, b) => b.fav.favoravel - a.fav.favoravel).slice(0, 3)
+  const gaps      = [...compRows].sort((a, b) => a.fav.favoravel - b.fav.favoravel).slice(0, 3)
+  const blindSpots = [...compRows]
+    .filter((r) => r.blindSpotPeople > 0)
+    .sort((a, b) => b.blindSpotPeople - a.blindSpotPeople)
+    .slice(0, 3)
+
+  function MiniList({
+    items, valueLabel, color,
+  }: {
+    items: { name: string; value: string }[]
+    valueLabel: string
+    color: 'green' | 'amber' | 'red'
+  }) {
+    const colorClass = color === 'green' ? 'text-green-700 bg-green-50' : color === 'amber' ? 'text-amber-700 bg-amber-50' : 'text-red-700 bg-red-50'
+    return (
+      <div className="space-y-2">
+        {items.map((it, i) => (
+          <div key={i} className="flex items-center justify-between gap-2 text-sm">
+            <span className="text-gray-700 truncate">{it.name}</span>
+            <span className={`text-xs font-semibold px-1.5 py-0.5 rounded shrink-0 ${colorClass}`}>{it.value}</span>
+          </div>
+        ))}
+        {items.length === 0 && <p className="text-xs text-gray-400">{valueLabel}</p>}
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 print-page-break">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Síntese executiva da liderança
+      </h2>
+      <p className="text-xs text-gray-400 mb-5">
+        Leitura consolidada de {participantCount} avaliado{participantCount !== 1 ? 's' : ''} neste ciclo —
+        tendências coletivas, não substituem a leitura individual de cada relatório.
+      </p>
+      <div className="grid sm:grid-cols-3 gap-6">
+        <div>
+          <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-3">🏆 Forças coletivas</p>
+          <MiniList
+            valueLabel="Sem dados suficientes."
+            color="green"
+            items={strengths.map((r) => ({ name: r.name, value: `${r.fav.favoravel.toFixed(0)}%` }))}
+          />
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-3">🎯 Gaps coletivos</p>
+          <MiniList
+            valueLabel="Sem dados suficientes."
+            color="red"
+            items={gaps.map((r) => ({ name: r.name, value: `${r.fav.favoravel.toFixed(0)}%` }))}
+          />
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-3">🔍 Pontos cegos recorrentes</p>
+          <MiniList
+            valueLabel="Nenhum ponto cego recorrente identificado."
+            color="amber"
+            items={blindSpots.map((r) => ({ name: r.name, value: `${r.blindSpotPeople} pessoa${r.blindSpotPeople !== 1 ? 's' : ''}` }))}
+          />
+        </div>
       </div>
     </div>
   )

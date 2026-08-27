@@ -5,6 +5,7 @@ import { exportCycleReportExcel } from '@/lib/exportReport'
 import type { CycleSummary } from '@/lib/exportReport'
 import { exportCycleReportPdf, type PdfSnapshotRow, type PdfCompetencyRow } from '@/lib/exportReportPdf'
 import { useTenant } from '@/modules/auth/TenantContext'
+import { ExecutiveSynthesisSection } from './reportShared'
 import {
   Radar,
   RadarChart as RechartsRadarChart,
@@ -20,10 +21,12 @@ import {
 interface SnapshotRow {
   cycle_participant_id: string
   competency_id: string | null
+  dimension_code: string | null
   relationship_code: string
   score_avg: number | null
   response_count: number
   visibility_status: string
+  score_distribution: Record<string, number> | null | undefined
 }
 
 interface CompetencyRow {
@@ -296,7 +299,7 @@ export function ReportPage() {
         supabase.rpc('get_cycle_summary', { p_cycle_id: id }),
         supabase
           .from('score_snapshots')
-          .select('cycle_participant_id, competency_id, relationship_code, score_avg, response_count, visibility_status')
+          .select('cycle_participant_id, competency_id, dimension_code, relationship_code, score_avg, response_count, visibility_status, score_distribution')
           .eq('cycle_id', id),
         supabase
           .from('comments_published')
@@ -355,7 +358,7 @@ export function ReportPage() {
       supabase.rpc('get_cycle_summary', { p_cycle_id: id }),
       supabase
         .from('score_snapshots')
-        .select('cycle_participant_id, competency_id, relationship_code, score_avg, response_count, visibility_status')
+        .select('cycle_participant_id, competency_id, dimension_code, relationship_code, score_avg, response_count, visibility_status, score_distribution')
         .eq('cycle_id', id),
     ])
     if (sumRes.data) setSummary(sumRes.data as CycleSummary)
@@ -495,6 +498,17 @@ export function ReportPage() {
           <span className="ml-auto text-gray-300">→</span>
         </Link>
       </div>
+
+      {/* ── Síntese executiva (visão agregada, todos os avaliados) ── */}
+      {hasCompetencies && withProfile.length > 0 && (
+        <div className="mb-6">
+          <ExecutiveSynthesisSection
+            snapshots={snapshots}
+            competencies={competencies}
+            participantCount={withProfile.length}
+          />
+        </div>
+      )}
 
       {/* ── Participants with scores ── */}
       {withProfile.length > 0 && (
