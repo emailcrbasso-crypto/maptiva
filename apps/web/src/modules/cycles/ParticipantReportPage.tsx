@@ -21,6 +21,7 @@ import {
   type QuestionScoreRow,
   ReportDisplay,
   FavorabilityByDemographicSection,
+  MethodologyAppendixSection,
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
 
@@ -390,12 +391,18 @@ export function ParticipantReportPage() {
             benchmark={benchmark}
             questionScores={questionScores}
             evaluatorWeights={evaluatorWeights}
-            competencyWeights={competencyWeights}
-            nMinimum={nMinimum}
             onSaveConsultantNotes={handleSaveConsultantNotes}
           />
           <FavorabilityByDemographicSection groups={demographics} scaleId={scaleId} />
           <DemographicBreakdownSection groups={demographics} />
+          {nMinimum != null && (
+            <div className="mt-5">
+              <MethodologyAppendixSection
+                scaleId={scaleId}
+                info={{ nMinimum, evaluatorWeights, competencyWeights, generatedAt: profile.generated_at }}
+              />
+            </div>
+          )}
         </>
       )}
     </div>

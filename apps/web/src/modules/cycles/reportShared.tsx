@@ -2342,8 +2342,6 @@ export interface ReportDisplayProps {
   benchmark?:       BenchmarkMap
   questionScores?:  QuestionScoreRow[]
   evaluatorWeights?: Record<string, number>
-  nMinimum?:          number
-  competencyWeights?: { name: string; weight: number }[]
   onSaveConsultantNotes?: (text: string) => Promise<void>
 }
 
@@ -2388,8 +2386,6 @@ export function ReportDisplay({
   benchmark,
   questionScores = [],
   evaluatorWeights,
-  nMinimum,
-  competencyWeights,
   onSaveConsultantNotes,
 }: ReportDisplayProps) {
   const hasCompetencies   = competencies.length > 0
@@ -2515,19 +2511,6 @@ export function ReportDisplay({
           para preservar a confidencialidade dos avaliadores.
         </p>
       </div>
-
-      {/* 14. Apêndice metodológico */}
-      {nMinimum != null && (
-        <MethodologyAppendixSection
-          scaleId={scaleId}
-          info={{
-            nMinimum,
-            evaluatorWeights,
-            competencyWeights,
-            generatedAt: profile.generated_at,
-          }}
-        />
-      )}
     </div>
   )
 }

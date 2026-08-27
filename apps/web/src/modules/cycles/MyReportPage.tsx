@@ -17,6 +17,7 @@ import {
   type BenchmarkMap,
   type QuestionScoreRow,
   ReportDisplay,
+  MethodologyAppendixSection,
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
 
@@ -256,18 +257,26 @@ export function MyReportPage() {
           </p>
         </div>
       ) : (
-        <ReportDisplay
-          snapshots={snapshots}
-          competencies={competencies}
-          comments={comments}
-          profile={profile}
-          scaleId={scaleId}
-          benchmark={benchmark}
-          questionScores={questionScores}
-          evaluatorWeights={evaluatorWeights}
-          competencyWeights={competencyWeights}
-          nMinimum={nMinimum}
-        />
+        <>
+          <ReportDisplay
+            snapshots={snapshots}
+            competencies={competencies}
+            comments={comments}
+            profile={profile}
+            scaleId={scaleId}
+            benchmark={benchmark}
+            questionScores={questionScores}
+            evaluatorWeights={evaluatorWeights}
+          />
+          {nMinimum != null && (
+            <div className="mt-5">
+              <MethodologyAppendixSection
+                scaleId={scaleId}
+                info={{ nMinimum, evaluatorWeights, competencyWeights, generatedAt: profile.generated_at }}
+              />
+            </div>
+          )}
+        </>
       )}
     </div>
   )
