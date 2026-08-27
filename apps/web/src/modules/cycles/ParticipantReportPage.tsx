@@ -20,6 +20,7 @@ import {
   type BenchmarkMap,
   type QuestionScoreRow,
   ReportDisplay,
+  FavorabilityByDemographicSection,
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
 
@@ -30,6 +31,8 @@ export interface DemographicGroup {
   value:             string
   avg_score:         number
   respondent_count:  number
+  distribution:      Record<string, number> | null | undefined
+  response_count:    number
 }
 
 const DEMOGRAPHIC_DIMENSION_LABEL: Record<DemographicGroup['dimension'], string> = {
@@ -360,6 +363,7 @@ export function ParticipantReportPage() {
             questionScores={questionScores}
             evaluatorWeights={evaluatorWeights}
           />
+          <FavorabilityByDemographicSection groups={demographics} scaleId={scaleId} />
           <DemographicBreakdownSection groups={demographics} />
         </>
       )}

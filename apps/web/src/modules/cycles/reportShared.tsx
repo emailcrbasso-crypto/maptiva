@@ -1342,6 +1342,97 @@ export function FavorabilitySection({
   )
 }
 
+// ─── Favorabilidade por perfil do avaliador (sexo, cargo, geração, tempo de casa) ─
+
+export interface DemographicFavorabilityGroup {
+  dimension:      'sexo' | 'geracao' | 'cargo' | 'tempo_casa'
+  value:          string
+  distribution:   Record<string, number> | null | undefined
+  response_count: number
+}
+
+const DEMOGRAPHIC_FAV_LABEL: Record<DemographicFavorabilityGroup['dimension'], string> = {
+  sexo:       'Sexo',
+  geracao:    'Geração',
+  cargo:      'Tipo de Cargo',
+  tempo_casa: 'Tempo de Casa',
+}
+
+export function FavorabilityByDemographicSection({
+  groups,
+  scaleId = 'likert_5',
+}: {
+  groups:   DemographicFavorabilityGroup[]
+  scaleId?: string
+}) {
+  const scale = getScale(scaleId)
+
+  const byDimension = new Map<string, { value: string; fav: Favorability }[]>()
+  for (const g of groups) {
+    if (!g.distribution) continue
+    const fav = computeFavorability(g.distribution, scale)
+    if (fav.total === 0) continue
+    if (!byDimension.has(g.dimension)) byDimension.set(g.dimension, [])
+    byDimension.get(g.dimension)!.push({ value: g.value, fav })
+  }
+
+  // Só faz sentido comparar dimensões com pelo menos 2 grupos.
+  const dimensions = [...byDimension.entries()]
+    .filter(([, rows]) => rows.length >= 2)
+    .map(([dim, rows]) => ({ dim, rows: rows.sort((a, b) => b.fav.favoravel - a.fav.favoravel) }))
+
+  if (dimensions.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 print-page-break">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Favorabilidade por perfil do avaliador
+      </h2>
+      <p className="text-xs text-gray-400 mb-5">
+        Como a favorabilidade varia entre diferentes grupos de avaliadores — ajuda a identificar
+        divergências de percepção por perfil.
+      </p>
+      <div className="space-y-6">
+        {dimensions.map(({ dim, rows }) => {
+          const best  = rows[0]
+          const worst = rows[rows.length - 1]
+          const gap   = best.fav.favoravel - worst.fav.favoravel
+          return (
+            <div key={dim}>
+              <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
+                {DEMOGRAPHIC_FAV_LABEL[dim as DemographicFavorabilityGroup['dimension']]}
+              </h3>
+              <div className="space-y-2.5">
+                {rows.map((r) => (
+                  <div key={r.value} className="flex items-center gap-3">
+                    <p className="text-sm text-gray-700 w-36 shrink-0 truncate">{r.value}</p>
+                    <div className="flex-1"><FavorabilityBar fav={r.fav} /></div>
+                    <span className="text-xs font-semibold text-gray-600 w-12 text-right shrink-0">
+                      {r.fav.favoravel.toFixed(0)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {rows.length >= 2 && gap >= 15 && (
+                <div className="mt-3 space-y-1.5">
+                  <p className="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">
+                    ⭐ <strong>Destaque:</strong> {best.value} avalia com {best.fav.favoravel.toFixed(0)}% de favorabilidade —
+                    o grupo com a percepção mais positiva.
+                  </p>
+                  <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                    ⚠️ <strong>Ponto de atenção:</strong> {worst.value} está em {worst.fav.favoravel.toFixed(0)}% —
+                    {gap.toFixed(0)} pontos abaixo do grupo mais favorável. Vale explorar essa divergência de percepção.
+                  </p>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ─── Síntese executiva da liderança (visão agregada do ciclo, todos os avaliados) ─
 
 // Snapshot no nível do ciclo — igual ao SnapshotRow mas identificando a

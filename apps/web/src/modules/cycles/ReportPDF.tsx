@@ -997,6 +997,54 @@ function ScoreDistributionSectionPDF({
   )
 }
 
+// ─── 8a. Favorabilidade por perfil do avaliador (best-effort) ─────────────────
+
+function FavorabilityByDemographicSectionPDF({ groups, scaleId }: { groups: DemographicGroupPDF[]; scaleId: string }) {
+  const scale = getScale(scaleId)
+
+  const byDimension = new Map<string, { value: string; fav: ReturnType<typeof computeFavorability> }[]>()
+  for (const g of groups) {
+    if (!g.distribution) continue
+    const fav = computeFavorability(g.distribution, scale)
+    if (fav.total === 0) continue
+    if (!byDimension.has(g.dimension)) byDimension.set(g.dimension, [])
+    byDimension.get(g.dimension)!.push({ value: g.value, fav })
+  }
+
+  const dimensions = [...byDimension.entries()]
+    .filter(([, rows]) => rows.length >= 2)
+    .map(([dim, rows]) => ({ dim, rows: rows.sort((a, b) => b.fav.favoravel - a.fav.favoravel) }))
+
+  if (dimensions.length === 0) return null
+
+  return (
+    <View style={s.section} break>
+      <SectionTitle>Favorabilidade por perfil do avaliador</SectionTitle>
+      <Text style={s.sectionSubtitle}>
+        Como a favorabilidade varia entre diferentes grupos de avaliadores.
+      </Text>
+      <View style={{ display: 'flex', flexDirection: 'row', gap: 16 }}>
+        {dimensions.map(({ dim, rows }) => (
+          <View key={dim} style={{ flex: 1 }}>
+            <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.text, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+              {DEMOGRAPHIC_DIMENSION_LABEL_PDF[dim as DemographicGroupPDF['dimension']]}
+            </Text>
+            {rows.map((r) => (
+              <View key={r.value} style={{ marginBottom: 6 }} wrap={false}>
+                <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+                  <Text style={{ fontSize: 7, color: C.text }}>{r.value}</Text>
+                  <Text style={{ fontSize: 6.5, color: C.light }}>{r.fav.favoravel.toFixed(0)}%</Text>
+                </View>
+                <FavorabilityBarPDF fav={r.fav} />
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+    </View>
+  )
+}
+
 // ─── 8b. Análise demográfica (Opção A — best-effort) ──────────────────────────
 
 function DemographicBreakdownSectionPDF({ groups }: { groups: DemographicGroupPDF[] }) {
@@ -1135,6 +1183,8 @@ export interface DemographicGroupPDF {
   value:             string
   avg_score:         number
   respondent_count:  number
+  distribution:      Record<string, number> | null | undefined
+  response_count:    number
 }
 
 const DEMOGRAPHIC_DIMENSION_LABEL_PDF: Record<DemographicGroupPDF['dimension'], string> = {
@@ -1281,6 +1331,11 @@ export function ReportPDFDocument({
         {/* Avaliação por competência */}
         {hasCompetencies && (
           <CompetencyDetailSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        )}
+
+        {/* Favorabilidade por perfil do avaliador */}
+        {hasDemographics && (
+          <FavorabilityByDemographicSectionPDF groups={demographics!} scaleId={scaleId} />
         )}
 
         {/* Análise demográfica */}
