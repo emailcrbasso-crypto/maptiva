@@ -799,10 +799,11 @@ function TopBottomQuestionsSectionPDF({
     }))
     .sort((a, b) => b.avg - a.avg)
 
-  if (scored.length < 3) return null
+  if (scored.length === 0) return null
 
-  const top    = scored.slice(0, Math.min(5, scored.length))
-  const bottom = [...scored].reverse().slice(0, Math.min(5, scored.length))
+  const overlaps = scored.length <= 5
+  const top      = scored.slice(0, Math.min(5, scored.length))
+  const bottom   = overlaps ? [] : [...scored].reverse().slice(0, 5)
 
   function QRankList({ items, color }: { items: typeof top; color: string }) {
     return (
@@ -838,18 +839,20 @@ function TopBottomQuestionsSectionPDF({
         Granularidade por pergunta — mais específico que a visão por competência.
       </Text>
       <View style={{ display: 'flex', flexDirection: 'row' }}>
-        <View style={{ flex: 1, marginRight: 24 }}>
+        <View style={{ flex: 1, marginRight: bottom.length > 0 ? 24 : 0 }}>
           <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.green, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Pontos fortes
+            {bottom.length > 0 ? 'Pontos fortes' : 'Ranking por pergunta'}
           </Text>
           <QRankList items={top} color={C.green} />
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.yellow, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Oportunidades
-          </Text>
-          <QRankList items={bottom} color={C.yellow} />
-        </View>
+        {bottom.length > 0 && (
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.yellow, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Oportunidades
+            </Text>
+            <QRankList items={bottom} color={C.yellow} />
+          </View>
+        )}
       </View>
     </View>
   )

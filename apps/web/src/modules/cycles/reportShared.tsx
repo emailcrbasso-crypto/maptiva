@@ -737,11 +737,14 @@ export function Top5QuestionsSection({
       avg: q.scores.reduce((s, v) => s + v, 0) / q.scores.length,
     }))
 
-  if (scored.length < 3) return null
+  if (scored.length === 0) return null
 
-  const sorted  = [...scored].sort((a, b) => b.avg - a.avg)
-  const top5    = sorted.slice(0, Math.min(5, scored.length))
-  const bottom5 = sorted.slice(-Math.min(5, scored.length)).reverse()
+  const sorted = [...scored].sort((a, b) => b.avg - a.avg)
+  // Com poucas perguntas, top e bottom podem se sobrepor — nesse caso
+  // mostramos só o ranking geral (top) para não duplicar linhas.
+  const overlaps = scored.length <= 5
+  const top5     = sorted.slice(0, Math.min(5, scored.length))
+  const bottom5  = overlaps ? [] : sorted.slice(-5).reverse()
 
   function QScoreBar({ value, color }: { value: number; color: 'green' | 'amber' }) {
     const pct = (value / scale.max) * 100
@@ -787,23 +790,25 @@ export function Top5QuestionsSection({
       <p className="text-xs text-gray-400 mb-5">
         Granularidade por pergunta — mais específico que a visão por competência.
       </p>
-      <div className="grid grid-cols-2 gap-8">
+      <div className={bottom5.length > 0 ? 'grid grid-cols-2 gap-8' : ''}>
         <div>
           <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-3">
-            🏆 Top {top5.length} — Pontos Fortes
+            🏆 {bottom5.length > 0 ? `Top ${top5.length} — Pontos Fortes` : 'Ranking por pergunta'}
           </p>
           <div className="space-y-4">
             {top5.map((q, i) => <QuestionRow key={q.id} q={q} i={i} color="green" />)}
           </div>
         </div>
-        <div>
-          <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-3">
-            🎯 Top {bottom5.length} — Oportunidades de Melhoria
-          </p>
-          <div className="space-y-4">
-            {bottom5.map((q, i) => <QuestionRow key={q.id} q={q} i={i} color="amber" />)}
+        {bottom5.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-3">
+              🎯 Top {bottom5.length} — Oportunidades de Melhoria
+            </p>
+            <div className="space-y-4">
+              {bottom5.map((q, i) => <QuestionRow key={q.id} q={q} i={i} color="amber" />)}
+            </div>
           </div>
-        </div>
+        )}
       </div>
       <p className="text-xs text-gray-400 mt-5">
         Ranking baseado na média das avaliações externas (gestor, pares e subordinados) por pergunta individual.
