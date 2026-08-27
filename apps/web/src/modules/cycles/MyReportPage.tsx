@@ -34,6 +34,8 @@ export function MyReportPage() {
   const [benchmark,        setBenchmark]        = useState<BenchmarkMap | undefined>(undefined)
   const [questionScores,   setQuestionScores]   = useState<QuestionScoreRow[]>([])
   const [evaluatorWeights, setEvaluatorWeights] = useState<Record<string, number> | undefined>(undefined)
+  const [competencyWeights, setCompetencyWeights] = useState<{ name: string; weight: number }[] | undefined>(undefined)
+  const [nMinimum,          setNMinimum]          = useState<number | undefined>(undefined)
   const [loading,          setLoading]          = useState(true)
   const [errorCode,      setErrorCode]      = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
@@ -70,12 +72,14 @@ export function MyReportPage() {
       const compIds = [...new Set(
         (d.snapshots ?? []).map((s) => s.competency_id).filter(Boolean) as string[]
       )]
+      let compData: { id: string; name: string; dimension_code: string | null }[] = []
       if (compIds.length > 0) {
-        const { data: compData } = await supabase
+        const { data } = await supabase
           .from('competencies')
           .select('id, name, dimension_code')
           .in('id', compIds)
-        setCompetencies((compData ?? []) as CompetencyRow[])
+        compData = data ?? []
+        setCompetencies(compData as CompetencyRow[])
       }
 
       const { data: commData } = await supabase
@@ -92,10 +96,11 @@ export function MyReportPage() {
       if (cycleRow?.template_id) {
         const { data: tmplRow } = await supabase
           .from('templates')
-          .select('scale_id')
+          .select('scale_id, n_minimum_default')
           .eq('id', cycleRow.template_id)
           .single()
         if (tmplRow?.scale_id) setScaleId(tmplRow.scale_id)
+        if (tmplRow?.n_minimum_default != null) setNMinimum(tmplRow.n_minimum_default)
       }
 
       // Benchmark (best-effort)
@@ -112,11 +117,21 @@ export function MyReportPage() {
       const { data: qData } = await supabase.rpc('get_my_question_scores', { p_cycle_id: id })
       if (Array.isArray(qData)) setQuestionScores(qData as QuestionScoreRow[])
 
-      // Evaluator weights (best-effort — shown as methodology banner)
+      // Evaluator/competency weights (best-effort — shown na banner e no apêndice de metodologia)
       const { data: wData } = await supabase.rpc('get_cycle_weights', { p_cycle_id: id })
       if (wData) {
-        const ew = (wData as { evaluator_weights?: { relationship_code: string; weight: number }[] })
-          .evaluator_weights ?? []
+        const wFull = wData as {
+          evaluator_weights?:  { relationship_code: string; weight: number }[]
+          competency_weights?: { competency_id: string; weight: number }[]
+        }
+        const cwFull = wFull.competency_weights ?? []
+        if (cwFull.length > 0) {
+          const compNameMap = new Map(compData.map((c) => [c.id, c.name]))
+          setCompetencyWeights(
+            cwFull.map((row) => ({ name: compNameMap.get(row.competency_id) ?? row.competency_id, weight: row.weight }))
+          )
+        }
+        const ew = wFull.evaluator_weights ?? []
         if (ew.length > 0) {
           const map: Record<string, number> = {}
           for (const row of ew) map[row.relationship_code] = row.weight
@@ -146,6 +161,8 @@ export function MyReportPage() {
           benchmark={benchmark}
           evaluatorWeights={evaluatorWeights}
           questionScores={questionScores}
+          competencyWeights={competencyWeights}
+          nMinimum={nMinimum}
           brandingName={branding.name}
           brandingLogoUrl={branding.logoUrl ?? null}
         />
@@ -248,6 +265,8 @@ export function MyReportPage() {
           benchmark={benchmark}
           questionScores={questionScores}
           evaluatorWeights={evaluatorWeights}
+          competencyWeights={competencyWeights}
+          nMinimum={nMinimum}
         />
       )}
     </div>

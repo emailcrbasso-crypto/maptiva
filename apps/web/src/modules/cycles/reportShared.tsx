@@ -78,6 +78,7 @@ export interface ProfileData {
   subordinate_score:     number | null
   blind_spot_count:      number
   hidden_strength_count: number
+  consultant_notes?:     string | null
   generated_at:          string | null
 }
 
@@ -2126,6 +2127,212 @@ export function BenchmarkSection({
 
 // ─── ReportDisplay — main layout used by both pages ──────────────────────────
 
+// ─── Leitura do consultor ──────────────────────────────────────────────────
+
+export function ConsultantNotesSection({
+  notes,
+  onSave,
+}: {
+  notes:   string | null | undefined
+  onSave?: (text: string) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft,   setDraft]   = useState(notes ?? '')
+  const [saving,  setSaving]  = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
+
+  if (!onSave && !notes) return null
+
+  async function handleSave() {
+    if (!onSave) return
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(draft)
+      setEditing(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao salvar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-indigo-50/60 rounded-xl border border-indigo-100 p-6">
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-sm font-semibold text-indigo-900 uppercase tracking-wide">
+          📝 Leitura do consultor
+        </h2>
+        {onSave && !editing && (
+          <button
+            onClick={() => { setDraft(notes ?? ''); setEditing(true) }}
+            className="text-xs text-indigo-600 hover:text-indigo-800 no-print"
+          >
+            {notes ? 'Editar' : '+ Adicionar leitura'}
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-indigo-400 mb-4">
+        Interpretação e recomendações de quem conduziu a devolutiva — complementa a leitura automática dos dados.
+      </p>
+      {editing ? (
+        <div className="no-print">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={5}
+            className="w-full text-sm text-gray-700 border border-indigo-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            placeholder="Escreva aqui sua leitura sobre os resultados deste gestor..."
+          />
+          {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {saving ? 'Salvando...' : 'Salvar'}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              disabled={saving}
+              className="text-xs text-gray-500 px-3 py-1.5 rounded-lg hover:bg-gray-100"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : notes ? (
+        <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{notes}</p>
+      ) : (
+        <p className="text-xs text-gray-400 italic">Nenhuma leitura adicionada ainda.</p>
+      )}
+    </div>
+  )
+}
+
+// ─── Metodologia deste relatório ────────────────────────────────────────────
+
+export interface MethodologyInfo {
+  nMinimum:           number
+  evaluatorWeights?:  Record<string, number>
+  competencyWeights?: { name: string; weight: number }[]
+  generatedAt:        string | null
+}
+
+export function MethodologyAppendixSection({
+  info,
+  scaleId = 'likert_5',
+}: {
+  info:     MethodologyInfo
+  scaleId?: string
+}) {
+  const scale = getScale(scaleId)
+  const hasEvaluatorWeights  = info.evaluatorWeights  != null && Object.values(info.evaluatorWeights).some((w) => w > 0)
+  const hasCompetencyWeights = info.competencyWeights != null && info.competencyWeights.length > 0
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 print-page-break">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+        Metodologia deste relatório
+      </h2>
+      <div className="space-y-4">
+        <div>
+          <p className="text-sm font-semibold text-gray-800 mb-1">Escala utilizada — {scale.name}</p>
+          <p className="text-xs text-gray-500 mb-1.5">{scale.description}</p>
+          <ul className="text-xs text-gray-500 space-y-0.5">
+            {scale.labels.map((l) => (
+              <li key={l.value}>{l.value} = {l.label}</li>
+            ))}
+          </ul>
+          {scale.allowNa && (
+            <p className="text-xs text-gray-500 mt-1.5">
+              Avaliadores podiam optar por "{scale.naLabel}" — essas respostas não entram nas médias.
+            </p>
+          )}
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold text-gray-800 mb-1">Favorabilidade</p>
+          <p className="text-xs text-gray-500">
+            Favorável = notas {scale.max - 1} e {scale.max} · Neutro = notas intermediárias ·
+            Desfavorável = notas {scale.min} e {scale.min + 1}. Calculada sobre as avaliações
+            externas (exclui autoavaliação).
+          </p>
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold text-gray-800 mb-1">Regra de N-mínimo (anonimato)</p>
+          <p className="text-xs text-gray-500">
+            Grupos de avaliadores não-gestor (pares, subordinados) com menos de {info.nMinimum}{' '}
+            respondentes são ocultados, para impedir que uma nota individual seja atribuída a um
+            avaliador específico. Autoavaliação e gestor não têm essa restrição.
+          </p>
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold text-gray-800 mb-1">Ponto cego / força oculta</p>
+          <p className="text-xs text-gray-500">
+            Quando a autoavaliação supera a média externa em 1,0 ponto ou mais numa competência, é
+            classificado como ponto cego; quando a média externa supera a autoavaliação em 1,0 ponto
+            ou mais, como força oculta. A Matriz de Johari usa um critério diferente (70% da escala
+            como corte "alto/baixo" em cada eixo), complementar a essa métrica de gap.
+          </p>
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold text-gray-800 mb-1">Pesos por avaliador</p>
+          {hasEvaluatorWeights ? (
+            <ul className="text-xs text-gray-500 space-y-0.5">
+              {Object.entries(info.evaluatorWeights!).filter(([, w]) => w > 0).map(([rel, w]) => (
+                <li key={rel}>{REL_LABEL[rel] ?? rel}: peso {w}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-gray-500">
+              Não configurado neste ciclo — todos os grupos de avaliadores têm o mesmo peso (média simples).
+            </p>
+          )}
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold text-gray-800 mb-1">Pesos por competência</p>
+          {hasCompetencyWeights ? (
+            <ul className="text-xs text-gray-500 space-y-0.5">
+              {info.competencyWeights!.map((c) => (
+                <li key={c.name}>{c.name}: peso {c.weight}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-gray-500">
+              Não configurado neste ciclo — todas as competências têm o mesmo peso na Média Geral.
+            </p>
+          )}
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold text-gray-800 mb-1">Média simples × Média Geral ponderada</p>
+          <p className="text-xs text-gray-500">
+            A "Média Geral" no topo do relatório é a média entre os grupos de avaliadores visíveis
+            {hasEvaluatorWeights || hasCompetencyWeights
+              ? ', ajustada pelos pesos configurados acima.'
+              : ', sem nenhum peso configurado neste ciclo — equivale à média simples.'}
+          </p>
+        </div>
+
+        {info.generatedAt && (
+          <div>
+            <p className="text-sm font-semibold text-gray-800 mb-1">Data de fechamento</p>
+            <p className="text-xs text-gray-500">
+              Scores calculados em {new Date(info.generatedAt).toLocaleString('pt-BR')}.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export interface ReportDisplayProps {
   snapshots:        SnapshotRow[]
   competencies:     CompetencyRow[]
@@ -2135,6 +2342,9 @@ export interface ReportDisplayProps {
   benchmark?:       BenchmarkMap
   questionScores?:  QuestionScoreRow[]
   evaluatorWeights?: Record<string, number>
+  nMinimum?:          number
+  competencyWeights?: { name: string; weight: number }[]
+  onSaveConsultantNotes?: (text: string) => Promise<void>
 }
 
 function largestRemainderPct(entries: [string, number][]): [string, number][] {
@@ -2178,6 +2388,9 @@ export function ReportDisplay({
   benchmark,
   questionScores = [],
   evaluatorWeights,
+  nMinimum,
+  competencyWeights,
+  onSaveConsultantNotes,
 }: ReportDisplayProps) {
   const hasCompetencies   = competencies.length > 0
   const hasBenchmark      = benchmark != null && Object.keys(benchmark).length > 0
@@ -2187,6 +2400,9 @@ export function ReportDisplay({
     <div className="space-y-5">
       {/* 0. Metodologia de ponderação (se houver pesos) */}
       {hasWeights && <MethodologyBanner evaluatorWeights={evaluatorWeights!} />}
+
+      {/* 0.5 Leitura do consultor */}
+      <ConsultantNotesSection notes={profile.consultant_notes} onSave={onSaveConsultantNotes} />
 
       {/* 1. Participation summary */}
       <ParticipationPanel snapshots={snapshots} />
@@ -2299,6 +2515,19 @@ export function ReportDisplay({
           para preservar a confidencialidade dos avaliadores.
         </p>
       </div>
+
+      {/* 14. Apêndice metodológico */}
+      {nMinimum != null && (
+        <MethodologyAppendixSection
+          scaleId={scaleId}
+          info={{
+            nMinimum,
+            evaluatorWeights,
+            competencyWeights,
+            generatedAt: profile.generated_at,
+          }}
+        />
+      )}
     </div>
   )
 }

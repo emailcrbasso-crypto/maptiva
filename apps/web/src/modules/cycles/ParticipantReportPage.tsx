@@ -106,6 +106,8 @@ export function ParticipantReportPage() {
   const [benchmark,        setBenchmark]        = useState<BenchmarkMap | undefined>(undefined)
   const [questionScores,   setQuestionScores]   = useState<QuestionScoreRow[]>([])
   const [evaluatorWeights, setEvaluatorWeights] = useState<Record<string, number> | undefined>(undefined)
+  const [competencyWeights, setCompetencyWeights] = useState<{ name: string; weight: number }[] | undefined>(undefined)
+  const [nMinimum,          setNMinimum]          = useState<number | undefined>(undefined)
   const [demographics,     setDemographics]     = useState<DemographicGroup[]>([])
   const [loading,          setLoading]          = useState(true)
   const [error,          setError]          = useState<string | null>(null)
@@ -150,12 +152,14 @@ export function ParticipantReportPage() {
       const compIds = [...new Set(
         (d.snapshots ?? []).map((s) => s.competency_id).filter(Boolean) as string[]
       )]
+      let compData: { id: string; name: string; dimension_code: string | null }[] = []
       if (compIds.length > 0) {
-        const { data: compData } = await supabase
+        const { data } = await supabase
           .from('competencies')
           .select('id, name, dimension_code')
           .in('id', compIds)
-        setCompetencies((compData ?? []) as CompetencyRow[])
+        compData = data ?? []
+        setCompetencies(compData as CompetencyRow[])
       }
 
       // Load comments (admin can see all comments for this participant)
@@ -175,10 +179,11 @@ export function ParticipantReportPage() {
       if (cycleRow?.template_id) {
         const { data: tmplRow } = await supabase
           .from('templates')
-          .select('scale_id')
+          .select('scale_id, n_minimum_default')
           .eq('id', cycleRow.template_id)
           .single()
         if (tmplRow?.scale_id) setScaleId(tmplRow.scale_id)
+        if (tmplRow?.n_minimum_default != null) setNMinimum(tmplRow.n_minimum_default)
       }
 
       // Load cycle benchmark (best-effort)
@@ -199,15 +204,25 @@ export function ParticipantReportPage() {
       })
       if (Array.isArray(qData)) setQuestionScores(qData as QuestionScoreRow[])
 
-      // Evaluator weights (best-effort — shown as methodology banner)
+      // Evaluator/competency weights (best-effort — shown na banner e no apêndice de metodologia)
       const { data: wData } = await supabase.rpc('get_cycle_weights', { p_cycle_id: id })
       if (wData) {
-        const ew = (wData as { evaluator_weights?: { relationship_code: string; weight: number }[] })
-          .evaluator_weights ?? []
+        const w = wData as {
+          evaluator_weights?:  { relationship_code: string; weight: number }[]
+          competency_weights?: { competency_id: string; weight: number }[]
+        }
+        const ew = w.evaluator_weights ?? []
         if (ew.length > 0) {
           const map: Record<string, number> = {}
           for (const row of ew) map[row.relationship_code] = row.weight
           setEvaluatorWeights(map)
+        }
+        const cw = w.competency_weights ?? []
+        if (cw.length > 0) {
+          const compNameMap = new Map((compData ?? []).map((c) => [c.id, c.name]))
+          setCompetencyWeights(
+            cw.map((row) => ({ name: compNameMap.get(row.competency_id) ?? row.competency_id, weight: row.weight }))
+          )
         }
       }
 
@@ -222,6 +237,17 @@ export function ParticipantReportPage() {
     }
     load()
   }, [id, cpId])
+
+  async function handleSaveConsultantNotes(text: string) {
+    if (!id || !cpId) return
+    const { error: rpcErr } = await supabase.rpc('update_consultant_notes', {
+      p_cycle_id: id,
+      p_cp_id:    cpId,
+      p_notes:    text,
+    })
+    if (rpcErr) throw rpcErr
+    setProfile((prev) => (prev ? { ...prev, consultant_notes: text.trim() || null } : prev))
+  }
 
   async function handleDownloadPDF() {
     if (!profile) return
@@ -241,6 +267,8 @@ export function ParticipantReportPage() {
           evaluatorWeights={evaluatorWeights}
           demographics={demographics}
           questionScores={questionScores}
+          competencyWeights={competencyWeights}
+          nMinimum={nMinimum}
           brandingName={branding.name}
           brandingLogoUrl={branding.logoUrl ?? null}
         />
@@ -362,6 +390,9 @@ export function ParticipantReportPage() {
             benchmark={benchmark}
             questionScores={questionScores}
             evaluatorWeights={evaluatorWeights}
+            competencyWeights={competencyWeights}
+            nMinimum={nMinimum}
+            onSaveConsultantNotes={handleSaveConsultantNotes}
           />
           <FavorabilityByDemographicSection groups={demographics} scaleId={scaleId} />
           <DemographicBreakdownSection groups={demographics} />

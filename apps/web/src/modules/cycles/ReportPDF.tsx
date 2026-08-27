@@ -7,6 +7,7 @@
  *   Benchmark · Scores por perspectiva · Distribuição · Competências · Comentários
  */
 
+import type { ReactNode } from 'react'
 import {
   Document, Page, Text, View, StyleSheet, Image,
   Svg, Line, Polygon, Circle,
@@ -1358,6 +1359,8 @@ export interface ReportPDFProps {
   evaluatorWeights?: Record<string, number>
   demographics?:    DemographicGroupPDF[]
   questionScores?:  QuestionScoreRow[]
+  competencyWeights?: { name: string; weight: number }[]
+  nMinimum?:        number
   /** Meta de favorabilidade (%) no radar. Default 80; passe null para ocultar. */
   goalPct?:         number | null
   brandingName:     string
@@ -1401,10 +1404,113 @@ function MethodologyBannerPDF({ evaluatorWeights }: { evaluatorWeights: Record<s
   )
 }
 
+function ConsultantNotesSectionPDF({ notes }: { notes: string }) {
+  return (
+    <View style={{ backgroundColor: '#eef2ff', borderRadius: 6, padding: 10, marginBottom: 14 }}>
+      <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.primary, marginBottom: 4 }}>
+        📝 Leitura do consultor
+      </Text>
+      <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.4 }}>{notes}</Text>
+    </View>
+  )
+}
+
+function MethodologyAppendixSectionPDF({
+  scaleId, nMinimum, evaluatorWeights, competencyWeights, generatedAt,
+}: {
+  scaleId: string
+  nMinimum: number
+  evaluatorWeights?: Record<string, number>
+  competencyWeights?: { name: string; weight: number }[]
+  generatedAt: string | null
+}) {
+  const scale = getScale(scaleId)
+  const hasEvaluatorWeights  = evaluatorWeights  != null && Object.values(evaluatorWeights).some((w) => w > 0)
+  const hasCompetencyWeights = competencyWeights != null && competencyWeights.length > 0
+
+  function Block({ title, children }: { title: string; children: ReactNode }) {
+    return (
+      <View style={{ marginBottom: 8 }} wrap={false}>
+        <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.text, marginBottom: 2 }}>{title}</Text>
+        {children}
+      </View>
+    )
+  }
+
+  return (
+    <View style={s.section} break>
+      <SectionTitle>Metodologia deste relatório</SectionTitle>
+      <Block title={`Escala utilizada — ${scale.name}`}>
+        <Text style={{ fontSize: 7, color: C.light, marginBottom: 2 }}>{scale.description}</Text>
+        {scale.labels.map((l) => (
+          <Text key={l.value} style={{ fontSize: 6.5, color: C.light }}>{l.value} = {l.label}</Text>
+        ))}
+        {scale.allowNa && (
+          <Text style={{ fontSize: 6.5, color: C.light, marginTop: 2 }}>
+            Avaliadores podiam optar por "{scale.naLabel}" — essas respostas não entram nas médias.
+          </Text>
+        )}
+      </Block>
+      <Block title="Favorabilidade">
+        <Text style={{ fontSize: 7, color: C.light }}>
+          Favorável = notas {scale.max - 1} e {scale.max} · Neutro = notas intermediárias ·
+          Desfavorável = notas {scale.min} e {scale.min + 1}. Calculada sobre as avaliações externas
+          (exclui autoavaliação).
+        </Text>
+      </Block>
+      <Block title="Regra de N-mínimo (anonimato)">
+        <Text style={{ fontSize: 7, color: C.light }}>
+          Grupos de avaliadores não-gestor (pares, subordinados) com menos de {nMinimum} respondentes
+          são ocultados, para impedir que uma nota individual seja atribuída a um avaliador específico.
+        </Text>
+      </Block>
+      <Block title="Ponto cego / força oculta">
+        <Text style={{ fontSize: 7, color: C.light }}>
+          Autoavaliação supera a média externa em 1,0 ponto ou mais = ponto cego; média externa supera
+          a autoavaliação em 1,0 ponto ou mais = força oculta. A Matriz de Johari usa critério
+          diferente (70% da escala como corte alto/baixo).
+        </Text>
+      </Block>
+      <Block title="Pesos por avaliador">
+        {hasEvaluatorWeights ? (
+          Object.entries(evaluatorWeights!).filter(([, w]) => w > 0).map(([rel, w]) => (
+            <Text key={rel} style={{ fontSize: 6.5, color: C.light }}>{REL_LABEL[rel] ?? rel}: peso {w}</Text>
+          ))
+        ) : (
+          <Text style={{ fontSize: 7, color: C.light }}>Não configurado — todos os grupos têm o mesmo peso (média simples).</Text>
+        )}
+      </Block>
+      <Block title="Pesos por competência">
+        {hasCompetencyWeights ? (
+          competencyWeights!.map((c) => (
+            <Text key={c.name} style={{ fontSize: 6.5, color: C.light }}>{c.name}: peso {c.weight}</Text>
+          ))
+        ) : (
+          <Text style={{ fontSize: 7, color: C.light }}>Não configurado — todas as competências têm o mesmo peso na Média Geral.</Text>
+        )}
+      </Block>
+      <Block title="Média simples × Média Geral ponderada">
+        <Text style={{ fontSize: 7, color: C.light }}>
+          A "Média Geral" no topo do relatório é a média entre os grupos de avaliadores visíveis
+          {hasEvaluatorWeights || hasCompetencyWeights ? ', ajustada pelos pesos acima.' : ', sem peso configurado — equivale à média simples.'}
+        </Text>
+      </Block>
+      {generatedAt && (
+        <Block title="Data de fechamento">
+          <Text style={{ fontSize: 7, color: C.light }}>
+            Scores calculados em {new Date(generatedAt).toLocaleString('pt-BR')}.
+          </Text>
+        </Block>
+      )}
+    </View>
+  )
+}
+
 export function ReportPDFDocument({
   personName, cycleName, generatedAt,
   profile, snapshots, competencies, comments,
   scaleId, benchmark, evaluatorWeights, demographics, questionScores = [], goalPct = 80,
+  competencyWeights, nMinimum,
   brandingName, brandingLogoUrl,
 }: ReportPDFProps) {
   const hasCompetencies = competencies.length > 0
@@ -1434,6 +1540,9 @@ export function ReportPDFDocument({
 
         {/* Metodologia de ponderação */}
         {hasWeights && <MethodologyBannerPDF evaluatorWeights={evaluatorWeights!} />}
+
+        {/* Leitura do consultor */}
+        {profile.consultant_notes && <ConsultantNotesSectionPDF notes={profile.consultant_notes} />}
 
         {/* Participação */}
         <ParticipationSectionPDF snapshots={snapshots} />
@@ -1512,6 +1621,17 @@ export function ReportPDFDocument({
             menos de 3 avaliadores não são exibidos individualmente para preservar a confidencialidade.
           </Text>
         </View>
+
+        {/* Apêndice metodológico */}
+        {nMinimum != null && (
+          <MethodologyAppendixSectionPDF
+            scaleId={scaleId}
+            nMinimum={nMinimum}
+            evaluatorWeights={evaluatorWeights}
+            competencyWeights={competencyWeights}
+            generatedAt={profile.generated_at}
+          />
+        )}
       </Page>
     </Document>
   )
