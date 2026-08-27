@@ -468,6 +468,103 @@ export function GapSection({
   )
 }
 
+// ─── Matriz de Johari — Autopercepção × Percepção externa ────────────────────
+
+interface JohariEntry { id: string; name: string; selfScore: number; extAvg: number }
+
+const JOHARI_QUADRANTS = [
+  {
+    key: 'arena', title: 'Arena', subtitle: 'Auto alta · Externa alta',
+    desc: 'Comportamento reconhecido tanto por você quanto pelos avaliadores — força consolidada e visível.',
+    color: 'bg-green-50 border-green-200 text-green-800',
+  },
+  {
+    key: 'blind', title: 'Ponto cego', subtitle: 'Auto alta · Externa baixa',
+    desc: 'Você se avalia bem, mas os avaliadores percebem de forma menos favorável — vale investigar a divergência.',
+    color: 'bg-amber-50 border-amber-200 text-amber-800',
+  },
+  {
+    key: 'facade', title: 'Fachada', subtitle: 'Auto baixa · Externa alta',
+    desc: 'Os avaliadores reconhecem uma força que você mesmo subestima — força oculta a explorar.',
+    color: 'bg-blue-50 border-blue-200 text-blue-800',
+  },
+  {
+    key: 'unknown', title: 'Desconhecido', subtitle: 'Auto baixa · Externa baixa',
+    desc: 'Nem você nem os avaliadores reconhecem força consolidada aqui — oportunidade de desenvolvimento clara.',
+    color: 'bg-gray-50 border-gray-200 text-gray-600',
+  },
+] as const
+
+export function JohariMatrixSection({
+  snapshots,
+  competencies,
+  scaleId = 'likert_5',
+}: {
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+  scaleId?:     string
+}) {
+  const scale     = getScale(scaleId)
+  const threshold = scale.min + (scale.max - scale.min) * 0.7 // "alto" a partir de 70% da escala
+
+  const entries: JohariEntry[] = competencies
+    .map((c) => {
+      const selfSnap = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')
+      const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null)
+      const selfScore = selfSnap?.score_avg ?? null
+      const extAvg = extSnaps.length > 0
+        ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length
+        : null
+      if (selfScore == null || extAvg == null) return null
+      return { id: c.id, name: c.name, selfScore, extAvg }
+    })
+    .filter(Boolean) as JohariEntry[]
+
+  if (entries.length === 0) return null
+
+  const byQuadrant: Record<string, JohariEntry[]> = { arena: [], blind: [], facade: [], unknown: [] }
+  for (const e of entries) {
+    const selfHigh = e.selfScore >= threshold
+    const extHigh  = e.extAvg   >= threshold
+    const key = selfHigh && extHigh ? 'arena' : selfHigh && !extHigh ? 'blind' : !selfHigh && extHigh ? 'facade' : 'unknown'
+    byQuadrant[key].push(e)
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Matriz de Johari
+      </h2>
+      <p className="text-xs text-gray-400 mb-5">
+        Cada competência é classificada por autopercepção × percepção externa, considerando "alta"
+        a partir de {threshold.toFixed(1)} (70% da escala).
+      </p>
+      <div className="grid sm:grid-cols-2 gap-4">
+        {JOHARI_QUADRANTS.map((q) => (
+          <div key={q.key} className={`rounded-xl border p-4 ${q.color}`}>
+            <div className="flex items-baseline justify-between mb-1">
+              <p className="text-sm font-semibold">{q.title}</p>
+              <p className="text-[10px] uppercase tracking-wide opacity-70">{q.subtitle}</p>
+            </div>
+            <p className="text-xs opacity-80 mb-3 leading-snug">{q.desc}</p>
+            {byQuadrant[q.key].length === 0 ? (
+              <p className="text-xs opacity-50 italic">Nenhuma competência aqui.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {byQuadrant[q.key].map((e) => (
+                  <span key={e.id} className="text-xs bg-white/70 rounded-full px-2.5 py-1 border border-current border-opacity-20">
+                    {e.name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Dimension breakdown — mini-radars per dimension ─────────────────────────
 
 export function DimensionBreakdown({
@@ -2143,6 +2240,11 @@ export function ReportDisplay({
       {/* 6. GAP visual bars */}
       {hasCompetencies && (
         <GapSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+      )}
+
+      {/* 6.5 Matriz de Johari */}
+      {hasCompetencies && (
+        <JohariMatrixSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
       )}
 
       {/* 7. Top 5 / Bottom 5 (por competência) */}
