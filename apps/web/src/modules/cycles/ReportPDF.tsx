@@ -1334,6 +1334,11 @@ export function ReportPDFDocument({
           <DualRadarSectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} goalPct={goalPct} />
         )}
 
+        {/* Avaliação por competência */}
+        {hasCompetencies && (
+          <CompetencyDetailSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        )}
+
         {/* GAP autoavaliação × avaliadores */}
         {hasCompetencies && (
           <GAPSection snapshots={snapshots} competencies={competencies} />
@@ -1368,11 +1373,6 @@ export function ReportPDFDocument({
         {/* Distribuição de respostas */}
         {hasCompetencies && (
           <ScoreDistributionSectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
-        )}
-
-        {/* Avaliação por competência */}
-        {hasCompetencies && (
-          <CompetencyDetailSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
         )}
 
         {/* Favorabilidade por perfil do avaliador */}

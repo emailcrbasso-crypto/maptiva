@@ -1969,6 +1969,16 @@ export function ReportDisplay({
         <DualRadarSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
       )}
 
+      {/* 4.5 Competency breakdown with question drill-down */}
+      {hasCompetencies && (
+        <CompetencyBreakdown
+          snapshots={snapshots}
+          competencies={competencies}
+          scaleId={scaleId}
+          questionScores={questionScores}
+        />
+      )}
+
       {/* 5. Dimension breakdown — mini-radars per dimension (conditional) */}
       {hasCompetencies && (
         <DimensionBreakdown snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
@@ -2013,16 +2023,6 @@ export function ReportDisplay({
       {/* 10. Score distribution */}
       {hasCompetencies && (
         <ScoreDistributionSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
-      )}
-
-      {/* 11. Competency breakdown with question drill-down */}
-      {hasCompetencies && (
-        <CompetencyBreakdown
-          snapshots={snapshots}
-          competencies={competencies}
-          scaleId={scaleId}
-          questionScores={questionScores}
-        />
       )}
 
       {/* 12. Comments */}
