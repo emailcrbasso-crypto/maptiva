@@ -50,8 +50,8 @@ export interface PdfCompetencyRow {
 // ─── Relationship labels ──────────────────────────────────────────────────────
 
 const REL_SHORT: Record<string, string> = {
-  self: 'Self', manager: 'Gestor', peer: 'Pares',
-  subordinate: 'Subord.', client: 'Cliente',
+  self: 'Autoavaliação', manager: 'Gestor', peer: 'Pares',
+  subordinate: 'Subordinados', client: 'Cliente',
 }
 
 const REL_LABEL: Record<string, string> = {
