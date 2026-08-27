@@ -818,8 +818,44 @@ const QROW_REL_COLS_PDF: { code: string; label: string }[] = [
 ]
 
 interface QRowPDF {
-  id: string; prompt: string; competencyName: string | null
+  id: string; prompt: string; competencyName: string | null; order_index: number
   geral: number; perRel: Record<string, number | null>
+}
+
+function buildQuestionRowsPDF(questionScores: QuestionScoreRow[], competencies: CompetencyRow[]): QRowPDF[] {
+  const compMap = new Map(competencies.map((c) => [c.id, c.name]))
+
+  const byQuestion = new Map<string, {
+    prompt: string; competency_id: string | null; order_index: number
+    sums: Record<string, { sum: number; n: number }>
+  }>()
+  for (const q of questionScores) {
+    if (q.score_avg == null) continue
+    if (!byQuestion.has(q.question_id)) {
+      byQuestion.set(q.question_id, { prompt: q.prompt, competency_id: q.competency_id, order_index: q.order_index, sums: {} })
+    }
+    byQuestion.get(q.question_id)!.sums[q.relationship_code] = {
+      sum: q.score_avg * q.response_count, n: q.response_count,
+    }
+  }
+
+  return [...byQuestion.entries()]
+    .map(([id, q]) => {
+      const extCodes = ['manager', 'peer', 'subordinate'].filter((c) => q.sums[c])
+      const extN     = extCodes.reduce((s, c) => s + q.sums[c].n, 0)
+      if (extN === 0) return null
+      const extSum   = extCodes.reduce((s, c) => s + q.sums[c].sum, 0)
+      const perRel: Record<string, number | null> = {}
+      for (const { code } of QROW_REL_COLS_PDF) {
+        perRel[code] = q.sums[code] ? q.sums[code].sum / q.sums[code].n : null
+      }
+      return {
+        id, prompt: q.prompt, order_index: q.order_index,
+        competencyName: q.competency_id ? compMap.get(q.competency_id) ?? null : null,
+        geral: extSum / extN, perRel,
+      } as QRowPDF
+    })
+    .filter(Boolean) as QRowPDF[]
 }
 
 function QuestionGroupTablePDF({
@@ -887,40 +923,8 @@ function TopBottomQuestionsSectionPDF({
 }: {
   questionScores: QuestionScoreRow[]; competencies: CompetencyRow[]; scaleId: string
 }) {
-  const scale   = getScale(scaleId)
-  const compMap = new Map(competencies.map((c) => [c.id, c.name]))
-
-  const byQuestion = new Map<string, {
-    prompt: string; competency_id: string | null
-    sums: Record<string, { sum: number; n: number }>
-  }>()
-  for (const q of questionScores) {
-    if (q.score_avg == null) continue
-    if (!byQuestion.has(q.question_id)) {
-      byQuestion.set(q.question_id, { prompt: q.prompt, competency_id: q.competency_id, sums: {} })
-    }
-    byQuestion.get(q.question_id)!.sums[q.relationship_code] = {
-      sum: q.score_avg * q.response_count, n: q.response_count,
-    }
-  }
-
-  const scored = [...byQuestion.entries()]
-    .map(([id, q]) => {
-      const extCodes = ['manager', 'peer', 'subordinate'].filter((c) => q.sums[c])
-      const extN     = extCodes.reduce((s, c) => s + q.sums[c].n, 0)
-      if (extN === 0) return null
-      const extSum   = extCodes.reduce((s, c) => s + q.sums[c].sum, 0)
-      const perRel: Record<string, number | null> = {}
-      for (const { code } of QROW_REL_COLS_PDF) {
-        perRel[code] = q.sums[code] ? q.sums[code].sum / q.sums[code].n : null
-      }
-      return {
-        id, prompt: q.prompt,
-        competencyName: q.competency_id ? compMap.get(q.competency_id) ?? null : null,
-        geral: extSum / extN, perRel,
-      } as QRowPDF
-    })
-    .filter(Boolean) as QRowPDF[]
+  const scale  = getScale(scaleId)
+  const scored = buildQuestionRowsPDF(questionScores, competencies)
 
   if (scored.length === 0) return null
 
@@ -948,6 +952,59 @@ function TopBottomQuestionsSectionPDF({
       <Text style={{ fontSize: 6.5, color: C.light, marginTop: 2 }}>
         "Geral" = média das avaliações externas (gestor, pares e subordinados) por pergunta.
       </Text>
+    </View>
+  )
+}
+
+// ─── 6b. Resultado detalhado — todas as perguntas ──────────────────────────────
+
+function AllQuestionsDetailSectionPDF({
+  questionScores, competencies, scaleId,
+}: {
+  questionScores: QuestionScoreRow[]; competencies: CompetencyRow[]; scaleId: string
+}) {
+  const scale = getScale(scaleId)
+  const rows  = buildQuestionRowsPDF(questionScores, competencies).sort((a, b) => a.order_index - b.order_index)
+
+  if (rows.length === 0) return null
+
+  return (
+    <View style={s.section} break>
+      <SectionTitle>Resultado detalhado — todas as perguntas</SectionTitle>
+      <Text style={s.sectionSubtitle}>
+        Ordenado pela ordem do questionário. Verde ≥ {(0.8 * scale.max).toFixed(1)} · Amarelo{' '}
+        {(0.6 * scale.max).toFixed(1)}–{(0.8 * scale.max).toFixed(1)} · Vermelho &lt; {(0.6 * scale.max).toFixed(1)}.
+      </Text>
+      <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: '#e5e7eb', paddingBottom: 3, marginBottom: 3 }}>
+        <Text style={{ width: 16, fontSize: 6.5, color: C.light }}>Nº</Text>
+        <Text style={{ flex: 2, fontSize: 6.5, color: C.light }}>Pergunta</Text>
+        <Text style={{ flex: 1, fontSize: 6.5, color: C.light }}>Dimensão</Text>
+        <Text style={{ width: 30, fontSize: 6.5, color: C.light, textAlign: 'right' }}>Geral</Text>
+        {QROW_REL_COLS_PDF.map((c) => (
+          <Text key={c.code} style={{ width: 30, fontSize: 6.5, color: C.light, textAlign: 'right' }}>{c.label}</Text>
+        ))}
+      </View>
+      {rows.map((r, i) => (
+        <View key={r.id} style={{ display: 'flex', flexDirection: 'row', marginBottom: 4 }} wrap={false}>
+          <Text style={{ width: 16, fontSize: 7, color: C.light }}>{i + 1}</Text>
+          <Text style={{ flex: 2, fontSize: 7, color: C.text, lineHeight: 1.3, paddingRight: 4 }}>{r.prompt}</Text>
+          <Text style={{ flex: 1, fontSize: 6.5, color: C.light }}>{r.competencyName ?? '—'}</Text>
+          <Text style={{ width: 30, fontSize: 7, fontFamily: 'Helvetica-Bold', textAlign: 'right', color: scoreColor(r.geral, scoreToPercent(r.geral, scale)) }}>
+            {r.geral.toFixed(2)}
+          </Text>
+          {QROW_REL_COLS_PDF.map((c) => {
+            const v = r.perRel[c.code]
+            return (
+              <Text
+                key={c.code}
+                style={{ width: 30, fontSize: 7, textAlign: 'right', color: v != null ? scoreColor(v, scoreToPercent(v, scale)) : C.light }}
+              >
+                {v != null ? v.toFixed(2) : '—'}
+              </Text>
+            )
+          })}
+        </View>
+      ))}
     </View>
   )
 }
@@ -1428,6 +1485,11 @@ export function ReportPDFDocument({
         {/* Distribuição de respostas */}
         {hasCompetencies && (
           <ScoreDistributionSectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        )}
+
+        {/* Resultado detalhado — todas as perguntas */}
+        {questionScores.length > 0 && (
+          <AllQuestionsDetailSectionPDF questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
         )}
 
         {/* Favorabilidade por perfil do avaliador */}

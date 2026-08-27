@@ -795,16 +795,7 @@ function QuestionGroupTable({
   )
 }
 
-export function Top5QuestionsSection({
-  questionScores,
-  competencies,
-  scaleId = 'likert_5',
-}: {
-  questionScores: QuestionScoreRow[]
-  competencies:   CompetencyRow[]
-  scaleId?:       string
-}) {
-  const scale   = getScale(scaleId)
+function buildQuestionRows(questionScores: QuestionScoreRow[], competencies: CompetencyRow[]): QRow[] {
   const compMap = new Map(competencies.map((c) => [c.id, c.name]))
 
   const byQuestion = new Map<string, {
@@ -822,7 +813,7 @@ export function Top5QuestionsSection({
     }
   }
 
-  const scored = [...byQuestion.entries()]
+  return [...byQuestion.entries()]
     .map(([id, q]) => {
       const extCodes = ['manager', 'peer', 'subordinate'].filter((c) => q.sums[c])
       const extN     = extCodes.reduce((s, c) => s + q.sums[c].n, 0)
@@ -842,6 +833,19 @@ export function Top5QuestionsSection({
       } as QRow
     })
     .filter(Boolean) as QRow[]
+}
+
+export function Top5QuestionsSection({
+  questionScores,
+  competencies,
+  scaleId = 'likert_5',
+}: {
+  questionScores: QuestionScoreRow[]
+  competencies:   CompetencyRow[]
+  scaleId?:       string
+}) {
+  const scale  = getScale(scaleId)
+  const scored = buildQuestionRows(questionScores, competencies)
 
   if (scored.length === 0) return null
 
@@ -874,6 +878,71 @@ export function Top5QuestionsSection({
       <p className="text-xs text-gray-400 mt-2">
         "Geral" = média das avaliações externas (gestor, pares e subordinados) por pergunta individual.
       </p>
+    </div>
+  )
+}
+
+// ─── Resultado detalhado — todas as perguntas ──────────────────────────────────
+
+export function AllQuestionsDetailSection({
+  questionScores,
+  competencies,
+  scaleId = 'likert_5',
+}: {
+  questionScores: QuestionScoreRow[]
+  competencies:   CompetencyRow[]
+  scaleId?:       string
+}) {
+  const scale = getScale(scaleId)
+  const rows  = buildQuestionRows(questionScores, competencies)
+    .sort((a, b) => a.order_index - b.order_index)
+
+  if (rows.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 print-page-break">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Resultado detalhado — todas as perguntas
+      </h2>
+      <p className="text-xs text-gray-400 mb-4">
+        Ordenado pela ordem do questionário. Verde ≥ {(0.8 * scale.max).toFixed(1)} · Amarelo{' '}
+        {(0.6 * scale.max).toFixed(1)}–{(0.8 * scale.max).toFixed(1)} · Vermelho &lt; {(0.6 * scale.max).toFixed(1)}.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="text-left text-gray-400 border-b border-gray-100">
+              <th className="py-1.5 pr-2 font-medium w-8">Nº</th>
+              <th className="py-1.5 px-2 font-medium">Pergunta</th>
+              <th className="py-1.5 px-2 font-medium">Dimensão</th>
+              <th className="py-1.5 px-2 font-medium text-right">Geral</th>
+              {QROW_REL_COLS.map((c) => (
+                <th key={c.code} className="py-1.5 px-2 font-medium text-right">{c.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.id} className="border-b border-gray-50 last:border-0 align-top">
+                <td className="py-2 pr-2 text-gray-400">{i + 1}</td>
+                <td className="py-2 px-2 text-gray-700 leading-snug max-w-sm">{r.prompt}</td>
+                <td className="py-2 px-2 text-gray-500 whitespace-nowrap">{r.competencyName ?? '—'}</td>
+                <td className={`py-2 px-2 text-right font-semibold ${scoreColorClass(r.geral, scale)}`}>
+                  {r.geral.toFixed(2)}
+                </td>
+                {QROW_REL_COLS.map((c) => {
+                  const v = r.perRel[c.code]
+                  return (
+                    <td key={c.code} className={`py-2 px-2 text-right ${v != null ? scoreColorClass(v, scale) : 'text-gray-300'}`}>
+                      {v != null ? v.toFixed(2) : '—'}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -2084,6 +2153,11 @@ export function ReportDisplay({
       {/* 10. Score distribution */}
       {hasCompetencies && (
         <ScoreDistributionSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+      )}
+
+      {/* 11. Resultado detalhado — todas as perguntas */}
+      {questionScores.length > 0 && (
+        <AllQuestionsDetailSection questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
       )}
 
       {/* 12. Comments */}
