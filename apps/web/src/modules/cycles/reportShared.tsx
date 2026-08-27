@@ -1792,11 +1792,6 @@ export function ReportDisplay({
         )}
       </div>
 
-      {/* 2.5 Favorabilidade geral */}
-      {hasCompetencies && (
-        <FavorabilitySection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
-      )}
-
       {/* 3. Insights */}
       <InsightsPanel profile={profile} />
 
@@ -1823,6 +1818,11 @@ export function ReportDisplay({
       {/* 7.5 Top 5 / Bottom 5 (por pergunta — granularidade mais fina) */}
       {questionScores.length > 0 && (
         <Top5QuestionsSection questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
+      )}
+
+      {/* 7.8 Favorabilidade geral */}
+      {hasCompetencies && (
+        <FavorabilitySection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
       )}
 
       {/* 8. Benchmark — participant vs. cycle avg (conditional on data) */}

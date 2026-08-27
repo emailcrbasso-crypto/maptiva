@@ -1240,11 +1240,6 @@ export function ReportPDFDocument({
         {/* Scores consolidados + Autoconhecimento + Insights */}
         <ScoresSection profile={profile} snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
 
-        {/* Favorabilidade geral */}
-        {hasCompetencies && (
-          <FavorabilitySectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
-        )}
-
         {/* Roda da liderança */}
         {hasCompetencies && (
           <DualRadarSectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} goalPct={goalPct} />
@@ -1266,6 +1261,11 @@ export function ReportPDFDocument({
         {/* Top 5 / Bottom 5 (por pergunta) */}
         {questionScores.length > 0 && (
           <TopBottomQuestionsSectionPDF questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
+        )}
+
+        {/* Favorabilidade geral */}
+        {hasCompetencies && (
+          <FavorabilitySectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
         )}
 
         {/* Benchmark */}
