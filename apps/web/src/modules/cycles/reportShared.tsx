@@ -1342,6 +1342,84 @@ export function FavorabilitySection({
   )
 }
 
+// ─── Favorabilidade por nível de avaliador (self, gestor, pares, subordinados) ────
+
+export function FavorabilityByRelationshipSection({
+  snapshots,
+  scaleId = 'likert_5',
+}: {
+  snapshots: SnapshotRow[]
+  scaleId?:  string
+}) {
+  const scale = getScale(scaleId)
+
+  const byRel = new Map<string, (Record<string, number> | null | undefined)[]>()
+  for (const s of snapshots) {
+    if (!s.score_distribution) continue
+    if (!byRel.has(s.relationship_code)) byRel.set(s.relationship_code, [])
+    byRel.get(s.relationship_code)!.push(s.score_distribution)
+  }
+
+  const rows = REL_ORDER
+    .map((rel) => {
+      const dists = byRel.get(rel)
+      if (!dists || dists.length === 0) return null
+      const fav = computeFavorability(mergeDistributions(dists), scale)
+      if (fav.total === 0) return null
+      return { rel, fav }
+    })
+    .filter(Boolean) as { rel: string; fav: Favorability }[]
+
+  if (rows.length < 2) return null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Favorabilidade por nível de avaliador
+      </h2>
+      <p className="text-xs text-gray-400 mb-4">
+        Percentual de favorabilidade separado por grupo de avaliadores, incluindo autoavaliação —
+        mostra o quanto cada nível converge ou diverge na percepção.
+      </p>
+
+      <div className="space-y-3 mb-5">
+        {rows.map((r) => (
+          <div key={r.rel} className="flex items-center gap-3">
+            <p className="text-sm text-gray-700 w-32 shrink-0 truncate">{REL_LABEL[r.rel] ?? r.rel}</p>
+            <div className="flex-1"><FavorabilityBar fav={r.fav} /></div>
+            <span className="text-xs font-semibold text-gray-600 w-12 text-right shrink-0">
+              {r.fav.favoravel.toFixed(0)}%
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left text-gray-400 border-b border-gray-100">
+              <th className="py-1.5 font-medium">Nível</th>
+              <th className="py-1.5 font-medium text-right">% Favorável</th>
+              <th className="py-1.5 font-medium text-right">% Neutro</th>
+              <th className="py-1.5 font-medium text-right">% Desfavorável</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.rel} className="border-b border-gray-50 last:border-0">
+                <td className="py-1.5 text-gray-700">{REL_LABEL[r.rel] ?? r.rel}</td>
+                <td className="py-1.5 text-right text-green-700 font-medium">{r.fav.favoravel.toFixed(1)}%</td>
+                <td className="py-1.5 text-right text-blue-600">{r.fav.neutro.toFixed(1)}%</td>
+                <td className="py-1.5 text-right text-red-500">{r.fav.desfavoravel.toFixed(1)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 // ─── Favorabilidade por perfil do avaliador (sexo, cargo, geração, tempo de casa) ─
 
 export interface DemographicFavorabilityGroup {
@@ -1910,6 +1988,9 @@ export function ReportDisplay({
       {questionScores.length > 0 && (
         <Top5QuestionsSection questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
       )}
+
+      {/* 7.7 Favorabilidade por nível de avaliador */}
+      <FavorabilityByRelationshipSection snapshots={snapshots} scaleId={scaleId} />
 
       {/* 7.8 Favorabilidade geral */}
       {hasCompetencies && (

@@ -420,23 +420,62 @@ function FavorabilityBarPDF({ fav }: { fav: { favoravel: number; neutro: number;
   )
 }
 
+function mergeDist(snaps: SnapshotRow[]): Record<string, number> {
+  const dist: Record<string, number> = {}
+  for (const snap of snaps) {
+    if (!snap.score_distribution) continue
+    for (const [k, v] of Object.entries(snap.score_distribution)) {
+      dist[k] = (dist[k] ?? 0) + v
+    }
+  }
+  return dist
+}
+
+function FavorabilityByRelationshipSectionPDF({
+  snapshots, scaleId,
+}: {
+  snapshots: SnapshotRow[]; scaleId: string
+}) {
+  const scale = getScale(scaleId)
+
+  const rows = REL_ORDER
+    .map((rel) => {
+      const snaps = snapshots.filter((s) => s.relationship_code === rel && s.score_distribution)
+      if (snaps.length === 0) return null
+      const fav = computeFavorability(mergeDist(snaps), scale)
+      if (fav.total === 0) return null
+      return { rel, fav }
+    })
+    .filter(Boolean) as { rel: string; fav: ReturnType<typeof computeFavorability> }[]
+
+  if (rows.length < 2) return null
+
+  return (
+    <View style={s.section}>
+      <SectionTitle>Favorabilidade por nível de avaliador</SectionTitle>
+      <Text style={s.sectionSubtitle}>
+        Percentual de favorabilidade por grupo de avaliadores, incluindo autoavaliação.
+      </Text>
+
+      {rows.map((r) => (
+        <View key={r.rel} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 5 }} wrap={false}>
+          <Text style={{ fontSize: 8, color: C.text, width: 90 }}>{REL_LABEL[r.rel] ?? r.rel}</Text>
+          <View style={{ flex: 1 }}><FavorabilityBarPDF fav={r.fav} /></View>
+          <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.text, width: 32, textAlign: 'right' }}>
+            {r.fav.favoravel.toFixed(0)}%
+          </Text>
+        </View>
+      ))}
+    </View>
+  )
+}
+
 function FavorabilitySectionPDF({
   snapshots, competencies, scaleId,
 }: {
   snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
 }) {
   const scale = getScale(scaleId)
-
-  function mergeDist(snaps: SnapshotRow[]): Record<string, number> {
-    const dist: Record<string, number> = {}
-    for (const snap of snaps) {
-      if (!snap.score_distribution) continue
-      for (const [k, v] of Object.entries(snap.score_distribution)) {
-        dist[k] = (dist[k] ?? 0) + v
-      }
-    }
-    return dist
-  }
 
   const allExtSnaps = snapshots.filter((s) => s.relationship_code !== 'self' && s.score_distribution)
   const overall = computeFavorability(mergeDist(allExtSnaps), scale)
@@ -1312,6 +1351,9 @@ export function ReportPDFDocument({
         {questionScores.length > 0 && (
           <TopBottomQuestionsSectionPDF questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
         )}
+
+        {/* Favorabilidade por nível de avaliador */}
+        <FavorabilityByRelationshipSectionPDF snapshots={snapshots} scaleId={scaleId} />
 
         {/* Favorabilidade geral */}
         {hasCompetencies && (
