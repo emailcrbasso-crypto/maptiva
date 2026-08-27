@@ -1374,10 +1374,10 @@ export function ReportDisplay({
         </h2>
         <div className="grid grid-cols-5 gap-3">
           <ScoreBadge value={profile.overall_score}     label="Média Geral" scaleId={scaleId} />
-          <ScoreBadge value={profile.self_score}        label="Autoaval."  scaleId={scaleId} />
+          <ScoreBadge value={profile.self_score}        label="Autoavaliação" scaleId={scaleId} />
           <ScoreBadge value={profile.manager_score}     label="Gestor"     scaleId={scaleId} />
           <ScoreBadge value={profile.peer_score}        label="Pares"      scaleId={scaleId} />
-          <ScoreBadge value={profile.subordinate_score} label="Subordin."  scaleId={scaleId} />
+          <ScoreBadge value={profile.subordinate_score} label="Subordinados"  scaleId={scaleId} />
         </div>
         {profile.overall_score == null && (
           <p className="text-xs text-gray-400 mt-4 text-center">

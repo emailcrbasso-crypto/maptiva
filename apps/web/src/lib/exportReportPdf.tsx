@@ -529,10 +529,10 @@ function ParticipantCard({
       {/* Score grid */}
       <View style={S.scoreRow}>
         <ScoreBox value={p.overall_score}     label="Média Geral" />
-        <ScoreBox value={p.self_score}        label="Autoaval." />
+        <ScoreBox value={p.self_score}        label="Autoavaliação" />
         <ScoreBox value={p.manager_score}     label="Gestor" />
         <ScoreBox value={p.peer_score}        label="Pares" />
-        <ScoreBox value={p.subordinate_score} label="Subordin." />
+        <ScoreBox value={p.subordinate_score} label="Subordinados" />
       </View>
 
       {/* Badges */}

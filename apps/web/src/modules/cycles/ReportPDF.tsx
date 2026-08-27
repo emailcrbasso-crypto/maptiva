@@ -324,10 +324,10 @@ function ScoresSection({
   const scale  = getScale(scaleId)
   const scores = [
     { label: 'Média Geral', value: profile.overall_score },
-    { label: 'Autoaval.',  value: profile.self_score },
+    { label: 'Autoavaliação', value: profile.self_score },
     { label: 'Gestor',     value: profile.manager_score },
     { label: 'Pares',      value: profile.peer_score },
-    { label: 'Subordin.',  value: profile.subordinate_score },
+    { label: 'Subordinados', value: profile.subordinate_score },
   ]
 
   // Self-awareness index
