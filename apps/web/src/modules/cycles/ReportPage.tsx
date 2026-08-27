@@ -5,7 +5,8 @@ import { exportCycleReportExcel } from '@/lib/exportReport'
 import type { CycleSummary } from '@/lib/exportReport'
 import { exportCycleReportPdf, type PdfSnapshotRow, type PdfCompetencyRow } from '@/lib/exportReportPdf'
 import { useTenant } from '@/modules/auth/TenantContext'
-import { ExecutiveSynthesisSection } from './reportShared'
+import { ExecutiveSynthesisSection, computeFavorability, mergeDistributions } from './reportShared'
+import { getScale } from '@/lib/scales'
 import {
   Radar,
   RadarChart as RechartsRadarChart,
@@ -341,6 +342,80 @@ function CycleDemographicSection({ groups }: { groups: CycleDemographicGroup[] }
   )
 }
 
+// ─── Ranking de gestores (favorabilidade externa, todo o ciclo) ───────────────
+
+function ManagerRankingSection({
+  snapshots,
+  participants,
+  cycleId,
+  scaleId = 'likert_5',
+}: {
+  snapshots:    SnapshotRow[]
+  participants: { cycle_participant_id: string; person_name: string; blind_spot_count: number }[]
+  cycleId:      string
+  scaleId?:     string
+}) {
+  const scale = getScale(scaleId)
+
+  const rows = participants
+    .map((p) => {
+      const extSnaps = snapshots.filter(
+        (s) => s.cycle_participant_id === p.cycle_participant_id && s.relationship_code !== 'self' && s.score_distribution
+      )
+      if (extSnaps.length === 0) return null
+      const fav = computeFavorability(mergeDistributions(extSnaps.map((s) => s.score_distribution)), scale)
+      if (fav.total === 0) return null
+      return { ...p, fav }
+    })
+    .filter(Boolean) as ({ cycle_participant_id: string; person_name: string; blind_spot_count: number; fav: ReturnType<typeof computeFavorability> })[]
+
+  if (rows.length < 2) return null
+
+  rows.sort((a, b) => a.fav.favoravel - b.fav.favoravel)
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6 print-page-break">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Ranking de gestores — favorabilidade externa
+      </h2>
+      <p className="text-xs text-gray-400 mb-5">
+        Ordenado do menor para o maior — prioridade de devolutiva/atenção para quem está no topo desta lista.
+      </p>
+      <div className="space-y-2.5">
+        {rows.map((r, i) => (
+          <Link
+            key={r.cycle_participant_id}
+            to={`/cycles/${cycleId}/participants/${r.cycle_participant_id}/report`}
+            className="flex items-center gap-3 hover:bg-gray-50 rounded-lg px-2 py-1.5 -mx-2 transition-colors"
+          >
+            <span className="text-xs text-gray-400 w-5 shrink-0 text-right">{i + 1}</span>
+            <span className="text-sm text-gray-800 flex-1 truncate">{r.person_name}</span>
+            {r.blind_spot_count > 0 && (
+              <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full shrink-0">
+                {r.blind_spot_count} p. cego{r.blind_spot_count !== 1 ? 's' : ''}
+              </span>
+            )}
+            <div className="w-32 shrink-0"><FavorabilityBarMini fav={r.fav} /></div>
+            <span className="text-xs font-semibold text-gray-600 w-10 text-right shrink-0">
+              {r.fav.favoravel.toFixed(0)}%
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function FavorabilityBarMini({ fav }: { fav: { favoravel: number; neutro: number; desfavoravel: number } }) {
+  return (
+    <div className="flex h-2 rounded-full overflow-hidden bg-gray-100">
+      {fav.favoravel > 0 && <div className="h-full bg-green-500" style={{ width: `${fav.favoravel}%` }} />}
+      {fav.neutro > 0 && <div className="h-full bg-blue-300" style={{ width: `${fav.neutro}%` }} />}
+      {fav.desfavoravel > 0 && <div className="h-full bg-red-400" style={{ width: `${fav.desfavoravel}%` }} />}
+    </div>
+  )
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function ReportPage() {
@@ -573,6 +648,11 @@ export function ReportPage() {
       {/* ── Síntese executiva (visão agregada, todos os avaliados) ── */}
       {hasCompetencies && withProfile.length > 0 && (
         <div className="mb-6">
+          <ManagerRankingSection
+            snapshots={snapshots}
+            participants={withProfile}
+            cycleId={summary.cycle_id}
+          />
           <ExecutiveSynthesisSection
             snapshots={snapshots}
             competencies={competencies}

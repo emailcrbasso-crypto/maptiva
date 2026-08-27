@@ -1763,6 +1763,32 @@ export function ExecutiveSynthesisSection({
           />
         </div>
       </div>
+
+      {(gaps.length > 0 || blindSpots.length > 0) && (
+        <div className="mt-6 pt-5 border-t border-gray-100">
+          <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-2">
+            💡 Recomendação de desenvolvimento coletivo
+          </p>
+          <p className="text-sm text-gray-700 leading-relaxed">
+            {gaps.length > 0 && (
+              <>
+                Considerando os gaps coletivos identificados, recomenda-se priorizar ações de
+                desenvolvimento (treinamento, workshops ou mentoria) em{' '}
+                <strong>{gaps.map((g) => g.name).join(', ')}</strong> — competências com menor
+                favorabilidade entre os {participantCount} avaliado{participantCount !== 1 ? 's' : ''} deste ciclo.
+              </>
+            )}
+            {blindSpots.length > 0 && (
+              <>
+                {' '}Além disso, {blindSpots.length > 1 ? 'as competências' : 'a competência'}{' '}
+                <strong>{blindSpots.map((b) => b.name).join(', ')}</strong> {blindSpots.length > 1 ? 'concentram' : 'concentra'}{' '}
+                divergência recorrente entre autopercepção e percepção externa — vale um workshop de
+                alinhamento de feedback 360 focado nesse tema com a liderança.
+              </>
+            )}
+          </p>
+        </div>
+      )}
     </div>
   )
 }
@@ -1777,7 +1803,7 @@ const DIST_COLORS = [
   'bg-green-500',  // 5
 ]
 
-function mergeDistributions(distributions: (Record<string, number> | null | undefined)[]): Record<string, number> {
+export function mergeDistributions(distributions: (Record<string, number> | null | undefined)[]): Record<string, number> {
   const merged: Record<string, number> = {}
   for (const dist of distributions) {
     if (!dist) continue
