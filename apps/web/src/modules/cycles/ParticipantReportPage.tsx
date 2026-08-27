@@ -92,6 +92,7 @@ export function ParticipantReportPage() {
 
   const [cycleName,      setCycleName]      = useState<string>('')
   const [personName,     setPersonName]     = useState<string>('')
+  const [personId,       setPersonId]       = useState<string>('')
   const [snapshots,      setSnapshots]      = useState<SnapshotRow[]>([])
   const [competencies,   setCompetencies]   = useState<CompetencyRow[]>([])
   const [comments,       setComments]       = useState<CommentRow[]>([])
@@ -129,10 +130,11 @@ export function ParticipantReportPage() {
         cycle:     { id: string; name: string; status: string }
         profile:   ProfileData | null
         snapshots: SnapshotRow[]
-        person:    { name: string } | null
+        person:    { id: string; name: string } | null
       }
 
       setCycleName(d.cycle.name)
+      if (d.person?.id) setPersonId(d.person.id)
       setPersonName(d.person?.name ?? 'Participante')
       setSnapshots(d.snapshots ?? [])
       if (d.profile) {
@@ -300,6 +302,14 @@ export function ParticipantReportPage() {
             <span className="text-xs bg-violet-50 text-violet-600 px-3 py-1 rounded-full font-medium">
               Visão Admin
             </span>
+            {profile && personId && (
+              <Link
+                to={`/people/${personId}/pdi?cycleId=${id}&cpId=${cpId}`}
+                className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+              >
+                🎯 Criar PDI
+              </Link>
+            )}
             <button
               onClick={handleDownloadPDF}
               disabled={pdfLoading || !profile}
