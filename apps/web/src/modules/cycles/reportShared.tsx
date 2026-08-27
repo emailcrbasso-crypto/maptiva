@@ -708,6 +708,93 @@ export function Top5Section({
 
 // ─── Top 5 / Bottom 5 por PERGUNTA (granularidade mais fina que por competência) ─
 
+const QROW_REL_COLS: { code: string; label: string }[] = [
+  { code: 'self',        label: 'Auto' },
+  { code: 'manager',     label: 'Gestor' },
+  { code: 'peer',        label: 'Pares' },
+  { code: 'subordinate', label: 'Subord.' },
+]
+
+interface QRow {
+  id:             string
+  prompt:         string
+  order_index:    number
+  competencyName: string | null
+  geral:          number
+  perRel:         Record<string, number | null>
+}
+
+function QuestionGroupTable({
+  rows, scale, title, icon, color, calloutLabel,
+}: {
+  rows:  QRow[]
+  scale: ScaleDefinition
+  title: string
+  icon:  string
+  color: 'green' | 'amber'
+  calloutLabel: string
+}) {
+  if (rows.length === 0) return null
+
+  // Menor nota individual entre grupos externos (para o alerta automático).
+  let worst: { row: QRow; rel: string; value: number } | null = null
+  for (const r of rows) {
+    for (const { code } of QROW_REL_COLS) {
+      if (code === 'self') continue
+      const v = r.perRel[code]
+      if (v != null && (worst == null || v < worst.value)) worst = { row: r, rel: code, value: v }
+    }
+  }
+
+  return (
+    <div className="mb-6 last:mb-0">
+      <p className={`text-xs font-semibold uppercase tracking-wide mb-3 ${color === 'green' ? 'text-green-600' : 'text-amber-600'}`}>
+        {icon} {title}
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="text-left text-gray-400 border-b border-gray-100">
+              <th className="py-1.5 pr-2 font-medium">Pergunta</th>
+              <th className="py-1.5 px-2 font-medium text-right">Geral</th>
+              {QROW_REL_COLS.map((c) => (
+                <th key={c.code} className="py-1.5 px-2 font-medium text-right">{c.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-b border-gray-50 last:border-0 align-top">
+                <td className="py-2 pr-2 text-gray-700 leading-snug max-w-xs">
+                  {r.prompt}
+                  {r.competencyName && <span className="block text-[10px] text-gray-400 mt-0.5">{r.competencyName}</span>}
+                </td>
+                <td className={`py-2 px-2 text-right font-semibold ${scoreColorClass(r.geral, scale)}`}>
+                  {r.geral.toFixed(2)}
+                </td>
+                {QROW_REL_COLS.map((c) => {
+                  const v = r.perRel[c.code]
+                  return (
+                    <td key={c.code} className={`py-2 px-2 text-right ${v != null ? scoreColorClass(v, scale) : 'text-gray-300'}`}>
+                      {v != null ? v.toFixed(2) : '—'}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {color === 'amber' && worst && worst.value / scale.max < 0.6 && (
+        <p className="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2 mt-3">
+          ⚠️ <strong>{calloutLabel}:</strong> "{worst.row.prompt.length > 70 ? worst.row.prompt.slice(0, 68) + '…' : worst.row.prompt}"
+          — apenas {worst.value.toFixed(2)} entre {REL_LABEL[worst.rel] ?? worst.rel}.
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function Top5QuestionsSection({
   questionScores,
   competencies,
@@ -720,67 +807,50 @@ export function Top5QuestionsSection({
   const scale   = getScale(scaleId)
   const compMap = new Map(competencies.map((c) => [c.id, c.name]))
 
-  const byQuestion = new Map<string, { prompt: string; competency_id: string | null; scores: number[] }>()
+  const byQuestion = new Map<string, {
+    prompt: string; competency_id: string | null; order_index: number
+    sums: Record<string, { sum: number; n: number }>
+  }>()
   for (const q of questionScores) {
-    if (q.relationship_code === 'self' || q.score_avg == null) continue
+    if (q.score_avg == null) continue
     if (!byQuestion.has(q.question_id)) {
-      byQuestion.set(q.question_id, { prompt: q.prompt, competency_id: q.competency_id, scores: [] })
+      byQuestion.set(q.question_id, { prompt: q.prompt, competency_id: q.competency_id, order_index: q.order_index, sums: {} })
     }
-    byQuestion.get(q.question_id)!.scores.push(q.score_avg)
+    byQuestion.get(q.question_id)!.sums[q.relationship_code] = {
+      sum: q.score_avg * q.response_count,
+      n:   q.response_count,
+    }
   }
 
   const scored = [...byQuestion.entries()]
-    .map(([id, q]) => ({
-      id,
-      prompt: q.prompt,
-      competencyName: q.competency_id ? compMap.get(q.competency_id) ?? null : null,
-      avg: q.scores.reduce((s, v) => s + v, 0) / q.scores.length,
-    }))
+    .map(([id, q]) => {
+      const extCodes = ['manager', 'peer', 'subordinate'].filter((c) => q.sums[c])
+      const extN     = extCodes.reduce((s, c) => s + q.sums[c].n, 0)
+      if (extN === 0) return null
+      const extSum   = extCodes.reduce((s, c) => s + q.sums[c].sum, 0)
+      const perRel: Record<string, number | null> = {}
+      for (const { code } of QROW_REL_COLS) {
+        perRel[code] = q.sums[code] ? q.sums[code].sum / q.sums[code].n : null
+      }
+      return {
+        id,
+        prompt: q.prompt,
+        order_index: q.order_index,
+        competencyName: q.competency_id ? compMap.get(q.competency_id) ?? null : null,
+        geral: extSum / extN,
+        perRel,
+      } as QRow
+    })
+    .filter(Boolean) as QRow[]
 
   if (scored.length === 0) return null
 
-  const sorted = [...scored].sort((a, b) => b.avg - a.avg)
+  const sorted = [...scored].sort((a, b) => b.geral - a.geral)
   // Com poucas perguntas, top e bottom podem se sobrepor — nesse caso
   // mostramos só o ranking geral (top) para não duplicar linhas.
   const overlaps = scored.length <= 5
   const top5     = sorted.slice(0, Math.min(5, scored.length))
   const bottom5  = overlaps ? [] : sorted.slice(-5).reverse()
-
-  function QScoreBar({ value, color }: { value: number; color: 'green' | 'amber' }) {
-    const pct = (value / scale.max) * 100
-    return (
-      <div className="h-1.5 bg-gray-100 rounded-full mt-1">
-        <div
-          className={`h-1.5 rounded-full ${color === 'green' ? 'bg-green-400' : 'bg-amber-400'}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    )
-  }
-
-  function QuestionRow({ q, i, color }: { q: typeof scored[number]; i: number; color: 'green' | 'amber' }) {
-    return (
-      <div>
-        <div className="flex items-start justify-between gap-3">
-          <span className="text-sm text-gray-700 flex items-start gap-2 min-w-0">
-            <span className={`text-xs font-bold shrink-0 w-4 pt-0.5 ${color === 'green' ? 'text-green-400' : 'text-amber-400'}`}>
-              {i + 1}.
-            </span>
-            <span className="min-w-0">
-              <span className="block leading-snug">{q.prompt}</span>
-              {q.competencyName && (
-                <span className="text-xs text-gray-400">{q.competencyName}</span>
-              )}
-            </span>
-          </span>
-          <span className={`text-sm font-bold shrink-0 ml-2 ${color === 'green' ? 'text-green-600' : 'text-amber-600'}`}>
-            {q.avg.toFixed(2)}
-          </span>
-        </div>
-        <QScoreBar value={q.avg} color={color} />
-      </div>
-    )
-  }
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -788,30 +858,21 @@ export function Top5QuestionsSection({
         Perguntas com maiores e menores notas
       </h2>
       <p className="text-xs text-gray-400 mb-5">
-        Granularidade por pergunta — mais específico que a visão por competência.
+        Granularidade por pergunta, com a nota de cada grupo de avaliador — mais específico que a
+        visão por competência.
       </p>
-      <div className={bottom5.length > 0 ? 'grid grid-cols-2 gap-8' : ''}>
-        <div>
-          <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-3">
-            🏆 {bottom5.length > 0 ? `Top ${top5.length} — Pontos Fortes` : 'Ranking por pergunta'}
-          </p>
-          <div className="space-y-4">
-            {top5.map((q, i) => <QuestionRow key={q.id} q={q} i={i} color="green" />)}
-          </div>
-        </div>
-        {bottom5.length > 0 && (
-          <div>
-            <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-3">
-              🎯 Top {bottom5.length} — Oportunidades de Melhoria
-            </p>
-            <div className="space-y-4">
-              {bottom5.map((q, i) => <QuestionRow key={q.id} q={q} i={i} color="amber" />)}
-            </div>
-          </div>
-        )}
-      </div>
-      <p className="text-xs text-gray-400 mt-5">
-        Ranking baseado na média das avaliações externas (gestor, pares e subordinados) por pergunta individual.
+      <QuestionGroupTable
+        rows={top5} scale={scale} color="green"
+        icon="🏆" title={bottom5.length > 0 ? `Top ${top5.length} — Pontos Fortes` : 'Ranking por pergunta'}
+        calloutLabel="Ponto de atenção"
+      />
+      <QuestionGroupTable
+        rows={bottom5} scale={scale} color="amber"
+        icon="🎯" title={`Top ${bottom5.length} — Oportunidades de Melhoria`}
+        calloutLabel="Atenção especial"
+      />
+      <p className="text-xs text-gray-400 mt-2">
+        "Geral" = média das avaliações externas (gestor, pares e subordinados) por pergunta individual.
       </p>
     </div>
   )

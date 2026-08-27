@@ -24,7 +24,7 @@ import {
   RADAR_PALETTE,
   computeFavorability,
 } from './reportShared'
-import { getScale, scoreToPercent } from '@/lib/scales'
+import { getScale, scoreToPercent, type ScaleDefinition } from '@/lib/scales'
 
 // ─── Palette ─────────────────────────────────────────────────────────────────
 
@@ -810,6 +810,78 @@ function TopBottomSection({ snapshots, competencies, scaleId }: { snapshots: Sna
 
 // ─── 6.5 Top 5 / Bottom 5 por PERGUNTA ───────────────────────────────────────
 
+const QROW_REL_COLS_PDF: { code: string; label: string }[] = [
+  { code: 'self',        label: 'Auto' },
+  { code: 'manager',     label: 'Gestor' },
+  { code: 'peer',        label: 'Pares' },
+  { code: 'subordinate', label: 'Subord.' },
+]
+
+interface QRowPDF {
+  id: string; prompt: string; competencyName: string | null
+  geral: number; perRel: Record<string, number | null>
+}
+
+function QuestionGroupTablePDF({
+  rows, scale, title, color, calloutLabel,
+}: {
+  rows: QRowPDF[]; scale: ScaleDefinition; title: string; color: string; calloutLabel: string
+}) {
+  if (rows.length === 0) return null
+
+  let worst: { row: QRowPDF; rel: string; value: number } | null = null
+  for (const r of rows) {
+    for (const { code } of QROW_REL_COLS_PDF) {
+      if (code === 'self') continue
+      const v = r.perRel[code]
+      if (v != null && (worst == null || v < worst.value)) worst = { row: r, rel: code, value: v }
+    }
+  }
+
+  return (
+    <View style={{ marginBottom: 10 }}>
+      <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        {title}
+      </Text>
+      <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: '#e5e7eb', paddingBottom: 3, marginBottom: 3 }}>
+        <Text style={{ flex: 1, fontSize: 6.5, color: C.light }}>Pergunta</Text>
+        <Text style={{ width: 34, fontSize: 6.5, color: C.light, textAlign: 'right' }}>Geral</Text>
+        {QROW_REL_COLS_PDF.map((c) => (
+          <Text key={c.code} style={{ width: 34, fontSize: 6.5, color: C.light, textAlign: 'right' }}>{c.label}</Text>
+        ))}
+      </View>
+      {rows.map((r) => (
+        <View key={r.id} style={{ display: 'flex', flexDirection: 'row', marginBottom: 4 }} wrap={false}>
+          <View style={{ flex: 1, paddingRight: 4 }}>
+            <Text style={{ fontSize: 7, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
+            {r.competencyName && <Text style={{ fontSize: 6, color: C.light, marginTop: 1 }}>{r.competencyName}</Text>}
+          </View>
+          <Text style={{ width: 34, fontSize: 7, fontFamily: 'Helvetica-Bold', textAlign: 'right', color: scoreColor(r.geral, scoreToPercent(r.geral, scale)) }}>
+            {r.geral.toFixed(2)}
+          </Text>
+          {QROW_REL_COLS_PDF.map((c) => {
+            const v = r.perRel[c.code]
+            return (
+              <Text
+                key={c.code}
+                style={{ width: 34, fontSize: 7, textAlign: 'right', color: v != null ? scoreColor(v, scoreToPercent(v, scale)) : C.light }}
+              >
+                {v != null ? v.toFixed(2) : '—'}
+              </Text>
+            )
+          })}
+        </View>
+      ))}
+      {color === C.yellow && worst && worst.value / scale.max < 0.6 && (
+        <Text style={{ fontSize: 6.5, color: C.red, backgroundColor: '#fef2f2', borderRadius: 4, padding: 5, marginTop: 3 }}>
+          ⚠ {calloutLabel}: "{worst.row.prompt.length > 70 ? worst.row.prompt.slice(0, 68) + '…' : worst.row.prompt}" —
+          apenas {worst.value.toFixed(2)} entre {REL_LABEL[worst.rel] ?? worst.rel}.
+        </Text>
+      )}
+    </View>
+  )
+}
+
 function TopBottomQuestionsSectionPDF({
   questionScores, competencies, scaleId,
 }: {
@@ -818,81 +890,64 @@ function TopBottomQuestionsSectionPDF({
   const scale   = getScale(scaleId)
   const compMap = new Map(competencies.map((c) => [c.id, c.name]))
 
-  const byQuestion = new Map<string, { prompt: string; competencyName: string | null; scores: number[] }>()
+  const byQuestion = new Map<string, {
+    prompt: string; competency_id: string | null
+    sums: Record<string, { sum: number; n: number }>
+  }>()
   for (const q of questionScores) {
-    if (q.relationship_code === 'self' || q.score_avg == null) continue
+    if (q.score_avg == null) continue
     if (!byQuestion.has(q.question_id)) {
-      byQuestion.set(q.question_id, {
-        prompt: q.prompt,
-        competencyName: q.competency_id ? compMap.get(q.competency_id) ?? null : null,
-        scores: [],
-      })
+      byQuestion.set(q.question_id, { prompt: q.prompt, competency_id: q.competency_id, sums: {} })
     }
-    byQuestion.get(q.question_id)!.scores.push(q.score_avg)
+    byQuestion.get(q.question_id)!.sums[q.relationship_code] = {
+      sum: q.score_avg * q.response_count, n: q.response_count,
+    }
   }
 
   const scored = [...byQuestion.entries()]
-    .map(([id, q]) => ({
-      id, prompt: q.prompt, competencyName: q.competencyName,
-      avg: q.scores.reduce((s, v) => s + v, 0) / q.scores.length,
-    }))
-    .sort((a, b) => b.avg - a.avg)
+    .map(([id, q]) => {
+      const extCodes = ['manager', 'peer', 'subordinate'].filter((c) => q.sums[c])
+      const extN     = extCodes.reduce((s, c) => s + q.sums[c].n, 0)
+      if (extN === 0) return null
+      const extSum   = extCodes.reduce((s, c) => s + q.sums[c].sum, 0)
+      const perRel: Record<string, number | null> = {}
+      for (const { code } of QROW_REL_COLS_PDF) {
+        perRel[code] = q.sums[code] ? q.sums[code].sum / q.sums[code].n : null
+      }
+      return {
+        id, prompt: q.prompt,
+        competencyName: q.competency_id ? compMap.get(q.competency_id) ?? null : null,
+        geral: extSum / extN, perRel,
+      } as QRowPDF
+    })
+    .filter(Boolean) as QRowPDF[]
 
   if (scored.length === 0) return null
 
+  const sorted   = [...scored].sort((a, b) => b.geral - a.geral)
   const overlaps = scored.length <= 5
-  const top      = scored.slice(0, Math.min(5, scored.length))
-  const bottom   = overlaps ? [] : [...scored].reverse().slice(0, 5)
-
-  function QRankList({ items, color }: { items: typeof top; color: string }) {
-    return (
-      <View>
-        {items.map((q, i) => {
-          const pct = (q.avg / scale.max) * 100
-          return (
-            <View key={q.id} style={s.rankRow} wrap={false}>
-              <Text style={[s.rankNumber, { color }]}>{i + 1}.</Text>
-              <View style={{ flex: 1 }}>
-                <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start' }}>
-                  <Text style={[s.rankName, { fontSize: 7.5 }]}>{q.prompt}</Text>
-                  <Text style={[s.rankScore, { color }]}>{q.avg.toFixed(2)}</Text>
-                </View>
-                {q.competencyName && (
-                  <Text style={{ fontSize: 6.5, color: C.light, marginBottom: 2 }}>{q.competencyName}</Text>
-                )}
-                <View style={[s.rankBarBg]}>
-                  <View style={{ height: 3, width: `${pct}%`, backgroundColor: color, borderRadius: 2 }} />
-                </View>
-              </View>
-            </View>
-          )
-        })}
-      </View>
-    )
-  }
+  const top      = sorted.slice(0, Math.min(5, scored.length))
+  const bottom   = overlaps ? [] : sorted.slice(-5).reverse()
 
   return (
     <View style={s.section} break>
       <SectionTitle>Perguntas com maiores e menores notas</SectionTitle>
       <Text style={s.sectionSubtitle}>
-        Granularidade por pergunta — mais específico que a visão por competência.
+        Granularidade por pergunta, com a nota de cada grupo de avaliador.
       </Text>
-      <View style={{ display: 'flex', flexDirection: 'row' }}>
-        <View style={{ flex: 1, marginRight: bottom.length > 0 ? 24 : 0 }}>
-          <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.green, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            {bottom.length > 0 ? 'Pontos fortes' : 'Ranking por pergunta'}
-          </Text>
-          <QRankList items={top} color={C.green} />
-        </View>
-        {bottom.length > 0 && (
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.yellow, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Oportunidades
-            </Text>
-            <QRankList items={bottom} color={C.yellow} />
-          </View>
-        )}
-      </View>
+      <QuestionGroupTablePDF
+        rows={top} scale={scale} color={C.green}
+        title={bottom.length > 0 ? 'Pontos fortes' : 'Ranking por pergunta'}
+        calloutLabel="Ponto de atenção"
+      />
+      <QuestionGroupTablePDF
+        rows={bottom} scale={scale} color={C.yellow}
+        title="Oportunidades de melhoria"
+        calloutLabel="Atenção especial"
+      />
+      <Text style={{ fontSize: 6.5, color: C.light, marginTop: 2 }}>
+        "Geral" = média das avaliações externas (gestor, pares e subordinados) por pergunta.
+      </Text>
     </View>
   )
 }
