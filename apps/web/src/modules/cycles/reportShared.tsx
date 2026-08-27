@@ -505,8 +505,7 @@ export function JohariMatrixSection({
   competencies: CompetencyRow[]
   scaleId?:     string
 }) {
-  const scale     = getScale(scaleId)
-  const threshold = scale.min + (scale.max - scale.min) * 0.7 // "alto" a partir de 70% da escala
+  const scale = getScale(scaleId)
 
   const entries: JohariEntry[] = competencies
     .map((c) => {
@@ -523,10 +522,21 @@ export function JohariMatrixSection({
 
   if (entries.length === 0) return null
 
+  // Corte relativo (mediana das próprias competências dessa pessoa em cada
+  // eixo) em vez de um valor fixo da escala — evita que alguém com notas
+  // geralmente altas (ou baixas) caia inteiro num único quadrante.
+  function median(values: number[]): number {
+    const sorted = [...values].sort((a, b) => a - b)
+    const mid = Math.floor(sorted.length / 2)
+    return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+  }
+  const selfThreshold = median(entries.map((e) => e.selfScore))
+  const extThreshold  = median(entries.map((e) => e.extAvg))
+
   const byQuadrant: Record<string, JohariEntry[]> = { arena: [], blind: [], facade: [], unknown: [] }
   for (const e of entries) {
-    const selfHigh = e.selfScore >= threshold
-    const extHigh  = e.extAvg   >= threshold
+    const selfHigh = e.selfScore >= selfThreshold
+    const extHigh  = e.extAvg   >= extThreshold
     const key = selfHigh && extHigh ? 'arena' : selfHigh && !extHigh ? 'blind' : !selfHigh && extHigh ? 'facade' : 'unknown'
     byQuadrant[key].push(e)
   }
@@ -537,8 +547,10 @@ export function JohariMatrixSection({
         Matriz de Johari
       </h2>
       <p className="text-xs text-gray-400 mb-5">
-        Cada competência é classificada por autopercepção × percepção externa, considerando "alta"
-        a partir de {threshold.toFixed(1)} (70% da escala).
+        Cada competência é classificada como "alta" ou "baixa" em relação à mediana das próprias
+        competências desta pessoa — autoavaliação ≥ {selfThreshold.toFixed(1)}, percepção externa ≥{' '}
+        {extThreshold.toFixed(1)} (escala {scale.min}–{scale.max}). Mostra onde essa pessoa se destaca
+        ou fica abaixo do seu próprio padrão, não um corte absoluto da escala.
       </p>
       <div className="grid sm:grid-cols-2 gap-4">
         {JOHARI_QUADRANTS.map((q) => (
