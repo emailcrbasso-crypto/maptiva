@@ -405,12 +405,12 @@ export function ParticipantReportPage() {
             evaluatorWeights={evaluatorWeights}
             onSaveConsultantNotes={handleSaveConsultantNotes}
           />
+          <FavorabilityByDemographicSection groups={demographics} scaleId={scaleId} />
+          <DemographicBreakdownSection groups={demographics} />
           <ExternalComparisonSection
             rows={externalComparison}
             only={cycleName.toLowerCase().includes('valor') ? 'valor' : 'dimensao'}
           />
-          <FavorabilityByDemographicSection groups={demographics} scaleId={scaleId} />
-          <DemographicBreakdownSection groups={demographics} />
           {nMinimum != null && (
             <div className="mt-5">
               <MethodologyAppendixSection
