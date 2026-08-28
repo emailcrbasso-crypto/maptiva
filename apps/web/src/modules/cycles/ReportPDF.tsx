@@ -23,7 +23,11 @@ import {
   REL_ORDER,
   REL_SHORT,
   RADAR_PALETTE,
+  REL_DETAIL_ORDER,
+  REL_DETAIL_LABEL,
   computeFavorability,
+  qrowKey,
+  computeGroupAverages,
 } from './reportShared'
 import { getScale, scoreToPercent, type ScaleDefinition } from '@/lib/scales'
 
@@ -333,19 +337,32 @@ function ParticipationSectionPDF({ snapshots }: { snapshots: SnapshotRow[] }) {
 // ─── 2. Scores section ────────────────────────────────────────────────────────
 
 function ScoresSection({
-  profile, snapshots, competencies, scaleId,
+  profile, snapshots, competencies, scaleId, questionScores = [],
 }: {
   profile: ProfileData; snapshots: SnapshotRow[]
   competencies: CompetencyRow[]; scaleId: string
+  questionScores?: QuestionScoreRow[]
 }) {
-  const scale  = getScale(scaleId)
-  const scores = [
-    { label: 'Média Geral', value: profile.overall_score },
-    { label: 'Autoavaliação', value: profile.self_score },
-    { label: 'Gestor',     value: profile.manager_score },
-    { label: 'Pares',      value: profile.peer_score },
-    { label: 'Subordinados', value: profile.subordinate_score },
-  ]
+  const scale     = getScale(scaleId)
+  const hasDetail = questionScores.some((q) => q.relationship_detail)
+  const groupAvg  = hasDetail ? computeGroupAverages(questionScores) : null
+
+  const scores = hasDetail && groupAvg
+    ? [
+        { label: 'Média Geral',     value: profile.overall_score },
+        { label: 'Autoavaliação',   value: profile.self_score },
+        { label: 'Eq. Direta',      value: groupAvg['subordinate|Direto']   ?? null },
+        { label: 'Eq. Indireta',    value: groupAvg['subordinate|Indireto'] ?? null },
+        { label: 'Pares Direto',    value: groupAvg['peer|Direto']          ?? null },
+        { label: 'Pares Indireto',  value: groupAvg['peer|Indireto']        ?? null },
+      ]
+    : [
+        { label: 'Média Geral', value: profile.overall_score },
+        { label: 'Autoavaliação', value: profile.self_score },
+        { label: 'Gestor',     value: profile.manager_score },
+        { label: 'Pares',      value: profile.peer_score },
+        { label: 'Subordinados', value: profile.subordinate_score },
+      ]
 
   // Self-awareness index
   const gaps = competencies.map((c) => {
@@ -570,12 +587,20 @@ function FavorabilitySectionPDF({
 
 // ─── 3. Roda da liderança (Dual Radar) ───────────────────────────────────────
 
+const RADAR_DETAIL_PALETTE_PDF: Record<string, string> = {
+  'peer|Direto':          '#f59e0b',
+  'peer|Indireto':        '#fb923c',
+  'subordinate|Direto':   '#3b82f6',
+  'subordinate|Indireto': '#38bdf8',
+}
+
 function DualRadarSectionPDF({
-  snapshots, competencies, scaleId, goalPct = 80,
+  snapshots, competencies, scaleId, goalPct = 80, questionScores = [],
 }: {
   snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
   /** Meta de favorabilidade (%) exibida como polígono tracejado. Passe null para ocultar. */
   goalPct?: number | null
+  questionScores?: QuestionScoreRow[]
 }) {
   const scale = getScale(scaleId)
   const goalValue = goalPct != null ? (goalPct / 100) * scale.max : undefined
@@ -593,21 +618,51 @@ function DualRadarSectionPDF({
   )
   const hasSelf = selfValues.some((v) => v > 0)
 
-  // External relationships
-  const externalRels = [...new Set(
-    snapshots
-      .filter((s) => s.competency_id && s.score_avg != null && s.relationship_code !== 'self')
-      .map((s) => s.relationship_code)
-  )].sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
+  const hasDetail = questionScores.some((q) => q.relationship_detail)
 
-  const externalDatasets = externalRels.map((rel) => ({
-    color: RADAR_PALETTE[rel] ?? '#94a3b8',
-    fillOpacity: 0.1,
-    values: compWithSnaps.map((c) =>
-      snapshots.find((s) => s.competency_id === c.id && s.relationship_code === rel)?.score_avg ?? 0
-    ),
-    name: REL_LABEL[rel] ?? rel,
-  }))
+  let externalDatasets: { color: string; fillOpacity: number; values: number[]; name: string }[]
+
+  if (hasDetail) {
+    const byCompRel = new Map<string, Map<string, { sum: number; n: number }>>()
+    for (const q of questionScores) {
+      if (q.relationship_code === 'self' || q.score_avg == null || !q.competency_id) continue
+      const key = qrowKey(q.relationship_code, q.relationship_detail)
+      if (!byCompRel.has(q.competency_id)) byCompRel.set(q.competency_id, new Map())
+      const m   = byCompRel.get(q.competency_id)!
+      const cur = m.get(key) ?? { sum: 0, n: 0 }
+      cur.sum += q.score_avg * q.response_count
+      cur.n   += q.response_count
+      m.set(key, cur)
+    }
+    const keys = REL_DETAIL_ORDER
+      .filter(({ code }) => code !== 'self')
+      .map(({ code, detail }) => qrowKey(code, detail))
+      .filter((key) => [...byCompRel.values()].some((m) => m.has(key)))
+    externalDatasets = keys.map((key) => ({
+      color: RADAR_DETAIL_PALETTE_PDF[key] ?? '#94a3b8',
+      fillOpacity: 0.1,
+      values: compWithSnaps.map((c) => {
+        const e = byCompRel.get(c.id)?.get(key)
+        return e ? e.sum / e.n : 0
+      }),
+      name: REL_DETAIL_LABEL[key] ?? key,
+    }))
+  } else {
+    const externalRels = [...new Set(
+      snapshots
+        .filter((s) => s.competency_id && s.score_avg != null && s.relationship_code !== 'self')
+        .map((s) => s.relationship_code)
+    )].sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
+
+    externalDatasets = externalRels.map((rel) => ({
+      color: RADAR_PALETTE[rel] ?? '#94a3b8',
+      fillOpacity: 0.1,
+      values: compWithSnaps.map((c) =>
+        snapshots.find((s) => s.competency_id === c.id && s.relationship_code === rel)?.score_avg ?? 0
+      ),
+      name: REL_LABEL[rel] ?? rel,
+    }))
+  }
 
   // Legend of competency axis numbers
   const legendItems = compWithSnaps.map((c, i) => ({
@@ -1310,13 +1365,27 @@ function DemographicBreakdownSectionPDF({ groups }: { groups: DemographicGroupPD
 
 // ─── 9. Competency breakdown table ────────────────────────────────────────────
 
-function CompetencyDetailSection({ snapshots, competencies, scaleId }: { snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string }) {
+function CompetencyDetailSection({
+  snapshots, competencies, scaleId, questionScores = [],
+}: {
+  snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
+  questionScores?: QuestionScoreRow[]
+}) {
   const scale      = getScale(scaleId)
   const withComp   = snapshots.filter((s) => s.competency_id && s.score_avg != null)
   if (withComp.length === 0) return null
 
-  const relationships = [...new Set(withComp.map((s) => s.relationship_code))]
-    .sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
+  const hasDetail = questionScores.some((q) => q.relationship_detail)
+
+  const relationships: { key: string; label: string }[] = hasDetail
+    ? REL_DETAIL_ORDER
+        .map(({ code, detail }) => qrowKey(code, detail))
+        .filter((key) => questionScores.some((q) => qrowKey(q.relationship_code, q.relationship_detail) === key))
+        .map((key) => ({ key, label: REL_DETAIL_LABEL[key] ?? key }))
+    : [...new Set(withComp.map((s) => s.relationship_code))]
+        .sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
+        .map((rel) => ({ key: rel, label: REL_SHORT[rel] ?? rel }))
+
   const compMap = new Map(competencies.map((c) => [c.id, c]))
   const byComp  = new Map<string, SnapshotRow[]>()
   for (const s of withComp) {
@@ -1324,7 +1393,28 @@ function CompetencyDetailSection({ snapshots, competencies, scaleId }: { snapsho
     if (!byComp.has(s.competency_id)) byComp.set(s.competency_id, [])
     byComp.get(s.competency_id)!.push(s)
   }
-  const COL_W = 42
+
+  const compAvgByKey = new Map<string, Map<string, number>>()
+  if (hasDetail) {
+    const sums = new Map<string, Map<string, { sum: number; n: number }>>()
+    for (const q of questionScores) {
+      if (q.score_avg == null || !q.competency_id) continue
+      const key = qrowKey(q.relationship_code, q.relationship_detail)
+      if (!sums.has(q.competency_id)) sums.set(q.competency_id, new Map())
+      const m   = sums.get(q.competency_id)!
+      const cur = m.get(key) ?? { sum: 0, n: 0 }
+      cur.sum += q.score_avg * q.response_count
+      cur.n   += q.response_count
+      m.set(key, cur)
+    }
+    for (const [compId, m] of sums.entries()) {
+      const avgMap = new Map<string, number>()
+      for (const [key, { sum, n }] of m.entries()) avgMap.set(key, sum / n)
+      compAvgByKey.set(compId, avgMap)
+    }
+  }
+
+  const COL_W = hasDetail ? 34 : 42
 
   return (
     <View style={s.section} break>
@@ -1333,8 +1423,8 @@ function CompetencyDetailSection({ snapshots, competencies, scaleId }: { snapsho
       <View style={s.tableHeader}>
         <Text style={[s.tableHeaderCell, { flex: 1 }]}>Competência</Text>
         {relationships.map((r) => (
-          <Text key={r} style={[s.tableHeaderCell, { width: COL_W, textAlign: 'center' }]}>
-            {REL_SHORT[r] ?? r}
+          <Text key={r.key} style={[s.tableHeaderCell, { width: COL_W, textAlign: 'center' }]}>
+            {r.label}
           </Text>
         ))}
       </View>
@@ -1344,13 +1434,15 @@ function CompetencyDetailSection({ snapshots, competencies, scaleId }: { snapsho
         return (
           <View key={compId} style={s.tableRow} wrap={false}>
             <Text style={[s.tableCell, { flex: 1 }]}>{comp?.name ?? '—'}</Text>
-            {relationships.map((rel) => {
-              const snap = snaps.find((s) => s.relationship_code === rel)
-              const pct  = snap?.score_avg != null ? scoreToPercent(snap.score_avg, scale) : 0
-              const col  = scoreColor(snap?.score_avg ?? null, pct)
+            {relationships.map((r) => {
+              const value = hasDetail
+                ? compAvgByKey.get(compId)?.get(r.key) ?? null
+                : snaps.find((s) => s.relationship_code === r.key)?.score_avg ?? null
+              const pct = value != null ? scoreToPercent(value, scale) : 0
+              const col = scoreColor(value, pct)
               return (
-                <Text key={rel} style={[s.tableCell, { width: COL_W, textAlign: 'center', fontFamily: 'Helvetica-Bold', color: col }]}>
-                  {snap?.score_avg != null ? snap.score_avg.toFixed(2) : '—'}
+                <Text key={r.key} style={[s.tableCell, { width: COL_W, textAlign: 'center', fontFamily: 'Helvetica-Bold', color: col }]}>
+                  {value != null ? value.toFixed(2) : '—'}
                 </Text>
               )
             })}
@@ -1628,16 +1720,16 @@ export function ReportPDFDocument({
         <ParticipationSectionPDF snapshots={snapshots} />
 
         {/* Scores consolidados + Autoconhecimento + Insights */}
-        <ScoresSection profile={profile} snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        <ScoresSection profile={profile} snapshots={snapshots} competencies={competencies} scaleId={scaleId} questionScores={questionScores} />
 
         {/* Roda da liderança */}
         {hasCompetencies && (
-          <DualRadarSectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} goalPct={goalPct} />
+          <DualRadarSectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} goalPct={goalPct} questionScores={questionScores} />
         )}
 
         {/* Avaliação por competência */}
         {hasCompetencies && (
-          <CompetencyDetailSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+          <CompetencyDetailSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} questionScores={questionScores} />
         )}
 
         {/* GAP autoavaliação × avaliadores */}

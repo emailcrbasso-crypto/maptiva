@@ -200,17 +200,28 @@ export function ParticipationPanel({ snapshots }: { snapshots: SnapshotRow[] }) 
 
 // ─── Dual radar ───────────────────────────────────────────────────────────────
 
+const RADAR_DETAIL_PALETTE: Record<string, string> = {
+  'peer|Direto':          '#f59e0b',
+  'peer|Indireto':        '#fb923c',
+  'subordinate|Direto':   '#3b82f6',
+  'subordinate|Indireto': '#38bdf8',
+}
+
 export function DualRadarSection({
   snapshots,
   competencies,
   scaleId = 'likert_5',
   goalPct = 80,
+  questionScores,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
   scaleId?:     string
   /** Meta de favorabilidade (%) exibida como linha tracejada no radar. Passe null para ocultar. */
   goalPct?:     number | null
+  /** Quando presente e com relationship_detail, quebra "avaliadores externos" por
+   * Pares/Equipe Direto/Indireto em vez do corte coarse. */
+  questionScores?: QuestionScoreRow[]
 }) {
   const scale    = getScale(scaleId)
   const scaleMax = scale.max
@@ -232,26 +243,65 @@ export function DualRadarSection({
   }))
   const hasSelf = selfData.some((d) => d.self > 0)
 
-  const externalRels = [
-    ...new Set(
-      snapshots
-        .filter((s) => s.competency_id && s.score_avg != null && s.relationship_code !== 'self')
-        .map((s) => s.relationship_code)
-    ),
-  ].sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
+  const hasDetail = questionScores != null && questionScores.some((q) => q.relationship_detail)
 
-  const externalData = compWithSnaps.map((c) => {
-    const row: Record<string, number | string> = { subject: shorten(c.name) }
-    for (const rel of externalRels) {
-      const snap = snapshots.find(
-        (s) => s.competency_id === c.id && s.relationship_code === rel
-      )
-      row[rel] = snap?.score_avg ?? 0
+  let externalKeys: string[]
+  let externalLabel: (key: string) => string
+  let externalColor: (key: string) => string
+  let externalData: Record<string, number | string>[]
+
+  if (hasDetail && questionScores) {
+    const byCompRel = new Map<string, Map<string, { sum: number; n: number }>>()
+    for (const q of questionScores) {
+      if (q.relationship_code === 'self' || q.score_avg == null || !q.competency_id) continue
+      const key = qrowKey(q.relationship_code, q.relationship_detail)
+      if (!byCompRel.has(q.competency_id)) byCompRel.set(q.competency_id, new Map())
+      const m   = byCompRel.get(q.competency_id)!
+      const cur = m.get(key) ?? { sum: 0, n: 0 }
+      cur.sum += q.score_avg * q.response_count
+      cur.n   += q.response_count
+      m.set(key, cur)
     }
-    if (goalValue != null) row.goal = goalValue
-    return row
-  })
-  const hasExternal = externalRels.length > 0
+    externalKeys = REL_DETAIL_ORDER
+      .filter(({ code }) => code !== 'self')
+      .map(({ code, detail }) => qrowKey(code, detail))
+      .filter((key) => [...byCompRel.values()].some((m) => m.has(key)))
+    externalLabel = (key) => REL_DETAIL_LABEL[key] ?? key
+    externalColor = (key) => RADAR_DETAIL_PALETTE[key] ?? '#94a3b8'
+    externalData = compWithSnaps.map((c) => {
+      const row: Record<string, number | string> = { subject: shorten(c.name) }
+      const m = byCompRel.get(c.id)
+      for (const key of externalKeys) {
+        const e = m?.get(key)
+        row[key] = e ? e.sum / e.n : 0
+      }
+      if (goalValue != null) row.goal = goalValue
+      return row
+    })
+  } else {
+    const externalRels = [
+      ...new Set(
+        snapshots
+          .filter((s) => s.competency_id && s.score_avg != null && s.relationship_code !== 'self')
+          .map((s) => s.relationship_code)
+      ),
+    ].sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
+    externalKeys  = externalRels
+    externalLabel = (key) => REL_LABEL[key] ?? key
+    externalColor = (key) => RADAR_PALETTE[key] ?? '#94a3b8'
+    externalData = compWithSnaps.map((c) => {
+      const row: Record<string, number | string> = { subject: shorten(c.name) }
+      for (const rel of externalRels) {
+        const snap = snapshots.find(
+          (s) => s.competency_id === c.id && s.relationship_code === rel
+        )
+        row[rel] = snap?.score_avg ?? 0
+      }
+      if (goalValue != null) row.goal = goalValue
+      return row
+    })
+  }
+  const hasExternal = externalKeys.length > 0
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -299,13 +349,13 @@ export function DualRadarSection({
                 {goalValue != null && (
                   <Radar name={`Meta ${goalPct}%`} dataKey="goal" stroke="#16a34a" strokeDasharray="4 3" fill="none" strokeWidth={1.5} dot={false} />
                 )}
-                {externalRels.map((rel) => (
+                {externalKeys.map((key) => (
                   <Radar
-                    key={rel}
-                    name={REL_LABEL[rel] ?? rel}
-                    dataKey={rel}
-                    stroke={RADAR_PALETTE[rel] ?? '#94a3b8'}
-                    fill={RADAR_PALETTE[rel] ?? '#94a3b8'}
+                    key={key}
+                    name={externalLabel(key)}
+                    dataKey={key}
+                    stroke={externalColor(key)}
+                    fill={externalColor(key)}
                     fillOpacity={0.08}
                     strokeWidth={2}
                     dot={false}
@@ -919,13 +969,30 @@ function QuestionGroupTable({
   )
 }
 
-function qrowKey(code: string, detail: string | null | undefined): string {
+export function qrowKey(code: string, detail: string | null | undefined): string {
   return `${code}|${detail ?? ''}`
 }
 
 /** Colunas Direto/Indireto quando o ciclo tem essa granularidade, senão as coarse. */
 function pickQuestionCols(questionScores: QuestionScoreRow[]): QRowCol[] {
   return questionScores.some((q) => q.relationship_detail) ? QROW_REL_COLS_DETAILED : QROW_REL_COLS
+}
+
+/** Média ponderada por grupo (relationship_code|relationship_detail), somando todas
+ * as competências/perguntas — usada nos Scores Consolidados quando há detalhe. */
+export function computeGroupAverages(questionScores: QuestionScoreRow[]): Record<string, number | null> {
+  const sums: Record<string, { sum: number; n: number }> = {}
+  for (const q of questionScores) {
+    if (q.score_avg == null) continue
+    const key = qrowKey(q.relationship_code, q.relationship_detail)
+    const cur = sums[key] ?? { sum: 0, n: 0 }
+    cur.sum += q.score_avg * q.response_count
+    cur.n   += q.response_count
+    sums[key] = cur
+  }
+  const out: Record<string, number | null> = {}
+  for (const key of Object.keys(sums)) out[key] = sums[key].n > 0 ? sums[key].sum / sums[key].n : null
+  return out
 }
 
 function buildQuestionRows(questionScores: QuestionScoreRow[], competencies: CompetencyRow[]): QRow[] {
@@ -1169,9 +1236,17 @@ export function CompetencyBreakdown({
     if (!byComp.has(s.competency_id)) byComp.set(s.competency_id, [])
     byComp.get(s.competency_id)!.push(s)
   }
-  const relationships = [
-    ...new Set(withComp.map((s) => s.relationship_code)),
-  ].sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
+
+  const hasDetail = questionScores.some((q) => q.relationship_detail)
+
+  const relationships: { key: string; label: string }[] = hasDetail
+    ? REL_DETAIL_ORDER
+        .map(({ code, detail }) => qrowKey(code, detail))
+        .filter((key) => questionScores.some((q) => qrowKey(q.relationship_code, q.relationship_detail) === key))
+        .map((key) => ({ key, label: REL_DETAIL_LABEL[key] ?? key }))
+    : [...new Set(withComp.map((s) => s.relationship_code))]
+        .sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
+        .map((rel) => ({ key: rel, label: REL_SHORT[rel] ?? rel }))
 
   // Group question scores by competency then by question_id
   const qByComp = new Map<string, Map<string, QuestionScoreRow[]>>()
@@ -1181,6 +1256,28 @@ export function CompetencyBreakdown({
     const qMap = qByComp.get(cKey)!
     if (!qMap.has(q.question_id)) qMap.set(q.question_id, [])
     qMap.get(q.question_id)!.push(q)
+  }
+
+  // Média por competência × grupo detalhado (só usada quando hasDetail — score_snapshots
+  // não tem relationship_detail, então agregamos a partir das perguntas).
+  const compAvgByKey = new Map<string, Map<string, number>>()
+  if (hasDetail) {
+    const sums = new Map<string, Map<string, { sum: number; n: number }>>()
+    for (const q of questionScores) {
+      if (q.score_avg == null || !q.competency_id) continue
+      const key = qrowKey(q.relationship_code, q.relationship_detail)
+      if (!sums.has(q.competency_id)) sums.set(q.competency_id, new Map())
+      const m   = sums.get(q.competency_id)!
+      const cur = m.get(key) ?? { sum: 0, n: 0 }
+      cur.sum += q.score_avg * q.response_count
+      cur.n   += q.response_count
+      m.set(key, cur)
+    }
+    for (const [compId, m] of sums.entries()) {
+      const avgMap = new Map<string, number>()
+      for (const [key, { sum, n }] of m.entries()) avgMap.set(key, sum / n)
+      compAvgByKey.set(compId, avgMap)
+    }
   }
 
   function toggle(compId: string) {
@@ -1206,8 +1303,8 @@ export function CompetencyBreakdown({
                 Competência
               </th>
               {relationships.map((r) => (
-                <th key={r} className="text-center text-gray-500 font-medium pb-3 px-4 min-w-[80px] text-xs uppercase tracking-wide">
-                  {REL_SHORT[r] ?? r}
+                <th key={r.key} className="text-center text-gray-500 font-medium pb-3 px-4 min-w-[80px] text-xs uppercase tracking-wide">
+                  {r.label}
                 </th>
               ))}
               {hasQuestions && <th className="w-10" />}
@@ -1238,12 +1335,14 @@ export function CompetencyBreakdown({
                   >
                     <td className="py-3 pr-6 text-gray-700 font-medium">{comp?.name ?? '—'}</td>
                     {relationships.map((r) => {
-                      const snap = snaps.find((s) => s.relationship_code === r)
+                      const value = hasDetail
+                        ? compAvgByKey.get(compId)?.get(r.key) ?? null
+                        : snaps.find((s) => s.relationship_code === r.key)?.score_avg ?? null
                       return (
-                        <td key={r} className="py-3 px-4 text-center">
-                          {snap?.score_avg != null ? (
-                            <span className={`font-semibold ${scoreColorClass(snap.score_avg, scale)}`}>
-                              {snap.score_avg.toFixed(2)}
+                        <td key={r.key} className="py-3 px-4 text-center">
+                          {value != null ? (
+                            <span className={`font-semibold ${scoreColorClass(value, scale)}`}>
+                              {value.toFixed(2)}
                             </span>
                           ) : (
                             <span className="text-gray-300">—</span>
@@ -1275,9 +1374,9 @@ export function CompetencyBreakdown({
                           {prompt}
                         </td>
                         {relationships.map((r) => {
-                          const qRow = qRows.find((q) => q.relationship_code === r)
+                          const qRow = qRows.find((q) => qrowKey(q.relationship_code, q.relationship_detail) === r.key)
                           return (
-                            <td key={r} className="py-2 px-4 text-center">
+                            <td key={r.key} className="py-2 px-4 text-center">
                               {qRow ? (
                                 <span className={`text-xs font-semibold ${scoreColorClass(qRow.score_avg, scale)}`}>
                                   {qRow.score_avg.toFixed(2)}
@@ -1622,7 +1721,7 @@ export interface RelationshipDetailFavorabilityRow {
 // modelo caseiro dele (Auto Avaliação / Equipe Direta / Equipe Indireta /
 // Pares Direto / Pares Indireto) — evita traduzir pra self/gestor/pares/
 // subordinados genérico quando o dado tem essa granularidade mais fina.
-const REL_DETAIL_ORDER: { code: string; detail: string | null }[] = [
+export const REL_DETAIL_ORDER: { code: string; detail: string | null }[] = [
   { code: 'self',        detail: null },
   { code: 'manager',     detail: null },
   { code: 'subordinate', detail: 'Direto' },
@@ -1632,7 +1731,7 @@ const REL_DETAIL_ORDER: { code: string; detail: string | null }[] = [
   { code: 'client',      detail: null },
 ]
 
-const REL_DETAIL_LABEL: Record<string, string> = {
+export const REL_DETAIL_LABEL: Record<string, string> = {
   'self|':               'Auto Avaliação',
   'manager|':            'Gestor',
   'subordinate|Direto':  'Equipe Direta',
@@ -2675,13 +2774,30 @@ export function ReportDisplay({
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
           Scores consolidados
         </h2>
-        <div className="grid grid-cols-5 gap-3">
-          <ScoreBadge value={profile.overall_score}     label="Média Geral" scaleId={scaleId} />
-          <ScoreBadge value={profile.self_score}        label="Autoavaliação" scaleId={scaleId} />
-          <ScoreBadge value={profile.manager_score}     label="Gestor"     scaleId={scaleId} />
-          <ScoreBadge value={profile.peer_score}        label="Pares"      scaleId={scaleId} />
-          <ScoreBadge value={profile.subordinate_score} label="Subordinados"  scaleId={scaleId} />
-        </div>
+        {(() => {
+          const hasDetail = questionScores.some((q) => q.relationship_detail)
+          const groupAvg  = hasDetail ? computeGroupAverages(questionScores) : null
+          return (
+            <div className={`grid gap-3 ${hasDetail ? 'grid-cols-3 sm:grid-cols-6' : 'grid-cols-5'}`}>
+              <ScoreBadge value={profile.overall_score} label="Média Geral" scaleId={scaleId} />
+              <ScoreBadge value={profile.self_score}    label="Autoavaliação" scaleId={scaleId} />
+              {hasDetail && groupAvg ? (
+                <>
+                  <ScoreBadge value={groupAvg['subordinate|Direto']   ?? null} label="Equipe Direta"   scaleId={scaleId} />
+                  <ScoreBadge value={groupAvg['subordinate|Indireto'] ?? null} label="Equipe Indireta" scaleId={scaleId} />
+                  <ScoreBadge value={groupAvg['peer|Direto']          ?? null} label="Pares Direto"    scaleId={scaleId} />
+                  <ScoreBadge value={groupAvg['peer|Indireto']        ?? null} label="Pares Indireto"  scaleId={scaleId} />
+                </>
+              ) : (
+                <>
+                  <ScoreBadge value={profile.manager_score}     label="Gestor"       scaleId={scaleId} />
+                  <ScoreBadge value={profile.peer_score}        label="Pares"        scaleId={scaleId} />
+                  <ScoreBadge value={profile.subordinate_score} label="Subordinados" scaleId={scaleId} />
+                </>
+              )}
+            </div>
+          )
+        })()}
         {profile.overall_score == null && (
           <p className="text-xs text-gray-400 mt-4 text-center">
             Perfil criado mas sem scores calculados. Verifique se as questões têm competências vinculadas.
@@ -2698,7 +2814,7 @@ export function ReportDisplay({
 
       {/* 4. Dual radar */}
       {hasCompetencies && (
-        <DualRadarSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        <DualRadarSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} questionScores={questionScores} />
       )}
 
       {/* 4.5 Competency breakdown with question drill-down */}
