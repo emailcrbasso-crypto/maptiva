@@ -429,6 +429,7 @@ export function ReportPage() {
   const [competencies, setCompetencies] = useState<CompetencyRow[]>([])
   const [comments,     setComments]     = useState<CommentRow[]>([])
   const [demographics, setDemographics] = useState<CycleDemographicGroup[]>([])
+  const [relDetailScores, setRelDetailScores] = useState<Map<string, Map<string, number>>>(new Map())
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState<string | null>(null)
   const [releasing,    setReleasing]    = useState(false)
@@ -475,6 +476,21 @@ export function ReportPage() {
       // Corte demográfico do ciclo (best-effort — só aparece se houver metadata_json)
       const { data: demoData } = await supabase.rpc('get_cycle_demographic_breakdown', { p_cycle_id: id })
       if (Array.isArray(demoData)) setDemographics(demoData as CycleDemographicGroup[])
+
+      // Scores por nível detalhado (Pares/Equipe Direto/Indireto — best-effort)
+      const { data: relData } = await supabase.rpc('get_cycle_participant_relationship_scores', { p_cycle_id: id })
+      if (Array.isArray(relData)) {
+        const map = new Map<string, Map<string, number>>()
+        for (const row of relData as {
+          cycle_participant_id: string; relationship_code: string
+          relationship_detail: string | null; score_avg: number
+        }[]) {
+          const key = `${row.relationship_code}|${row.relationship_detail ?? ''}`
+          if (!map.has(row.cycle_participant_id)) map.set(row.cycle_participant_id, new Map())
+          map.get(row.cycle_participant_id)!.set(key, row.score_avg)
+        }
+        setRelDetailScores(map)
+      }
 
       setLoading(false)
     }
@@ -696,13 +712,30 @@ export function ReportPage() {
                 </div>
 
                 {/* Score grid */}
-                <div className="grid grid-cols-5 gap-2">
-                  <ScoreBadge value={p.overall_score}     label="Média Geral" />
-                  <ScoreBadge value={p.self_score}        label="Autoavaliação" />
-                  <ScoreBadge value={p.manager_score}     label="Gestor" />
-                  <ScoreBadge value={p.peer_score}        label="Pares" />
-                  <ScoreBadge value={p.subordinate_score} label="Subordinados" />
-                </div>
+                {(() => {
+                  const detail = relDetailScores.get(p.cycle_participant_id)
+                  const hasDetail = detail != null && [...detail.keys()].some((k) => k.includes('|Direto') || k.includes('|Indireto'))
+                  return (
+                    <div className={`grid gap-2 ${hasDetail ? 'grid-cols-3 sm:grid-cols-6' : 'grid-cols-5'}`}>
+                      <ScoreBadge value={p.overall_score} label="Média Geral" />
+                      <ScoreBadge value={p.self_score}    label="Autoavaliação" />
+                      {hasDetail && detail ? (
+                        <>
+                          <ScoreBadge value={detail.get('subordinate|Direto')   ?? null} label="Eq. Direta" />
+                          <ScoreBadge value={detail.get('subordinate|Indireto') ?? null} label="Eq. Indireta" />
+                          <ScoreBadge value={detail.get('peer|Direto')          ?? null} label="Pares Direto" />
+                          <ScoreBadge value={detail.get('peer|Indireto')        ?? null} label="Pares Indireto" />
+                        </>
+                      ) : (
+                        <>
+                          <ScoreBadge value={p.manager_score}     label="Gestor" />
+                          <ScoreBadge value={p.peer_score}        label="Pares" />
+                          <ScoreBadge value={p.subordinate_score} label="Subordinados" />
+                        </>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* Mini radar */}
                 {hasCompetencies && (
