@@ -857,12 +857,30 @@ function TopBottomSection({ snapshots, competencies, scaleId }: { snapshots: Sna
 
 // ─── 6.5 Top 5 / Bottom 5 por PERGUNTA ───────────────────────────────────────
 
-const QROW_REL_COLS_PDF: { code: string; label: string }[] = [
-  { code: 'self',        label: 'Auto' },
-  { code: 'manager',     label: 'Gestor' },
-  { code: 'peer',        label: 'Pares' },
-  { code: 'subordinate', label: 'Subord.' },
+interface QRowColPDF { key: string; label: string }
+
+const QROW_REL_COLS_PDF: QRowColPDF[] = [
+  { key: 'self|',        label: 'Auto' },
+  { key: 'manager|',     label: 'Gestor' },
+  { key: 'peer|',        label: 'Pares' },
+  { key: 'subordinate|', label: 'Subord.' },
 ]
+
+const QROW_REL_COLS_DETAILED_PDF: QRowColPDF[] = [
+  { key: 'self|',                label: 'Auto' },
+  { key: 'subordinate|Direto',   label: 'Eq. Direta' },
+  { key: 'subordinate|Indireto', label: 'Eq. Indireta' },
+  { key: 'peer|Direto',          label: 'P. Direto' },
+  { key: 'peer|Indireto',        label: 'P. Indireto' },
+]
+
+function qrowKeyPDF(code: string, detail: string | null | undefined): string {
+  return `${code}|${detail ?? ''}`
+}
+
+function pickQuestionColsPDF(questionScores: QuestionScoreRow[]): QRowColPDF[] {
+  return questionScores.some((q) => q.relationship_detail) ? QROW_REL_COLS_DETAILED_PDF : QROW_REL_COLS_PDF
+}
 
 interface QRowPDF {
   id: string; prompt: string; competencyName: string | null; order_index: number
@@ -874,27 +892,27 @@ function buildQuestionRowsPDF(questionScores: QuestionScoreRow[], competencies: 
 
   const byQuestion = new Map<string, {
     prompt: string; competency_id: string | null; order_index: number
-    sums: Record<string, { sum: number; n: number }>
+    sums: Record<string, { code: string; sum: number; n: number }>
   }>()
   for (const q of questionScores) {
     if (q.score_avg == null) continue
     if (!byQuestion.has(q.question_id)) {
       byQuestion.set(q.question_id, { prompt: q.prompt, competency_id: q.competency_id, order_index: q.order_index, sums: {} })
     }
-    byQuestion.get(q.question_id)!.sums[q.relationship_code] = {
-      sum: q.score_avg * q.response_count, n: q.response_count,
+    byQuestion.get(q.question_id)!.sums[qrowKeyPDF(q.relationship_code, q.relationship_detail)] = {
+      code: q.relationship_code, sum: q.score_avg * q.response_count, n: q.response_count,
     }
   }
 
   return [...byQuestion.entries()]
     .map(([id, q]) => {
-      const extCodes = ['manager', 'peer', 'subordinate'].filter((c) => q.sums[c])
-      const extN     = extCodes.reduce((s, c) => s + q.sums[c].n, 0)
+      const extEntries = Object.values(q.sums).filter((s) => s.code !== 'self')
+      const extN   = extEntries.reduce((s, e) => s + e.n, 0)
       if (extN === 0) return null
-      const extSum   = extCodes.reduce((s, c) => s + q.sums[c].sum, 0)
+      const extSum = extEntries.reduce((s, e) => s + e.sum, 0)
       const perRel: Record<string, number | null> = {}
-      for (const { code } of QROW_REL_COLS_PDF) {
-        perRel[code] = q.sums[code] ? q.sums[code].sum / q.sums[code].n : null
+      for (const key of Object.keys(q.sums)) {
+        perRel[key] = q.sums[key].sum / q.sums[key].n
       }
       return {
         id, prompt: q.prompt, order_index: q.order_index,
@@ -906,18 +924,18 @@ function buildQuestionRowsPDF(questionScores: QuestionScoreRow[], competencies: 
 }
 
 function QuestionGroupTablePDF({
-  rows, scale, title, color, calloutLabel,
+  rows, cols, scale, title, color, calloutLabel,
 }: {
-  rows: QRowPDF[]; scale: ScaleDefinition; title: string; color: string; calloutLabel: string
+  rows: QRowPDF[]; cols: QRowColPDF[]; scale: ScaleDefinition; title: string; color: string; calloutLabel: string
 }) {
   if (rows.length === 0) return null
 
-  let worst: { row: QRowPDF; rel: string; value: number } | null = null
+  let worst: { row: QRowPDF; label: string; value: number } | null = null
   for (const r of rows) {
-    for (const { code } of QROW_REL_COLS_PDF) {
-      if (code === 'self') continue
-      const v = r.perRel[code]
-      if (v != null && (worst == null || v < worst.value)) worst = { row: r, rel: code, value: v }
+    for (const { key, label } of cols) {
+      if (key === 'self|') continue
+      const v = r.perRel[key]
+      if (v != null && (worst == null || v < worst.value)) worst = { row: r, label, value: v }
     }
   }
 
@@ -929,8 +947,8 @@ function QuestionGroupTablePDF({
       <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: '#e5e7eb', paddingBottom: 3, marginBottom: 3 }}>
         <Text style={{ flex: 1, fontSize: 6.5, color: C.light }}>Pergunta</Text>
         <Text style={{ width: 34, fontSize: 6.5, color: C.light, textAlign: 'right' }}>Geral</Text>
-        {QROW_REL_COLS_PDF.map((c) => (
-          <Text key={c.code} style={{ width: 34, fontSize: 6.5, color: C.light, textAlign: 'right' }}>{c.label}</Text>
+        {cols.map((c) => (
+          <Text key={c.key} style={{ width: 34, fontSize: 6.5, color: C.light, textAlign: 'right' }}>{c.label}</Text>
         ))}
       </View>
       {rows.map((r) => (
@@ -942,11 +960,11 @@ function QuestionGroupTablePDF({
           <Text style={{ width: 34, fontSize: 7, fontFamily: 'Helvetica-Bold', textAlign: 'right', color: scoreColor(r.geral, scoreToPercent(r.geral, scale)) }}>
             {r.geral.toFixed(2)}
           </Text>
-          {QROW_REL_COLS_PDF.map((c) => {
-            const v = r.perRel[c.code]
+          {cols.map((c) => {
+            const v = r.perRel[c.key]
             return (
               <Text
-                key={c.code}
+                key={c.key}
                 style={{ width: 34, fontSize: 7, textAlign: 'right', color: v != null ? scoreColor(v, scoreToPercent(v, scale)) : C.light }}
               >
                 {v != null ? v.toFixed(2) : '—'}
@@ -958,7 +976,7 @@ function QuestionGroupTablePDF({
       {color === C.yellow && worst && worst.value / scale.max < 0.6 && (
         <Text style={{ fontSize: 6.5, color: C.red, backgroundColor: '#fef2f2', borderRadius: 4, padding: 5, marginTop: 3 }}>
           ⚠ {calloutLabel}: "{worst.row.prompt.length > 70 ? worst.row.prompt.slice(0, 68) + '…' : worst.row.prompt}" —
-          apenas {worst.value.toFixed(2)} entre {REL_LABEL[worst.rel] ?? worst.rel}.
+          apenas {worst.value.toFixed(2)} entre {worst.label}.
         </Text>
       )}
     </View>
@@ -972,6 +990,7 @@ function TopBottomQuestionsSectionPDF({
 }) {
   const scale  = getScale(scaleId)
   const scored = buildQuestionRowsPDF(questionScores, competencies)
+  const cols   = pickQuestionColsPDF(questionScores)
 
   if (scored.length === 0) return null
 
@@ -987,12 +1006,12 @@ function TopBottomQuestionsSectionPDF({
         Granularidade por pergunta, com a nota de cada grupo de avaliador.
       </Text>
       <QuestionGroupTablePDF
-        rows={top} scale={scale} color={C.green}
+        rows={top} cols={cols} scale={scale} color={C.green}
         title={bottom.length > 0 ? 'Pontos fortes' : 'Ranking por pergunta'}
         calloutLabel="Ponto de atenção"
       />
       <QuestionGroupTablePDF
-        rows={bottom} scale={scale} color={C.yellow}
+        rows={bottom} cols={cols} scale={scale} color={C.yellow}
         title="Oportunidades de melhoria"
         calloutLabel="Atenção especial"
       />
@@ -1012,6 +1031,7 @@ function AllQuestionsDetailSectionPDF({
 }) {
   const scale = getScale(scaleId)
   const rows  = buildQuestionRowsPDF(questionScores, competencies).sort((a, b) => a.order_index - b.order_index)
+  const cols  = pickQuestionColsPDF(questionScores)
 
   if (rows.length === 0) return null
 
@@ -1027,8 +1047,8 @@ function AllQuestionsDetailSectionPDF({
         <Text style={{ flex: 2, fontSize: 6.5, color: C.light }}>Pergunta</Text>
         <Text style={{ flex: 1, fontSize: 6.5, color: C.light }}>Dimensão</Text>
         <Text style={{ width: 30, fontSize: 6.5, color: C.light, textAlign: 'right' }}>Geral</Text>
-        {QROW_REL_COLS_PDF.map((c) => (
-          <Text key={c.code} style={{ width: 30, fontSize: 6.5, color: C.light, textAlign: 'right' }}>{c.label}</Text>
+        {cols.map((c) => (
+          <Text key={c.key} style={{ width: 30, fontSize: 6.5, color: C.light, textAlign: 'right' }}>{c.label}</Text>
         ))}
       </View>
       {rows.map((r, i) => (
@@ -1039,11 +1059,11 @@ function AllQuestionsDetailSectionPDF({
           <Text style={{ width: 30, fontSize: 7, fontFamily: 'Helvetica-Bold', textAlign: 'right', color: scoreColor(r.geral, scoreToPercent(r.geral, scale)) }}>
             {r.geral.toFixed(2)}
           </Text>
-          {QROW_REL_COLS_PDF.map((c) => {
-            const v = r.perRel[c.code]
+          {cols.map((c) => {
+            const v = r.perRel[c.key]
             return (
               <Text
-                key={c.code}
+                key={c.key}
                 style={{ width: 30, fontSize: 7, textAlign: 'right', color: v != null ? scoreColor(v, scoreToPercent(v, scale)) : C.light }}
               >
                 {v != null ? v.toFixed(2) : '—'}

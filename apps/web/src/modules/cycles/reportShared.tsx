@@ -47,13 +47,14 @@ export interface BenchmarkEntry {
 export type BenchmarkMap = Record<string, BenchmarkEntry>
 
 export interface QuestionScoreRow {
-  question_id:       string
-  prompt:            string
-  order_index:       number
-  competency_id:     string | null
-  relationship_code: string
-  score_avg:         number
-  response_count:    number
+  question_id:         string
+  prompt:              string
+  order_index:         number
+  competency_id:       string | null
+  relationship_code:   string
+  relationship_detail?: string | null
+  score_avg:           number
+  response_count:      number
 }
 
 export interface CompetencyRow {
@@ -818,11 +819,23 @@ export function Top5Section({
 
 // ─── Top 5 / Bottom 5 por PERGUNTA (granularidade mais fina que por competência) ─
 
-const QROW_REL_COLS: { code: string; label: string }[] = [
-  { code: 'self',        label: 'Auto' },
-  { code: 'manager',     label: 'Gestor' },
-  { code: 'peer',        label: 'Pares' },
-  { code: 'subordinate', label: 'Subord.' },
+interface QRowCol { key: string; label: string }
+
+const QROW_REL_COLS: QRowCol[] = [
+  { key: 'self|',        label: 'Auto' },
+  { key: 'manager|',     label: 'Gestor' },
+  { key: 'peer|',        label: 'Pares' },
+  { key: 'subordinate|', label: 'Subord.' },
+]
+
+// Usada quando o ciclo tem a granularidade Direto/Indireto (relationship_detail)
+// — mesma terminologia da seção "Favorabilidade por nível de avaliador".
+const QROW_REL_COLS_DETAILED: QRowCol[] = [
+  { key: 'self|',                label: 'Auto' },
+  { key: 'subordinate|Direto',   label: 'Eq. Direta' },
+  { key: 'subordinate|Indireto', label: 'Eq. Indireta' },
+  { key: 'peer|Direto',          label: 'P. Direto' },
+  { key: 'peer|Indireto',        label: 'P. Indireto' },
 ]
 
 interface QRow {
@@ -835,9 +848,10 @@ interface QRow {
 }
 
 function QuestionGroupTable({
-  rows, scale, title, icon, color, calloutLabel,
+  rows, cols, scale, title, icon, color, calloutLabel,
 }: {
   rows:  QRow[]
+  cols:  QRowCol[]
   scale: ScaleDefinition
   title: string
   icon:  string
@@ -847,12 +861,12 @@ function QuestionGroupTable({
   if (rows.length === 0) return null
 
   // Menor nota individual entre grupos externos (para o alerta automático).
-  let worst: { row: QRow; rel: string; value: number } | null = null
+  let worst: { row: QRow; label: string; value: number } | null = null
   for (const r of rows) {
-    for (const { code } of QROW_REL_COLS) {
-      if (code === 'self') continue
-      const v = r.perRel[code]
-      if (v != null && (worst == null || v < worst.value)) worst = { row: r, rel: code, value: v }
+    for (const { key, label } of cols) {
+      if (key === 'self|') continue
+      const v = r.perRel[key]
+      if (v != null && (worst == null || v < worst.value)) worst = { row: r, label, value: v }
     }
   }
 
@@ -867,8 +881,8 @@ function QuestionGroupTable({
             <tr className="text-left text-gray-400 border-b border-gray-100">
               <th className="py-1.5 pr-2 font-medium">Pergunta</th>
               <th className="py-1.5 px-2 font-medium text-right">Geral</th>
-              {QROW_REL_COLS.map((c) => (
-                <th key={c.code} className="py-1.5 px-2 font-medium text-right">{c.label}</th>
+              {cols.map((c) => (
+                <th key={c.key} className="py-1.5 px-2 font-medium text-right">{c.label}</th>
               ))}
             </tr>
           </thead>
@@ -882,10 +896,10 @@ function QuestionGroupTable({
                 <td className={`py-2 px-2 text-right font-semibold ${scoreColorClass(r.geral, scale)}`}>
                   {r.geral.toFixed(2)}
                 </td>
-                {QROW_REL_COLS.map((c) => {
-                  const v = r.perRel[c.code]
+                {cols.map((c) => {
+                  const v = r.perRel[c.key]
                   return (
-                    <td key={c.code} className={`py-2 px-2 text-right ${v != null ? scoreColorClass(v, scale) : 'text-gray-300'}`}>
+                    <td key={c.key} className={`py-2 px-2 text-right ${v != null ? scoreColorClass(v, scale) : 'text-gray-300'}`}>
                       {v != null ? v.toFixed(2) : '—'}
                     </td>
                   )
@@ -898,11 +912,20 @@ function QuestionGroupTable({
       {color === 'amber' && worst && worst.value / scale.max < 0.6 && (
         <p className="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2 mt-3">
           ⚠️ <strong>{calloutLabel}:</strong> "{worst.row.prompt.length > 70 ? worst.row.prompt.slice(0, 68) + '…' : worst.row.prompt}"
-          — apenas {worst.value.toFixed(2)} entre {REL_LABEL[worst.rel] ?? worst.rel}.
+          — apenas {worst.value.toFixed(2)} entre {worst.label}.
         </p>
       )}
     </div>
   )
+}
+
+function qrowKey(code: string, detail: string | null | undefined): string {
+  return `${code}|${detail ?? ''}`
+}
+
+/** Colunas Direto/Indireto quando o ciclo tem essa granularidade, senão as coarse. */
+function pickQuestionCols(questionScores: QuestionScoreRow[]): QRowCol[] {
+  return questionScores.some((q) => q.relationship_detail) ? QROW_REL_COLS_DETAILED : QROW_REL_COLS
 }
 
 function buildQuestionRows(questionScores: QuestionScoreRow[], competencies: CompetencyRow[]): QRow[] {
@@ -910,28 +933,29 @@ function buildQuestionRows(questionScores: QuestionScoreRow[], competencies: Com
 
   const byQuestion = new Map<string, {
     prompt: string; competency_id: string | null; order_index: number
-    sums: Record<string, { sum: number; n: number }>
+    sums: Record<string, { code: string; sum: number; n: number }>
   }>()
   for (const q of questionScores) {
     if (q.score_avg == null) continue
     if (!byQuestion.has(q.question_id)) {
       byQuestion.set(q.question_id, { prompt: q.prompt, competency_id: q.competency_id, order_index: q.order_index, sums: {} })
     }
-    byQuestion.get(q.question_id)!.sums[q.relationship_code] = {
-      sum: q.score_avg * q.response_count,
-      n:   q.response_count,
+    byQuestion.get(q.question_id)!.sums[qrowKey(q.relationship_code, q.relationship_detail)] = {
+      code: q.relationship_code,
+      sum:  q.score_avg * q.response_count,
+      n:    q.response_count,
     }
   }
 
   return [...byQuestion.entries()]
     .map(([id, q]) => {
-      const extCodes = ['manager', 'peer', 'subordinate'].filter((c) => q.sums[c])
-      const extN     = extCodes.reduce((s, c) => s + q.sums[c].n, 0)
+      const extEntries = Object.values(q.sums).filter((s) => s.code !== 'self')
+      const extN   = extEntries.reduce((s, e) => s + e.n, 0)
       if (extN === 0) return null
-      const extSum   = extCodes.reduce((s, c) => s + q.sums[c].sum, 0)
+      const extSum = extEntries.reduce((s, e) => s + e.sum, 0)
       const perRel: Record<string, number | null> = {}
-      for (const { code } of QROW_REL_COLS) {
-        perRel[code] = q.sums[code] ? q.sums[code].sum / q.sums[code].n : null
+      for (const key of Object.keys(q.sums)) {
+        perRel[key] = q.sums[key].sum / q.sums[key].n
       }
       return {
         id,
@@ -956,6 +980,7 @@ export function Top5QuestionsSection({
 }) {
   const scale  = getScale(scaleId)
   const scored = buildQuestionRows(questionScores, competencies)
+  const cols   = pickQuestionCols(questionScores)
 
   if (scored.length === 0) return null
 
@@ -976,12 +1001,12 @@ export function Top5QuestionsSection({
         visão por competência.
       </p>
       <QuestionGroupTable
-        rows={top5} scale={scale} color="green"
+        rows={top5} cols={cols} scale={scale} color="green"
         icon="🏆" title={bottom5.length > 0 ? `Top ${top5.length} — Pontos Fortes` : 'Ranking por pergunta'}
         calloutLabel="Ponto de atenção"
       />
       <QuestionGroupTable
-        rows={bottom5} scale={scale} color="amber"
+        rows={bottom5} cols={cols} scale={scale} color="amber"
         icon="🎯" title={`Top ${bottom5.length} — Oportunidades de Melhoria`}
         calloutLabel="Atenção especial"
       />
@@ -1006,6 +1031,7 @@ export function AllQuestionsDetailSection({
   const scale = getScale(scaleId)
   const rows  = buildQuestionRows(questionScores, competencies)
     .sort((a, b) => a.order_index - b.order_index)
+  const cols  = pickQuestionCols(questionScores)
 
   if (rows.length === 0) return null
 
@@ -1026,8 +1052,8 @@ export function AllQuestionsDetailSection({
               <th className="py-1.5 px-2 font-medium">Pergunta</th>
               <th className="py-1.5 px-2 font-medium">Dimensão</th>
               <th className="py-1.5 px-2 font-medium text-right">Geral</th>
-              {QROW_REL_COLS.map((c) => (
-                <th key={c.code} className="py-1.5 px-2 font-medium text-right">{c.label}</th>
+              {cols.map((c) => (
+                <th key={c.key} className="py-1.5 px-2 font-medium text-right">{c.label}</th>
               ))}
             </tr>
           </thead>
@@ -1040,10 +1066,10 @@ export function AllQuestionsDetailSection({
                 <td className={`py-2 px-2 text-right font-semibold ${scoreColorClass(r.geral, scale)}`}>
                   {r.geral.toFixed(2)}
                 </td>
-                {QROW_REL_COLS.map((c) => {
-                  const v = r.perRel[c.code]
+                {cols.map((c) => {
+                  const v = r.perRel[c.key]
                   return (
-                    <td key={c.code} className={`py-2 px-2 text-right ${v != null ? scoreColorClass(v, scale) : 'text-gray-300'}`}>
+                    <td key={c.key} className={`py-2 px-2 text-right ${v != null ? scoreColorClass(v, scale) : 'text-gray-300'}`}>
                       {v != null ? v.toFixed(2) : '—'}
                     </td>
                   )
