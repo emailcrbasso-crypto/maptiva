@@ -18,6 +18,7 @@ import {
   type QuestionScoreRow,
   ReportDisplay,
   MethodologyAppendixSection,
+  type RelationshipDetailFavorabilityRow,
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
 
@@ -37,6 +38,7 @@ export function MyReportPage() {
   const [evaluatorWeights, setEvaluatorWeights] = useState<Record<string, number> | undefined>(undefined)
   const [competencyWeights, setCompetencyWeights] = useState<{ name: string; weight: number }[] | undefined>(undefined)
   const [nMinimum,          setNMinimum]          = useState<number | undefined>(undefined)
+  const [relDetailFav,      setRelDetailFav]      = useState<RelationshipDetailFavorabilityRow[] | undefined>(undefined)
   const [loading,          setLoading]          = useState(true)
   const [errorCode,      setErrorCode]      = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
@@ -118,6 +120,10 @@ export function MyReportPage() {
       const { data: qData } = await supabase.rpc('get_my_question_scores', { p_cycle_id: id })
       if (Array.isArray(qData)) setQuestionScores(qData as QuestionScoreRow[])
 
+      // Favorabilidade detalhada por nível (Pares/Equipe Direto/Indireto — best-effort)
+      const { data: relFavData } = await supabase.rpc('get_my_relationship_favorability', { p_cycle_id: id })
+      if (Array.isArray(relFavData)) setRelDetailFav(relFavData as RelationshipDetailFavorabilityRow[])
+
       // Evaluator/competency weights (best-effort — shown na banner e no apêndice de metodologia)
       const { data: wData } = await supabase.rpc('get_cycle_weights', { p_cycle_id: id })
       if (wData) {
@@ -164,6 +170,7 @@ export function MyReportPage() {
           questionScores={questionScores}
           competencyWeights={competencyWeights}
           nMinimum={nMinimum}
+          relationshipDetailFavorability={relDetailFav}
           brandingName={branding.name}
           brandingLogoUrl={branding.logoUrl ?? null}
         />
@@ -267,6 +274,7 @@ export function MyReportPage() {
             benchmark={benchmark}
             questionScores={questionScores}
             evaluatorWeights={evaluatorWeights}
+            relationshipDetailFavorability={relDetailFav}
           />
           {nMinimum != null && (
             <div className="mt-5">

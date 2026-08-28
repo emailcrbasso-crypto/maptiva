@@ -291,6 +291,7 @@ export function ParticipantReportPage() {
           questionScores={questionScores}
           competencyWeights={competencyWeights}
           nMinimum={nMinimum}
+          relationshipDetailFavorability={relDetailFav}
           brandingName={branding.name}
           brandingLogoUrl={branding.logoUrl ?? null}
         />

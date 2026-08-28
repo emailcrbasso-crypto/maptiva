@@ -432,22 +432,68 @@ function mergeDist(snaps: SnapshotRow[]): Record<string, number> {
   return dist
 }
 
+export interface RelationshipDetailFavorabilityRowPDF {
+  relationship_code:   string
+  relationship_detail: string | null
+  distribution:        Record<string, number> | null | undefined
+  response_count:      number
+  rater_count:         number
+}
+
+const REL_DETAIL_ORDER_PDF: { code: string; detail: string | null }[] = [
+  { code: 'self',        detail: null },
+  { code: 'manager',     detail: null },
+  { code: 'subordinate', detail: 'Direto' },
+  { code: 'subordinate', detail: 'Indireto' },
+  { code: 'peer',        detail: 'Direto' },
+  { code: 'peer',        detail: 'Indireto' },
+  { code: 'client',      detail: null },
+]
+
+const REL_DETAIL_LABEL_PDF: Record<string, string> = {
+  'self|':                'Auto Avaliação',
+  'manager|':             'Gestor',
+  'subordinate|Direto':   'Equipe Direta',
+  'subordinate|Indireto': 'Equipe Indireta',
+  'peer|Direto':          'Pares Direto',
+  'peer|Indireto':        'Pares Indireto',
+  'client|':              'Clientes',
+}
+
 function FavorabilityByRelationshipSectionPDF({
-  snapshots, scaleId,
+  snapshots, scaleId, detailedRows,
 }: {
   snapshots: SnapshotRow[]; scaleId: string
+  detailedRows?: RelationshipDetailFavorabilityRowPDF[]
 }) {
   const scale = getScale(scaleId)
 
-  const rows = REL_ORDER
-    .map((rel) => {
-      const snaps = snapshots.filter((s) => s.relationship_code === rel && s.score_distribution)
-      if (snaps.length === 0) return null
-      const fav = computeFavorability(mergeDist(snaps), scale)
-      if (fav.total === 0) return null
-      return { rel, fav }
-    })
-    .filter(Boolean) as { rel: string; fav: ReturnType<typeof computeFavorability> }[]
+  let rows: { key: string; label: string; fav: ReturnType<typeof computeFavorability> }[]
+
+  if (detailedRows && detailedRows.length > 0) {
+    rows = REL_DETAIL_ORDER_PDF
+      .map(({ code, detail }) => {
+        const row = detailedRows.find(
+          (r) => r.relationship_code === code && (r.relationship_detail ?? null) === detail
+        )
+        if (!row || !row.distribution) return null
+        const fav = computeFavorability(row.distribution, scale)
+        if (fav.total === 0) return null
+        const key = `${code}|${detail ?? ''}`
+        return { key, label: REL_DETAIL_LABEL_PDF[key] ?? key, fav }
+      })
+      .filter(Boolean) as { key: string; label: string; fav: ReturnType<typeof computeFavorability> }[]
+  } else {
+    rows = REL_ORDER
+      .map((rel) => {
+        const snaps = snapshots.filter((s) => s.relationship_code === rel && s.score_distribution)
+        if (snaps.length === 0) return null
+        const fav = computeFavorability(mergeDist(snaps), scale)
+        if (fav.total === 0) return null
+        return { key: rel, label: REL_LABEL[rel] ?? rel, fav }
+      })
+      .filter(Boolean) as { key: string; label: string; fav: ReturnType<typeof computeFavorability> }[]
+  }
 
   if (rows.length < 2) return null
 
@@ -459,8 +505,8 @@ function FavorabilityByRelationshipSectionPDF({
       </Text>
 
       {rows.map((r) => (
-        <View key={r.rel} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 5 }} wrap={false}>
-          <Text style={{ fontSize: 8, color: C.text, width: 90 }}>{REL_LABEL[r.rel] ?? r.rel}</Text>
+        <View key={r.key} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 5 }} wrap={false}>
+          <Text style={{ fontSize: 8, color: C.text, width: 90 }}>{r.label}</Text>
           <View style={{ flex: 1 }}><FavorabilityBarPDF fav={r.fav} /></View>
           <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.text, width: 32, textAlign: 'right' }}>
             {r.fav.favoravel.toFixed(0)}%
@@ -1362,6 +1408,7 @@ export interface ReportPDFProps {
   questionScores?:  QuestionScoreRow[]
   competencyWeights?: { name: string; weight: number }[]
   nMinimum?:        number
+  relationshipDetailFavorability?: RelationshipDetailFavorabilityRowPDF[]
   /** Meta de favorabilidade (%) no radar. Default 80; passe null para ocultar. */
   goalPct?:         number | null
   brandingName:     string
@@ -1523,7 +1570,7 @@ export function ReportPDFDocument({
   personName, cycleName, generatedAt,
   profile, snapshots, competencies, comments,
   scaleId, benchmark, evaluatorWeights, demographics, questionScores = [], goalPct = 80,
-  competencyWeights, nMinimum,
+  competencyWeights, nMinimum, relationshipDetailFavorability,
   brandingName, brandingLogoUrl,
 }: ReportPDFProps) {
   const hasCompetencies = competencies.length > 0
@@ -1592,7 +1639,11 @@ export function ReportPDFDocument({
         )}
 
         {/* Favorabilidade por nível de avaliador */}
-        <FavorabilityByRelationshipSectionPDF snapshots={snapshots} scaleId={scaleId} />
+        <FavorabilityByRelationshipSectionPDF
+          snapshots={snapshots}
+          scaleId={scaleId}
+          detailedRows={relationshipDetailFavorability}
+        />
 
         {/* Favorabilidade geral */}
         {hasCompetencies && (
