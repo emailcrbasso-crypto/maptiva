@@ -22,6 +22,8 @@ import {
   ReportDisplay,
   FavorabilityByDemographicSection,
   MethodologyAppendixSection,
+  ExternalComparisonSection,
+  type ExternalComparisonRow,
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
 
@@ -111,6 +113,7 @@ export function ParticipantReportPage() {
   const [competencyWeights, setCompetencyWeights] = useState<{ name: string; weight: number }[] | undefined>(undefined)
   const [nMinimum,          setNMinimum]          = useState<number | undefined>(undefined)
   const [demographics,     setDemographics]     = useState<DemographicGroup[]>([])
+  const [externalComparison, setExternalComparison] = useState<ExternalComparisonRow[]>([])
   const [loading,          setLoading]          = useState(true)
   const [error,          setError]          = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
@@ -234,6 +237,14 @@ export function ParticipantReportPage() {
         p_cp_id:    cpId,
       })
       if (Array.isArray(demoData)) setDemographics(demoData as DemographicGroup[])
+
+      // Comparativo com ciclo anterior (best-effort — só existe para quem tem histórico)
+      if (d.person?.id) {
+        const { data: compData } = await supabase.rpc('get_person_external_comparison', {
+          p_person_id: d.person.id,
+        })
+        if (Array.isArray(compData)) setExternalComparison(compData as ExternalComparisonRow[])
+      }
 
       setLoading(false)
     }
@@ -394,6 +405,7 @@ export function ParticipantReportPage() {
             evaluatorWeights={evaluatorWeights}
             onSaveConsultantNotes={handleSaveConsultantNotes}
           />
+          <ExternalComparisonSection rows={externalComparison} />
           <FavorabilityByDemographicSection groups={demographics} scaleId={scaleId} />
           <DemographicBreakdownSection groups={demographics} />
           {nMinimum != null && (

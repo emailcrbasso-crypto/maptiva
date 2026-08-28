@@ -1904,6 +1904,110 @@ export function ExecutiveSynthesisSection({
   )
 }
 
+// ─── Comparativo com ciclo anterior (dado externo, já pronto) ─────────────────
+
+export interface ExternalComparisonRow {
+  comparison_type: 'dimensao' | 'valor'
+  label:           string
+  is_total:        boolean
+  year_from:       string
+  value_from:      number | null
+  year_to:         string
+  value_to:        number | null
+  variacao:        number | null
+  variacao_pct:    number | null
+  situacao:        string | null
+  analise:         string | null
+  source_note:     string | null
+  n_from:          number | null
+  n_to:            number | null
+}
+
+const SITUACAO_COLOR: Record<string, string> = {
+  'Destaque':   'text-green-700 bg-green-50',
+  'Estável':    'text-blue-700 bg-blue-50',
+  'Atenção':    'text-amber-700 bg-amber-50',
+  'Prioridade': 'text-red-700 bg-red-50',
+}
+
+export function ExternalComparisonSection({ rows }: { rows: ExternalComparisonRow[] }) {
+  if (rows.length === 0) return null
+
+  const dimRows = rows.filter((r) => r.comparison_type === 'dimensao')
+  const valRows = rows.filter((r) => r.comparison_type === 'valor')
+  const footnote = rows.find((r) => r.source_note)?.source_note
+
+  function ComparisonTable({ label, data }: { label: string; data: ExternalComparisonRow[] }) {
+    if (data.length === 0) return null
+    return (
+      <div className="mb-6 last:mb-0">
+        <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">{label}</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="text-left text-gray-400 border-b border-gray-100">
+                <th className="py-1.5 pr-2 font-medium">{label === 'Por dimensão' ? 'Dimensão' : 'Valor'}</th>
+                <th className="py-1.5 px-2 font-medium text-right">{data[0].year_from}</th>
+                <th className="py-1.5 px-2 font-medium text-right">{data[0].year_to}</th>
+                <th className="py-1.5 px-2 font-medium text-right">Variação</th>
+                <th className="py-1.5 px-2 font-medium">Situação</th>
+                {data.some((r) => r.analise) && <th className="py-1.5 px-2 font-medium">Análise / Recomendação</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((r) => (
+                <tr
+                  key={r.label}
+                  className={`border-b border-gray-50 last:border-0 align-top ${r.is_total ? 'font-semibold bg-gray-50' : ''}`}
+                >
+                  <td className="py-2 pr-2 text-gray-700">{r.label}</td>
+                  <td className="py-2 px-2 text-right text-gray-600">{r.value_from != null ? r.value_from.toFixed(2) : '—'}</td>
+                  <td className="py-2 px-2 text-right text-gray-600">{r.value_to != null ? r.value_to.toFixed(2) : '—'}</td>
+                  <td className={`py-2 px-2 text-right font-medium ${r.variacao != null && r.variacao < 0 ? 'text-red-600' : r.variacao != null && r.variacao > 0 ? 'text-green-600' : 'text-gray-500'}`}>
+                    {r.variacao != null ? `${r.variacao > 0 ? '+' : ''}${r.variacao.toFixed(2)}` : '—'}
+                    {r.variacao_pct != null && (
+                      <span className="text-gray-400 font-normal"> ({(r.variacao_pct * 100).toFixed(1)}%)</span>
+                    )}
+                  </td>
+                  <td className="py-2 px-2">
+                    {r.situacao && (
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${SITUACAO_COLOR[r.situacao] ?? 'bg-gray-100 text-gray-600'}`}>
+                        {r.situacao}
+                      </span>
+                    )}
+                  </td>
+                  {data.some((x) => x.analise) && (
+                    <td className="py-2 px-2 text-gray-500 leading-snug max-w-xs">{r.analise ?? ''}</td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 print-page-break">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Comparativo com ciclo anterior
+      </h2>
+      <p className="text-xs text-gray-400 mb-5">
+        Avaliação 360° anterior conduzida por consultoria externa — importado como referência
+        estática (não recalculado pelo Maptiva).
+      </p>
+      <ComparisonTable label="Por dimensão" data={dimRows} />
+      <ComparisonTable label="Por valor organizacional" data={valRows} />
+      {footnote && (
+        <p className="text-[11px] text-gray-400 mt-3 pt-3 border-t border-gray-100 leading-relaxed">
+          {footnote}
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ─── Score distribution section ───────────────────────────────────────────────
 
 const DIST_COLORS = [
