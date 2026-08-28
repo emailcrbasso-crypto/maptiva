@@ -28,7 +28,7 @@ import { ReportPDFDocument } from './ReportPDF'
 // ─── Corte demográfico (Opção A — lê metadata_json do avaliador quando existir) ─
 
 export interface DemographicGroup {
-  dimension:        'sexo' | 'geracao' | 'cargo' | 'tempo_casa'
+  dimension:        'sexo' | 'geracao' | 'cargo' | 'tempo_casa' | 'nivel_detalhe'
   value:             string
   avg_score:         number
   respondent_count:  number
@@ -37,10 +37,11 @@ export interface DemographicGroup {
 }
 
 const DEMOGRAPHIC_DIMENSION_LABEL: Record<DemographicGroup['dimension'], string> = {
-  sexo:       'Sexo',
-  geracao:    'Geração',
-  cargo:      'Tipo de Cargo',
-  tempo_casa: 'Tempo de Casa',
+  sexo:           'Sexo',
+  geracao:        'Geração',
+  cargo:          'Tipo de Cargo',
+  tempo_casa:     'Tempo de Casa',
+  nivel_detalhe:  'Nível Detalhado',
 }
 
 function DemographicBreakdownSection({ groups }: { groups: DemographicGroup[] }) {

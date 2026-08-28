@@ -279,17 +279,18 @@ function CommentsSection({ cpId, comments }: { cpId: string; comments: CommentRo
 // ─── Cycle-level demographic breakdown (síntese executiva) ────────────────────
 
 interface CycleDemographicGroup {
-  dimension:        'sexo' | 'geracao' | 'cargo' | 'tempo_casa'
+  dimension:        'sexo' | 'geracao' | 'cargo' | 'tempo_casa' | 'nivel_detalhe'
   value:             string
   avg_score:         number
   respondent_count:  number
 }
 
 const CYCLE_DEMOGRAPHIC_LABEL: Record<CycleDemographicGroup['dimension'], string> = {
-  sexo:       'Sexo',
-  geracao:    'Geração',
-  cargo:      'Tipo de Cargo',
-  tempo_casa: 'Tempo de Casa',
+  sexo:          'Sexo',
+  geracao:       'Geração',
+  cargo:         'Tipo de Cargo',
+  tempo_casa:    'Tempo de Casa',
+  nivel_detalhe: 'Nível Detalhado',
 }
 
 function CycleDemographicSection({ groups }: { groups: CycleDemographicGroup[] }) {

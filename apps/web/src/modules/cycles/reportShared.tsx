@@ -1663,17 +1663,18 @@ export function FavorabilityByRelationshipSection({
 // ─── Favorabilidade por perfil do avaliador (sexo, cargo, geração, tempo de casa) ─
 
 export interface DemographicFavorabilityGroup {
-  dimension:      'sexo' | 'geracao' | 'cargo' | 'tempo_casa'
+  dimension:      'sexo' | 'geracao' | 'cargo' | 'tempo_casa' | 'nivel_detalhe'
   value:          string
   distribution:   Record<string, number> | null | undefined
   response_count: number
 }
 
 const DEMOGRAPHIC_FAV_LABEL: Record<DemographicFavorabilityGroup['dimension'], string> = {
-  sexo:       'Sexo',
-  geracao:    'Geração',
-  cargo:      'Tipo de Cargo',
-  tempo_casa: 'Tempo de Casa',
+  sexo:          'Sexo',
+  geracao:       'Geração',
+  cargo:         'Tipo de Cargo',
+  tempo_casa:    'Tempo de Casa',
+  nivel_detalhe: 'Nível Detalhado',
 }
 
 export function FavorabilityByDemographicSection({
