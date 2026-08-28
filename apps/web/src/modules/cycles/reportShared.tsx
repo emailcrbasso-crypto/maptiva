@@ -1930,12 +1930,61 @@ const SITUACAO_COLOR: Record<string, string> = {
   'Prioridade': 'text-red-700 bg-red-50',
 }
 
-export function ExternalComparisonSection({ rows }: { rows: ExternalComparisonRow[] }) {
+function ExternalComparisonRadar({
+  data, yearFrom, yearTo, scaleId = 'frequency_5',
+}: {
+  data:      ExternalComparisonRow[]
+  yearFrom:  string
+  yearTo:    string
+  scaleId?:  string
+}) {
+  const scale = getScale(scaleId)
+  const axes = data.filter((r) => !r.is_total && r.value_from != null && r.value_to != null)
+  if (axes.length < 3) return null
+
+  const chartData = axes.map((r) => ({
+    label: r.label,
+    [yearFrom]: r.value_from != null ? scoreToPercent(r.value_from, scale) : 0,
+    [yearTo]:   r.value_to   != null ? scoreToPercent(r.value_to, scale)   : 0,
+  }))
+
+  return (
+    <div className="mb-6">
+      <div style={{ width: '100%', height: 320 }}>
+        <ResponsiveContainer>
+          <RechartsRadarChart data={chartData} outerRadius="75%">
+            <PolarGrid />
+            <PolarAngleAxis dataKey="label" tick={{ fontSize: 10, fill: '#6b7280' }} />
+            <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 9 }} tickFormatter={(v) => `${v}%`} />
+            <Radar name={yearFrom} dataKey={yearFrom} stroke="#9ca3af" fill="#9ca3af" fillOpacity={0.15} strokeDasharray="4 3" />
+            <Radar name={yearTo} dataKey={yearTo} stroke="#4f46e5" fill="#4f46e5" fillOpacity={0.25} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Tooltip formatter={(val) => (typeof val === 'number' ? `${val.toFixed(1)}%` : '—')} />
+          </RechartsRadarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+export function ExternalComparisonSection({
+  rows,
+  only,
+}: {
+  rows: ExternalComparisonRow[]
+  /** Mostra só um tipo de comparativo — use quando o ciclo atual é só Competência ou só Valor. */
+  only?: 'dimensao' | 'valor'
+}) {
   if (rows.length === 0) return null
 
-  const dimRows = rows.filter((r) => r.comparison_type === 'dimensao')
-  const valRows = rows.filter((r) => r.comparison_type === 'valor')
-  const footnote = rows.find((r) => r.source_note)?.source_note
+  const filtered = only ? rows.filter((r) => r.comparison_type === only) : rows
+  if (filtered.length === 0) return null
+
+  const dimRows = filtered.filter((r) => r.comparison_type === 'dimensao')
+  const valRows = filtered.filter((r) => r.comparison_type === 'valor')
+  const footnote = filtered.find((r) => r.source_note)?.source_note
+  const yearFrom = filtered[0]?.year_from ?? '2024'
+  const yearTo   = filtered[0]?.year_to   ?? '2026'
 
   function ComparisonTable({ label, data }: { label: string; data: ExternalComparisonRow[] }) {
     if (data.length === 0) return null
@@ -1997,6 +2046,7 @@ export function ExternalComparisonSection({ rows }: { rows: ExternalComparisonRo
         Avaliação 360° anterior conduzida por consultoria externa — importado como referência
         estática (não recalculado pelo Maptiva).
       </p>
+      <ExternalComparisonRadar data={dimRows.length > 0 ? dimRows : valRows} yearFrom={yearFrom} yearTo={yearTo} />
       <ComparisonTable label="Por dimensão" data={dimRows} />
       <ComparisonTable label="Por valor organizacional" data={valRows} />
       {footnote && (
