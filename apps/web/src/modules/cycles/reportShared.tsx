@@ -1584,31 +1584,83 @@ export function FavorabilitySection({
 
 // ─── Favorabilidade por nível de avaliador (self, gestor, pares, subordinados) ────
 
+export interface RelationshipDetailFavorabilityRow {
+  relationship_code:   string
+  relationship_detail: string | null
+  distribution:        Record<string, number> | null | undefined
+  response_count:      number
+  rater_count:         number
+}
+
+// Ordem e nomes seguem exatamente a terminologia que o cliente já usa no
+// modelo caseiro dele (Auto Avaliação / Equipe Direta / Equipe Indireta /
+// Pares Direto / Pares Indireto) — evita traduzir pra self/gestor/pares/
+// subordinados genérico quando o dado tem essa granularidade mais fina.
+const REL_DETAIL_ORDER: { code: string; detail: string | null }[] = [
+  { code: 'self',        detail: null },
+  { code: 'manager',     detail: null },
+  { code: 'subordinate', detail: 'Direto' },
+  { code: 'subordinate', detail: 'Indireto' },
+  { code: 'peer',        detail: 'Direto' },
+  { code: 'peer',        detail: 'Indireto' },
+  { code: 'client',      detail: null },
+]
+
+const REL_DETAIL_LABEL: Record<string, string> = {
+  'self|':               'Auto Avaliação',
+  'manager|':            'Gestor',
+  'subordinate|Direto':  'Equipe Direta',
+  'subordinate|Indireto':'Equipe Indireta',
+  'peer|Direto':         'Pares Direto',
+  'peer|Indireto':       'Pares Indireto',
+  'client|':             'Clientes',
+}
+
 export function FavorabilityByRelationshipSection({
   snapshots,
   scaleId = 'likert_5',
+  detailedRows,
 }: {
   snapshots: SnapshotRow[]
   scaleId?:  string
+  /** Quando presente, usa a terminologia detalhada (Pares/Equipe Direto/Indireto)
+   * em vez do corte coarse self/gestor/pares/subordinados. */
+  detailedRows?: RelationshipDetailFavorabilityRow[]
 }) {
   const scale = getScale(scaleId)
 
-  const byRel = new Map<string, (Record<string, number> | null | undefined)[]>()
-  for (const s of snapshots) {
-    if (!s.score_distribution) continue
-    if (!byRel.has(s.relationship_code)) byRel.set(s.relationship_code, [])
-    byRel.get(s.relationship_code)!.push(s.score_distribution)
-  }
+  let rows: { key: string; label: string; fav: Favorability }[]
 
-  const rows = REL_ORDER
-    .map((rel) => {
-      const dists = byRel.get(rel)
-      if (!dists || dists.length === 0) return null
-      const fav = computeFavorability(mergeDistributions(dists), scale)
-      if (fav.total === 0) return null
-      return { rel, fav }
-    })
-    .filter(Boolean) as { rel: string; fav: Favorability }[]
+  if (detailedRows && detailedRows.length > 0) {
+    rows = REL_DETAIL_ORDER
+      .map(({ code, detail }) => {
+        const row = detailedRows.find(
+          (r) => r.relationship_code === code && (r.relationship_detail ?? null) === detail
+        )
+        if (!row || !row.distribution) return null
+        const fav = computeFavorability(row.distribution, scale)
+        if (fav.total === 0) return null
+        const key = `${code}|${detail ?? ''}`
+        return { key, label: REL_DETAIL_LABEL[key] ?? key, fav }
+      })
+      .filter(Boolean) as { key: string; label: string; fav: Favorability }[]
+  } else {
+    const byRel = new Map<string, (Record<string, number> | null | undefined)[]>()
+    for (const s of snapshots) {
+      if (!s.score_distribution) continue
+      if (!byRel.has(s.relationship_code)) byRel.set(s.relationship_code, [])
+      byRel.get(s.relationship_code)!.push(s.score_distribution)
+    }
+    rows = REL_ORDER
+      .map((rel) => {
+        const dists = byRel.get(rel)
+        if (!dists || dists.length === 0) return null
+        const fav = computeFavorability(mergeDistributions(dists), scale)
+        if (fav.total === 0) return null
+        return { key: rel, label: REL_LABEL[rel] ?? rel, fav }
+      })
+      .filter(Boolean) as { key: string; label: string; fav: Favorability }[]
+  }
 
   if (rows.length < 2) return null
 
@@ -1624,8 +1676,8 @@ export function FavorabilityByRelationshipSection({
 
       <div className="space-y-3 mb-5">
         {rows.map((r) => (
-          <div key={r.rel} className="flex items-center gap-3">
-            <p className="text-sm text-gray-700 w-32 shrink-0 truncate">{REL_LABEL[r.rel] ?? r.rel}</p>
+          <div key={r.key} className="flex items-center gap-3">
+            <p className="text-sm text-gray-700 w-32 shrink-0 truncate">{r.label}</p>
             <div className="flex-1"><FavorabilityBar fav={r.fav} /></div>
             <span className="text-xs font-semibold text-gray-600 w-12 text-right shrink-0">
               {r.fav.favoravel.toFixed(0)}%
@@ -1646,8 +1698,8 @@ export function FavorabilityByRelationshipSection({
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.rel} className="border-b border-gray-50 last:border-0">
-                <td className="py-1.5 text-gray-700">{REL_LABEL[r.rel] ?? r.rel}</td>
+              <tr key={r.key} className="border-b border-gray-50 last:border-0">
+                <td className="py-1.5 text-gray-700">{r.label}</td>
                 <td className="py-1.5 text-right text-green-700 font-medium">{r.fav.favoravel.toFixed(1)}%</td>
                 <td className="py-1.5 text-right text-blue-600">{r.fav.neutro.toFixed(1)}%</td>
                 <td className="py-1.5 text-right text-red-500">{r.fav.desfavoravel.toFixed(1)}%</td>
@@ -2530,6 +2582,7 @@ export interface ReportDisplayProps {
   questionScores?:  QuestionScoreRow[]
   evaluatorWeights?: Record<string, number>
   onSaveConsultantNotes?: (text: string) => Promise<void>
+  relationshipDetailFavorability?: RelationshipDetailFavorabilityRow[]
 }
 
 function largestRemainderPct(entries: [string, number][]): [string, number][] {
@@ -2574,6 +2627,7 @@ export function ReportDisplay({
   questionScores = [],
   evaluatorWeights,
   onSaveConsultantNotes,
+  relationshipDetailFavorability,
 }: ReportDisplayProps) {
   const hasCompetencies   = competencies.length > 0
   const hasBenchmark      = benchmark != null && Object.keys(benchmark).length > 0
@@ -2657,7 +2711,11 @@ export function ReportDisplay({
       )}
 
       {/* 7.7 Favorabilidade por nível de avaliador */}
-      <FavorabilityByRelationshipSection snapshots={snapshots} scaleId={scaleId} />
+      <FavorabilityByRelationshipSection
+        snapshots={snapshots}
+        scaleId={scaleId}
+        detailedRows={relationshipDetailFavorability}
+      />
 
       {/* 7.8 Favorabilidade geral */}
       {hasCompetencies && (

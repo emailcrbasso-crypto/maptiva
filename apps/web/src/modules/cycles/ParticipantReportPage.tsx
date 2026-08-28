@@ -24,6 +24,7 @@ import {
   MethodologyAppendixSection,
   ExternalComparisonSection,
   type ExternalComparisonRow,
+  type RelationshipDetailFavorabilityRow,
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
 
@@ -114,6 +115,7 @@ export function ParticipantReportPage() {
   const [nMinimum,          setNMinimum]          = useState<number | undefined>(undefined)
   const [demographics,     setDemographics]     = useState<DemographicGroup[]>([])
   const [externalComparison, setExternalComparison] = useState<ExternalComparisonRow[]>([])
+  const [relDetailFav, setRelDetailFav] = useState<RelationshipDetailFavorabilityRow[] | undefined>(undefined)
   const [loading,          setLoading]          = useState(true)
   const [error,          setError]          = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
@@ -237,6 +239,13 @@ export function ParticipantReportPage() {
         p_cp_id:    cpId,
       })
       if (Array.isArray(demoData)) setDemographics(demoData as DemographicGroup[])
+
+      // Favorabilidade detalhada por nível (Pares/Equipe Direto/Indireto — best-effort)
+      const { data: relFavData } = await supabase.rpc('get_participant_relationship_favorability', {
+        p_cycle_id: id,
+        p_cp_id:    cpId,
+      })
+      if (Array.isArray(relFavData)) setRelDetailFav(relFavData as RelationshipDetailFavorabilityRow[])
 
       // Comparativo com ciclo anterior (best-effort — só existe para quem tem histórico)
       if (d.person?.id) {
@@ -404,6 +413,7 @@ export function ParticipantReportPage() {
             questionScores={questionScores}
             evaluatorWeights={evaluatorWeights}
             onSaveConsultantNotes={handleSaveConsultantNotes}
+            relationshipDetailFavorability={relDetailFav}
           />
           <FavorabilityByDemographicSection groups={demographics} scaleId={scaleId} />
           <DemographicBreakdownSection groups={demographics} />
