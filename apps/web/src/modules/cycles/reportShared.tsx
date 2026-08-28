@@ -114,18 +114,24 @@ export const REL_ORDER = ['self', 'manager', 'peer', 'subordinate', 'client']
 // ─── Score badge ──────────────────────────────────────────────────────────────
 
 export function ScoreBadge({
-  value, label, scaleId = 'likert_5',
+  value, label, scaleId = 'likert_5', note,
 }: {
   value: number | null; label: string; scaleId?: string
+  /** Texto exibido no lugar do "—" quando o valor está ausente por N-mínimo (não por falta de dado). */
+  note?: string
 }) {
   const scale = getScale(scaleId)
   const color = scoreBgClass(value, scale)
   return (
     <div className={`rounded-xl p-4 text-center ${color}`}>
       <p className="text-xs font-medium opacity-70 mb-1">{label}</p>
-      <p className="text-2xl font-bold">
-        {value != null ? value.toFixed(2) : '—'}
-      </p>
+      {value != null ? (
+        <p className="text-2xl font-bold">{value.toFixed(2)}</p>
+      ) : note ? (
+        <p className="text-[10px] font-medium leading-tight mt-1.5">{note}</p>
+      ) : (
+        <p className="text-2xl font-bold">—</p>
+      )}
     </div>
   )
 }
@@ -1713,8 +1719,21 @@ export interface RelationshipDetailFavorabilityRow {
   relationship_code:   string
   relationship_detail: string | null
   distribution:        Record<string, number> | null | undefined
-  response_count:      number
+  response_count:      number | null
   rater_count:         number
+  /** true quando o grupo tem avaliadores mas ficou abaixo do N-mínimo — distribution/response_count vêm nulos de propósito. */
+  suppressed?:         boolean
+}
+
+/** Média a partir de um score_distribution ({"1":2,"3":5,...}). */
+function avgFromDistribution(dist: Record<string, number> | null | undefined): number | null {
+  if (!dist) return null
+  let sum = 0, n = 0
+  for (const [k, count] of Object.entries(dist)) {
+    sum += Number(k) * count
+    n   += count
+  }
+  return n > 0 ? sum / n : null
 }
 
 // Ordem e nomes seguem exatamente a terminologia que o cliente já usa no
@@ -1754,7 +1773,7 @@ export function FavorabilityByRelationshipSection({
 }) {
   const scale = getScale(scaleId)
 
-  let rows: { key: string; label: string; fav: Favorability }[]
+  let rows: { key: string; label: string; fav: Favorability | null; note?: string }[]
 
   if (detailedRows && detailedRows.length > 0) {
     rows = REL_DETAIL_ORDER
@@ -1762,13 +1781,18 @@ export function FavorabilityByRelationshipSection({
         const row = detailedRows.find(
           (r) => r.relationship_code === code && (r.relationship_detail ?? null) === detail
         )
-        if (!row || !row.distribution) return null
+        if (!row) return null
+        const key = `${code}|${detail ?? ''}`
+        const label = REL_DETAIL_LABEL[key] ?? key
+        if (row.suppressed) {
+          return { key, label, fav: null, note: `${row.rater_count} avaliador${row.rater_count !== 1 ? 'es' : ''} — abaixo do mínimo` }
+        }
+        if (!row.distribution) return null
         const fav = computeFavorability(row.distribution, scale)
         if (fav.total === 0) return null
-        const key = `${code}|${detail ?? ''}`
-        return { key, label: REL_DETAIL_LABEL[key] ?? key, fav }
+        return { key, label, fav }
       })
-      .filter(Boolean) as { key: string; label: string; fav: Favorability }[]
+      .filter(Boolean) as { key: string; label: string; fav: Favorability | null; note?: string }[]
   } else {
     const byRel = new Map<string, (Record<string, number> | null | undefined)[]>()
     for (const s of snapshots) {
@@ -1784,7 +1808,7 @@ export function FavorabilityByRelationshipSection({
         if (fav.total === 0) return null
         return { key: rel, label: REL_LABEL[rel] ?? rel, fav }
       })
-      .filter(Boolean) as { key: string; label: string; fav: Favorability }[]
+      .filter(Boolean) as { key: string; label: string; fav: Favorability | null; note?: string }[]
   }
 
   if (rows.length < 2) return null
@@ -1803,9 +1827,13 @@ export function FavorabilityByRelationshipSection({
         {rows.map((r) => (
           <div key={r.key} className="flex items-center gap-3">
             <p className="text-sm text-gray-700 w-32 shrink-0 truncate">{r.label}</p>
-            <div className="flex-1"><FavorabilityBar fav={r.fav} /></div>
+            <div className="flex-1">
+              {r.fav ? <FavorabilityBar fav={r.fav} /> : (
+                <p className="text-[11px] text-gray-400 italic">{r.note}</p>
+              )}
+            </div>
             <span className="text-xs font-semibold text-gray-600 w-12 text-right shrink-0">
-              {r.fav.favoravel.toFixed(0)}%
+              {r.fav ? `${r.fav.favoravel.toFixed(0)}%` : '—'}
             </span>
           </div>
         ))}
@@ -1825,9 +1853,15 @@ export function FavorabilityByRelationshipSection({
             {rows.map((r) => (
               <tr key={r.key} className="border-b border-gray-50 last:border-0">
                 <td className="py-1.5 text-gray-700">{r.label}</td>
-                <td className="py-1.5 text-right text-green-700 font-medium">{r.fav.favoravel.toFixed(1)}%</td>
-                <td className="py-1.5 text-right text-blue-600">{r.fav.neutro.toFixed(1)}%</td>
-                <td className="py-1.5 text-right text-red-500">{r.fav.desfavoravel.toFixed(1)}%</td>
+                {r.fav ? (
+                  <>
+                    <td className="py-1.5 text-right text-green-700 font-medium">{r.fav.favoravel.toFixed(1)}%</td>
+                    <td className="py-1.5 text-right text-blue-600">{r.fav.neutro.toFixed(1)}%</td>
+                    <td className="py-1.5 text-right text-red-500">{r.fav.desfavoravel.toFixed(1)}%</td>
+                  </>
+                ) : (
+                  <td className="py-1.5 text-right text-gray-400 italic" colSpan={3}>{r.note}</td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -2775,18 +2809,29 @@ export function ReportDisplay({
           Scores consolidados
         </h2>
         {(() => {
-          const hasDetail = questionScores.some((q) => q.relationship_detail)
-          const groupAvg  = hasDetail ? computeGroupAverages(questionScores) : null
+          const rows       = relationshipDetailFavorability
+          const hasDetail  = rows != null && rows.length > 0
+          function findRow(code: string, detail: string | null) {
+            return rows?.find((r) => r.relationship_code === code && (r.relationship_detail ?? null) === detail)
+          }
+          function badgeProps(code: string, detail: string | null) {
+            const row = findRow(code, detail)
+            if (!row) return { value: null, note: undefined }
+            if (row.suppressed) {
+              return { value: null, note: `${row.rater_count} avaliador${row.rater_count !== 1 ? 'es' : ''} — abaixo do mínimo` }
+            }
+            return { value: avgFromDistribution(row.distribution), note: undefined }
+          }
           return (
             <div className={`grid gap-3 ${hasDetail ? 'grid-cols-3 sm:grid-cols-6' : 'grid-cols-5'}`}>
               <ScoreBadge value={profile.overall_score} label="Média Geral" scaleId={scaleId} />
               <ScoreBadge value={profile.self_score}    label="Autoavaliação" scaleId={scaleId} />
-              {hasDetail && groupAvg ? (
+              {hasDetail ? (
                 <>
-                  <ScoreBadge value={groupAvg['subordinate|Direto']   ?? null} label="Equipe Direta"   scaleId={scaleId} />
-                  <ScoreBadge value={groupAvg['subordinate|Indireto'] ?? null} label="Equipe Indireta" scaleId={scaleId} />
-                  <ScoreBadge value={groupAvg['peer|Direto']          ?? null} label="Pares Direto"    scaleId={scaleId} />
-                  <ScoreBadge value={groupAvg['peer|Indireto']        ?? null} label="Pares Indireto"  scaleId={scaleId} />
+                  <ScoreBadge {...badgeProps('subordinate', 'Direto')}   label="Equipe Direta"   scaleId={scaleId} />
+                  <ScoreBadge {...badgeProps('subordinate', 'Indireto')} label="Equipe Indireta" scaleId={scaleId} />
+                  <ScoreBadge {...badgeProps('peer', 'Direto')}          label="Pares Direto"    scaleId={scaleId} />
+                  <ScoreBadge {...badgeProps('peer', 'Indireto')}        label="Pares Indireto"  scaleId={scaleId} />
                 </>
               ) : (
                 <>

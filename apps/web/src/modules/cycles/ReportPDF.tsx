@@ -453,8 +453,9 @@ export interface RelationshipDetailFavorabilityRowPDF {
   relationship_code:   string
   relationship_detail: string | null
   distribution:        Record<string, number> | null | undefined
-  response_count:      number
+  response_count:      number | null
   rater_count:         number
+  suppressed?:         boolean
 }
 
 const REL_DETAIL_ORDER_PDF: { code: string; detail: string | null }[] = [
@@ -485,7 +486,7 @@ function FavorabilityByRelationshipSectionPDF({
 }) {
   const scale = getScale(scaleId)
 
-  let rows: { key: string; label: string; fav: ReturnType<typeof computeFavorability> }[]
+  let rows: { key: string; label: string; fav: ReturnType<typeof computeFavorability> | null; note?: string }[]
 
   if (detailedRows && detailedRows.length > 0) {
     rows = REL_DETAIL_ORDER_PDF
@@ -493,13 +494,18 @@ function FavorabilityByRelationshipSectionPDF({
         const row = detailedRows.find(
           (r) => r.relationship_code === code && (r.relationship_detail ?? null) === detail
         )
-        if (!row || !row.distribution) return null
+        if (!row) return null
+        const key = `${code}|${detail ?? ''}`
+        const label = REL_DETAIL_LABEL_PDF[key] ?? key
+        if (row.suppressed) {
+          return { key, label, fav: null, note: `${row.rater_count} avaliador${row.rater_count !== 1 ? 'es' : ''} — abaixo do mínimo` }
+        }
+        if (!row.distribution) return null
         const fav = computeFavorability(row.distribution, scale)
         if (fav.total === 0) return null
-        const key = `${code}|${detail ?? ''}`
-        return { key, label: REL_DETAIL_LABEL_PDF[key] ?? key, fav }
+        return { key, label, fav }
       })
-      .filter(Boolean) as { key: string; label: string; fav: ReturnType<typeof computeFavorability> }[]
+      .filter(Boolean) as { key: string; label: string; fav: ReturnType<typeof computeFavorability> | null; note?: string }[]
   } else {
     rows = REL_ORDER
       .map((rel) => {
@@ -509,7 +515,7 @@ function FavorabilityByRelationshipSectionPDF({
         if (fav.total === 0) return null
         return { key: rel, label: REL_LABEL[rel] ?? rel, fav }
       })
-      .filter(Boolean) as { key: string; label: string; fav: ReturnType<typeof computeFavorability> }[]
+      .filter(Boolean) as { key: string; label: string; fav: ReturnType<typeof computeFavorability> | null; note?: string }[]
   }
 
   if (rows.length < 2) return null
@@ -524,10 +530,16 @@ function FavorabilityByRelationshipSectionPDF({
       {rows.map((r) => (
         <View key={r.key} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 5 }} wrap={false}>
           <Text style={{ fontSize: 8, color: C.text, width: 90 }}>{r.label}</Text>
-          <View style={{ flex: 1 }}><FavorabilityBarPDF fav={r.fav} /></View>
-          <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.text, width: 32, textAlign: 'right' }}>
-            {r.fav.favoravel.toFixed(0)}%
-          </Text>
+          {r.fav ? (
+            <>
+              <View style={{ flex: 1 }}><FavorabilityBarPDF fav={r.fav} /></View>
+              <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.text, width: 32, textAlign: 'right' }}>
+                {r.fav.favoravel.toFixed(0)}%
+              </Text>
+            </>
+          ) : (
+            <Text style={{ flex: 1, fontSize: 7, color: C.light, fontStyle: 'italic' }}>{r.note}</Text>
+          )}
         </View>
       ))}
     </View>

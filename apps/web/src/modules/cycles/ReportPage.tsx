@@ -66,7 +66,7 @@ const RADAR_PALETTE: Record<string, string> = {
 
 // ─── Score badge ──────────────────────────────────────────────────────────────
 
-function ScoreBadge({ value, label }: { value: number | null; label: string }) {
+function ScoreBadge({ value, label, note }: { value: number | null; label: string; note?: string }) {
   const color = value == null
     ? 'bg-gray-50 text-gray-300'
     : value >= 4 ? 'bg-green-50 text-green-700'
@@ -76,9 +76,13 @@ function ScoreBadge({ value, label }: { value: number | null; label: string }) {
   return (
     <div className={`rounded-xl p-3 text-center ${color}`}>
       <p className="text-xs font-medium opacity-70 mb-1">{label}</p>
-      <p className="text-xl font-bold">
-        {value != null ? value.toFixed(2) : '—'}
-      </p>
+      {value != null ? (
+        <p className="text-xl font-bold">{value.toFixed(2)}</p>
+      ) : note ? (
+        <p className="text-[10px] font-medium leading-tight mt-1.5">{note}</p>
+      ) : (
+        <p className="text-xl font-bold">—</p>
+      )}
     </div>
   )
 }
@@ -429,7 +433,7 @@ export function ReportPage() {
   const [competencies, setCompetencies] = useState<CompetencyRow[]>([])
   const [comments,     setComments]     = useState<CommentRow[]>([])
   const [demographics, setDemographics] = useState<CycleDemographicGroup[]>([])
-  const [relDetailScores, setRelDetailScores] = useState<Map<string, Map<string, number>>>(new Map())
+  const [relDetailScores, setRelDetailScores] = useState<Map<string, Map<string, { value: number | null; note?: string }>>>(new Map())
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState<string | null>(null)
   const [releasing,    setReleasing]    = useState(false)
@@ -480,14 +484,17 @@ export function ReportPage() {
       // Scores por nível detalhado (Pares/Equipe Direto/Indireto — best-effort)
       const { data: relData } = await supabase.rpc('get_cycle_participant_relationship_scores', { p_cycle_id: id })
       if (Array.isArray(relData)) {
-        const map = new Map<string, Map<string, number>>()
+        const map = new Map<string, Map<string, { value: number | null; note?: string }>>()
         for (const row of relData as {
           cycle_participant_id: string; relationship_code: string
-          relationship_detail: string | null; score_avg: number
+          relationship_detail: string | null; score_avg: number | null
+          rater_count: number; suppressed?: boolean
         }[]) {
           const key = `${row.relationship_code}|${row.relationship_detail ?? ''}`
           if (!map.has(row.cycle_participant_id)) map.set(row.cycle_participant_id, new Map())
-          map.get(row.cycle_participant_id)!.set(key, row.score_avg)
+          map.get(row.cycle_participant_id)!.set(key, row.suppressed
+            ? { value: null, note: `${row.rater_count} avaliador${row.rater_count !== 1 ? 'es' : ''} — abaixo do mínimo` }
+            : { value: row.score_avg })
         }
         setRelDetailScores(map)
       }
@@ -721,10 +728,10 @@ export function ReportPage() {
                       <ScoreBadge value={p.self_score}    label="Autoavaliação" />
                       {hasDetail && detail ? (
                         <>
-                          <ScoreBadge value={detail.get('subordinate|Direto')   ?? null} label="Eq. Direta" />
-                          <ScoreBadge value={detail.get('subordinate|Indireto') ?? null} label="Eq. Indireta" />
-                          <ScoreBadge value={detail.get('peer|Direto')          ?? null} label="Pares Direto" />
-                          <ScoreBadge value={detail.get('peer|Indireto')        ?? null} label="Pares Indireto" />
+                          <ScoreBadge value={detail.get('subordinate|Direto')?.value   ?? null} note={detail.get('subordinate|Direto')?.note}   label="Eq. Direta" />
+                          <ScoreBadge value={detail.get('subordinate|Indireto')?.value ?? null} note={detail.get('subordinate|Indireto')?.note} label="Eq. Indireta" />
+                          <ScoreBadge value={detail.get('peer|Direto')?.value          ?? null} note={detail.get('peer|Direto')?.note}          label="Pares Direto" />
+                          <ScoreBadge value={detail.get('peer|Indireto')?.value        ?? null} note={detail.get('peer|Indireto')?.note}        label="Pares Indireto" />
                         </>
                       ) : (
                         <>
