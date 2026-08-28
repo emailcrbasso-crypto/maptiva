@@ -134,6 +134,7 @@ export function TeamReportPage() {
 
   const [summary,      setSummary]      = useState<CycleSummary | null>(null)
   const [people,       setPeople]       = useState<PersonInfo[]>([])
+  const [relDetailScores, setRelDetailScores] = useState<Map<string, Map<string, { value: number | null; note?: string }>>>(new Map())
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState<string | null>(null)
   const [exportingPdf, setExportingPdf] = useState(false)
@@ -141,12 +142,13 @@ export function TeamReportPage() {
   useEffect(() => {
     if (!id) return
     async function load() {
-      const [sumRes, cpRes] = await Promise.all([
+      const [sumRes, cpRes, relRes] = await Promise.all([
         supabase.rpc('get_cycle_summary', { p_cycle_id: id }),
         supabase
           .from('cycle_participants')
           .select('id, people!person_id(department, job_title)')
           .eq('cycle_id', id),
+        supabase.rpc('get_cycle_participant_relationship_scores', { p_cycle_id: id }),
       ])
 
       if (sumRes.error) { setError(sumRes.error.message); setLoading(false); return }
@@ -164,10 +166,31 @@ export function TeamReportPage() {
         job_title:            row.people?.job_title  ?? null,
       })))
 
+      // Scores por nível detalhado (Pares/Equipe Direto/Indireto — best-effort)
+      if (Array.isArray(relRes.data)) {
+        const map = new Map<string, Map<string, { value: number | null; note?: string }>>()
+        for (const row of relRes.data as {
+          cycle_participant_id: string; relationship_code: string
+          relationship_detail: string | null; score_avg: number | null
+          rater_count: number; suppressed?: boolean
+        }[]) {
+          const key = `${row.relationship_code}|${row.relationship_detail ?? ''}`
+          if (!map.has(row.cycle_participant_id)) map.set(row.cycle_participant_id, new Map())
+          map.get(row.cycle_participant_id)!.set(key, row.suppressed
+            ? { value: null, note: `${row.rater_count} avaliador${row.rater_count !== 1 ? 'es' : ''} — abaixo do mínimo` }
+            : { value: row.score_avg })
+        }
+        setRelDetailScores(map)
+      }
+
       setLoading(false)
     }
     load()
   }, [id])
+
+  const hasDetail = [...relDetailScores.values()].some(
+    (m) => [...m.keys()].some((k) => k.includes('|Direto') || k.includes('|Indireto'))
+  )
 
   if (loading) return <p className="text-gray-400 text-sm">Carregando...</p>
   if (error)   return <p className="text-red-500 text-sm">{error}</p>
@@ -304,19 +327,33 @@ export function TeamReportPage() {
               {ranked.length > 0 && (
                 <div className="divide-y divide-gray-50">
                   {/* Header row */}
-                  <div className="px-5 py-2 grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 text-xs font-medium text-gray-400 uppercase tracking-wide">
+                  <div className={`px-5 py-2 grid ${hasDetail ? 'grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_1fr]' : 'grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr]'} gap-3 text-xs font-medium text-gray-400 uppercase tracking-wide`}>
                     <span>Participante</span>
                     <span className="text-center">Média Geral</span>
                     <span className="text-center">Self</span>
-                    <span className="text-center">Gestor</span>
-                    <span className="text-center">Pares</span>
+                    {hasDetail ? (
+                      <>
+                        <span className="text-center">Eq. Direta</span>
+                        <span className="text-center">Eq. Indireta</span>
+                        <span className="text-center">P. Direto</span>
+                        <span className="text-center">P. Indireto</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-center">Gestor</span>
+                        <span className="text-center">Pares</span>
+                        <span className="text-center">Subord.</span>
+                      </>
+                    )}
                     <span className="text-center">Insights</span>
                   </div>
 
-                  {ranked.map((m, idx) => (
+                  {ranked.map((m, idx) => {
+                    const detail = relDetailScores.get(m.cycle_participant_id)
+                    return (
                     <div
                       key={m.cycle_participant_id}
-                      className="px-5 py-3 grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-3 items-center hover:bg-gray-50 transition-colors"
+                      className={`px-5 py-3 grid ${hasDetail ? 'grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_1fr]' : 'grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr]'} gap-3 items-center hover:bg-gray-50 transition-colors`}
                     >
                       {/* Name + rank */}
                       <div className="flex items-center gap-2.5 min-w-0">
@@ -348,15 +385,35 @@ export function TeamReportPage() {
                         {m.self_score != null ? m.self_score.toFixed(2) : '—'}
                       </p>
 
-                      {/* Manager */}
-                      <p className={`text-xs font-semibold text-center ${scoreColor(m.manager_score)}`}>
-                        {m.manager_score != null ? m.manager_score.toFixed(2) : '—'}
-                      </p>
+                      {hasDetail ? (
+                        <>
+                          {(['subordinate|Direto', 'subordinate|Indireto', 'peer|Direto', 'peer|Indireto'] as const).map((key) => {
+                            const cell = detail?.get(key)
+                            return (
+                              <p key={key} className={`text-[10px] font-semibold text-center leading-tight ${scoreColor(cell?.value ?? null)}`}>
+                                {cell?.value != null ? cell.value.toFixed(2) : cell?.note ?? '—'}
+                              </p>
+                            )
+                          })}
+                        </>
+                      ) : (
+                        <>
+                          {/* Manager */}
+                          <p className={`text-xs font-semibold text-center ${scoreColor(m.manager_score)}`}>
+                            {m.manager_score != null ? m.manager_score.toFixed(2) : '—'}
+                          </p>
 
-                      {/* Peer */}
-                      <p className={`text-xs font-semibold text-center ${scoreColor(m.peer_score)}`}>
-                        {m.peer_score != null ? m.peer_score.toFixed(2) : '—'}
-                      </p>
+                          {/* Peer */}
+                          <p className={`text-xs font-semibold text-center ${scoreColor(m.peer_score)}`}>
+                            {m.peer_score != null ? m.peer_score.toFixed(2) : '—'}
+                          </p>
+
+                          {/* Subordinate */}
+                          <p className={`text-xs font-semibold text-center ${scoreColor(m.subordinate_score)}`}>
+                            {m.subordinate_score != null ? m.subordinate_score.toFixed(2) : '—'}
+                          </p>
+                        </>
+                      )}
 
                       {/* Insights badges */}
                       <div className="flex gap-1 justify-center flex-wrap">
@@ -375,7 +432,7 @@ export function TeamReportPage() {
                         )}
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               )}
 
