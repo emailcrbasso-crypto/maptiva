@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { PanelRole } from '@/lib/types'
+import { useTenant } from '@/modules/auth/TenantContext'
 
 // Membros do painel: apenas usuários com login.
 // Participantes da avaliação (avaliados) → public.people + cycle_participants, sem conta.
@@ -42,6 +43,7 @@ interface InviteModalProps {
 }
 
 function InviteModal({ onClose, onSuccess }: InviteModalProps) {
+  const { branding } = useTenant()
   const [email,    setEmail]    = useState('')
   const [role,     setRole]     = useState<'admin' | 'manager'>('manager')
   const [name,     setName]     = useState('')
@@ -75,7 +77,12 @@ function InviteModal({ onClose, onSuccess }: InviteModalProps) {
         'Content-Type':  'application/json',
         'Authorization': `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ email: email.trim(), role, name: name.trim() || undefined }),
+      body: JSON.stringify({
+        email: email.trim(),
+        role,
+        name: name.trim() || undefined,
+        tenant_id: branding.id ?? undefined,
+      }),
     })
 
     const result = await res.json() as { ok: boolean; error?: string }

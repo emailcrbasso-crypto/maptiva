@@ -7,9 +7,13 @@
  *
  * POST body:
  *   {
- *     email: string       // new member email
- *     role:  string       // 'admin' | 'manager'  (panel roles only — never 'participant')
- *     name?: string       // optional display name
+ *     email: string        // new member email
+ *     role:  string        // 'admin' | 'manager'  (panel roles only — never 'participant')
+ *     name?: string        // optional display name
+ *     tenant_id?: string   // tenant to invite into — required when the caller belongs to
+ *                          // more than one tenant (e.g. a consultancy admin managing several
+ *                          // client tenants); falls back to the caller's sole membership
+ *                          // when omitted and there is exactly one.
  *   }
  *
  * Panel roles:
@@ -77,14 +81,14 @@ serve(async (req: Request) => {
   }
 
   // ── 2. Parse body ─────────────────────────────────────────────────────────────
-  let body: { email?: string; role?: string; name?: string }
+  let body: { email?: string; role?: string; name?: string; tenant_id?: string }
   try {
     body = await req.json()
   } catch {
     return json({ ok: false, error: 'Invalid JSON body' })
   }
 
-  const { email, role, name } = body
+  const { email, role, name, tenant_id: requestedTenantId } = body
 
   if (!email || !role) {
     return json({ ok: false, error: 'Missing required fields: email, role' })
@@ -107,23 +111,34 @@ serve(async (req: Request) => {
     return json({ ok: false, error: 'Caller profile not found' })
   }
 
-  // ── 4. Verify caller is admin/owner of a tenant ───────────────────────────────
-  const { data: membership, error: memErr } = await adminClient
+  // ── 4. Verify caller is admin/owner of the target tenant ──────────────────────
+  // A caller may belong to more than one tenant (e.g. a consultancy admin who
+  // also manages a client's tenant) — scope to the tenant the invite is actually
+  // for, never assume there's only one membership.
+  let membershipQuery = adminClient
     .from('tenant_memberships')
     .select('tenant_id, role')
     .eq('user_id', callerPublic.id)
     .in('role', ['admin', 'owner'])
     .eq('status', 'active')
-    .maybeSingle()
+
+  if (requestedTenantId) {
+    membershipQuery = membershipQuery.eq('tenant_id', requestedTenantId)
+  }
+
+  const { data: memberships, error: memErr } = await membershipQuery
 
   if (memErr) {
     return json({ ok: false, error: `Membership check failed: ${memErr.message}` })
   }
-  if (!membership) {
+  if (!memberships || memberships.length === 0) {
     return json({ ok: false, error: 'Forbidden — admin or owner role required' }, 403)
   }
+  if (!requestedTenantId && memberships.length > 1) {
+    return json({ ok: false, error: 'Você pertence a mais de um tenant — especifique qual (tenant_id).' })
+  }
 
-  const tenantId = membership.tenant_id
+  const tenantId = requestedTenantId ?? memberships[0].tenant_id
 
   // ── 5. Check if this email already has a membership in this tenant ────────────
   // First check if a public.users row with this email already exists
