@@ -728,8 +728,8 @@ export function ReportPage() {
                       <ScoreBadge value={p.self_score}    label="Autoavaliação" />
                       {hasDetail && detail ? (
                         <>
-                          <ScoreBadge value={detail.get('subordinate|Direto')?.value   ?? null} note={detail.get('subordinate|Direto')?.note}   label="Eq. Direta" />
-                          <ScoreBadge value={detail.get('subordinate|Indireto')?.value ?? null} note={detail.get('subordinate|Indireto')?.note} label="Eq. Indireta" />
+                          <ScoreBadge value={detail.get('subordinate|Direto')?.value   ?? null} note={detail.get('subordinate|Direto')?.note}   label="Equipe Direta" />
+                          <ScoreBadge value={detail.get('subordinate|Indireto')?.value ?? null} note={detail.get('subordinate|Indireto')?.note} label="Equipe Indireta" />
                           <ScoreBadge value={detail.get('peer|Direto')?.value          ?? null} note={detail.get('peer|Direto')?.note}          label="Pares Direto" />
                           <ScoreBadge value={detail.get('peer|Indireto')?.value        ?? null} note={detail.get('peer|Indireto')?.note}        label="Pares Indireto" />
                         </>

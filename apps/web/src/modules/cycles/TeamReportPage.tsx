@@ -333,10 +333,10 @@ export function TeamReportPage() {
                     <span className="text-center">Self</span>
                     {hasDetail ? (
                       <>
-                        <span className="text-center">Eq. Direta</span>
-                        <span className="text-center">Eq. Indireta</span>
-                        <span className="text-center">P. Direto</span>
-                        <span className="text-center">P. Indireto</span>
+                        <span className="text-center">Equipe Direta</span>
+                        <span className="text-center">Equipe Indireta</span>
+                        <span className="text-center">Pares Direto</span>
+                        <span className="text-center">Pares Indireto</span>
                       </>
                     ) : (
                       <>

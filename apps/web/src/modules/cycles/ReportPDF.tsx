@@ -351,8 +351,8 @@ function ScoresSection({
     ? [
         { label: 'Média Geral',     value: profile.overall_score },
         { label: 'Autoavaliação',   value: profile.self_score },
-        { label: 'Eq. Direta',      value: groupAvg['subordinate|Direto']   ?? null },
-        { label: 'Eq. Indireta',    value: groupAvg['subordinate|Indireto'] ?? null },
+        { label: 'Equipe Direta',   value: groupAvg['subordinate|Direto']   ?? null },
+        { label: 'Equipe Indireta', value: groupAvg['subordinate|Indireto'] ?? null },
         { label: 'Pares Direto',    value: groupAvg['peer|Direto']          ?? null },
         { label: 'Pares Indireto',  value: groupAvg['peer|Indireto']        ?? null },
       ]
