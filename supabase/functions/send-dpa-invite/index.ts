@@ -304,6 +304,8 @@ serve(async (req: Request) => {
 
   const labelUnidade = projetoData.config?.label_unidade ?? 'Departamento'
 
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
   for (const part of participants as Array<Record<string, string>>) {
     // Skip already answered participants
     if (part.status === 'respondido') {
@@ -322,13 +324,20 @@ serve(async (req: Request) => {
       defaultFrom:     EMAIL_FROM,
     })
 
-    const emailRes = await fetch('https://api.resend.com/emails', {
-      method:  'POST',
-      headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ from, to: [part.email], subject, html }),
-    })
+    // Envia com retry (backoff) em caso de 429 (rate limit) do Resend —
+    // evita marcar como "ignorado" um envio que só precisava esperar um pouco.
+    let emailRes: Response | null = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      emailRes = await fetch('https://api.resend.com/emails', {
+        method:  'POST',
+        headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ from, to: [part.email], subject, html }),
+      })
+      if (emailRes.ok || emailRes.status !== 429) break
+      await sleep(500 * (attempt + 1)) // 500ms, 1000ms
+    }
 
-    if (emailRes.ok) {
+    if (emailRes?.ok) {
       sent++
       // Update email_enviado_em timestamp
       await adminClient
@@ -337,8 +346,12 @@ serve(async (req: Request) => {
         .eq('id', part.id)
     } else {
       skipped++
-      console.error(`Failed to send to ${part.email}: ${emailRes.status}`)
+      console.error(`Failed to send to ${part.email}: ${emailRes?.status}`)
     }
+
+    // Ritmo suave entre envios — evita rajada contra o limite de taxa do Resend
+    // (~2 req/s) em lotes grandes como este (140 participantes).
+    await sleep(150)
   }
 
   return json({ ok: true, sent, skipped })
