@@ -17,6 +17,12 @@ import {
   ResponsiveContainer,
   Legend,
   Tooltip,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  LabelList,
 } from 'recharts'
 import {
   getScale,
@@ -377,6 +383,223 @@ export function DualRadarSection({
             </div>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Combined favorability radar (Auto × Externos + Meta, uma única roda) ────
+// Complementa a "Roda da liderança" (que separa autoavaliação de externos em
+// dois radares e quebra externos por grupo) com uma versão única — 2 linhas
+// (Auto vs. Externos agregados) + meta — no mesmo estilo do relatório caseiro
+// do cliente (favorabilidade %, não score bruto).
+
+export function CombinedFavorabilityRadar({
+  snapshots,
+  competencies,
+  scaleId = 'likert_5',
+  goalPct = 80,
+}: {
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+  scaleId?:     string
+  /** Meta de favorabilidade (%) exibida como linha tracejada. Passe null para ocultar. */
+  goalPct?:     number | null
+}) {
+  const scale = getScale(scaleId)
+  const shorten = (name: string) => name.length > 18 ? name.slice(0, 16) + '…' : name
+
+  const rows = competencies
+    .map((c) => {
+      const selfSnap = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')
+      const extSnaps = snapshots.filter(
+        (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution
+      )
+      if (!selfSnap?.score_distribution && extSnaps.length === 0) return null
+      const favSelf = selfSnap?.score_distribution ? computeFavorability(selfSnap.score_distribution, scale) : null
+      const favExt  = extSnaps.length > 0 ? computeFavorability(mergeDistributions(extSnaps.map((s) => s.score_distribution)), scale) : null
+      return {
+        subject: shorten(c.name),
+        self:     favSelf?.total ? favSelf.favoravel : 0,
+        external: favExt?.total ? favExt.favoravel : 0,
+        ...(goalPct != null && { goal: goalPct }),
+      }
+    })
+    .filter(Boolean) as { subject: string; self: number; external: number; goal?: number }[]
+
+  if (rows.length < 3) return null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Favorabilidade por dimensão
+      </h2>
+      <p className="text-xs text-gray-400 mb-4">
+        Autoavaliação × avaliadores externos, em % de favorabilidade (notas {scale.max - 1} e {scale.max}).
+        {goalPct != null && <> A linha tracejada verde indica a meta de {goalPct}%.</>}
+      </p>
+      <ResponsiveContainer width="100%" height={340}>
+        <RechartsRadarChart data={rows} outerRadius="75%" margin={{ top: 10, right: 28, bottom: 10, left: 28 }}>
+          <PolarGrid stroke="#e5e7eb" />
+          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: '#6b7280' }} />
+          <PolarRadiusAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 8, fill: '#9ca3af' }} tickCount={6} />
+          {goalPct != null && (
+            <Radar name={`Meta ${goalPct}%`} dataKey="goal" stroke="#16a34a" strokeDasharray="4 3" fill="none" strokeWidth={1.5} dot={false} />
+          )}
+          <Radar name="Auto Avaliação" dataKey="self" stroke="#2563eb" fill="#2563eb" fillOpacity={0.12} strokeWidth={2.5} dot={false} />
+          <Radar name="Avaliadores Externos" dataKey="external" stroke="#ea580c" fill="#ea580c" fillOpacity={0.12} strokeWidth={2.5} dot={false} />
+          <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+          <Tooltip formatter={(val) => (typeof val === 'number' ? `${val.toFixed(1)}%` : '—')} />
+        </RechartsRadarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+// ─── Heatmap de favorabilidade por dimensão × nível de avaliador ─────────────
+// Cores seguem a mesma convenção do relatório caseiro do cliente:
+// verde ≥80% · azul ≥60% · laranja <60%. Quando `detailedRows` está presente
+// (distribuição por competência × relationship_detail — ver migração 0079),
+// usa as 5 colunas detalhadas (Auto/Geral/Eq.Direta/Pares Dir./Pares Ind.),
+// iguais ao relatório caseiro do cliente. Sem isso, cai para os grupos
+// coarse (self/pares/subordinados), que é o que a distribuição por dimensão
+// (snapshots.score_distribution) já tinha antes da 0079.
+
+export interface CompetencyRelationshipFavorabilityRow {
+  competency_id:       string | null
+  relationship_code:   string
+  relationship_detail: string | null
+  distribution:        Record<string, number> | null | undefined
+  response_count:      number | null
+  rater_count:         number
+  suppressed?:         boolean
+}
+
+function heatmapCellStyle(pct: number | null): { bg: string; fg: string } {
+  if (pct == null) return { bg: '#f3f4f6', fg: '#9ca3af' }
+  if (pct >= 80) return { bg: '#22c55e', fg: '#ffffff' }
+  if (pct >= 60) return { bg: '#7dd3c0', fg: '#064e3b' }
+  return { bg: '#fb923c', fg: '#ffffff' }
+}
+
+export function DimensionFavorabilityHeatmap({
+  snapshots,
+  competencies,
+  scaleId = 'likert_5',
+  detailedRows,
+}: {
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+  scaleId?:     string
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
+}) {
+  const scale = getScale(scaleId)
+  const hasDetail = detailedRows != null && detailedRows.length > 0 && detailedRows.some((r) => r.relationship_detail)
+
+  let columns: { key: string; label: string }[]
+  let rows: { id: string; name: string; cells: (number | null)[] }[]
+
+  if (hasDetail && detailedRows) {
+    const detailKeys = REL_DETAIL_ORDER
+      .filter(({ code }) => code !== 'self')
+      .map(({ code, detail }) => qrowKey(code, detail))
+      .filter((key) => detailedRows.some((r) => qrowKey(r.relationship_code, r.relationship_detail) === key))
+
+    columns = [
+      { key: 'self', label: 'Auto' },
+      { key: '__geral__', label: 'Geral' },
+      ...detailKeys.map((key) => ({ key, label: REL_DETAIL_LABEL[key] ?? key })),
+    ]
+
+    rows = competencies
+      .map((c) => {
+        const compRows = detailedRows.filter((r) => r.competency_id === c.id)
+        const cells = columns.map(({ key }) => {
+          let dist: Record<string, number> | null
+          if (key === '__geral__') {
+            const extRows = compRows.filter((r) => r.relationship_code !== 'self' && r.distribution)
+            dist = extRows.length > 0 ? mergeDistributions(extRows.map((r) => r.distribution)) : null
+          } else if (key === 'self') {
+            dist = compRows.find((r) => r.relationship_code === 'self')?.distribution ?? null
+          } else {
+            dist = compRows.find((r) => qrowKey(r.relationship_code, r.relationship_detail) === key)?.distribution ?? null
+          }
+          if (!dist) return null
+          const fav = computeFavorability(dist, scale)
+          return fav.total > 0 ? fav.favoravel : null
+        })
+        if (cells.every((v) => v == null)) return null
+        return { id: c.id, name: c.name, cells }
+      })
+      .filter(Boolean) as { id: string; name: string; cells: (number | null)[] }[]
+  } else {
+    const relsPresent = [...new Set(
+      snapshots.filter((s) => s.relationship_code !== 'self' && s.score_distribution).map((s) => s.relationship_code)
+    )].sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
+
+    columns = [
+      { key: 'self', label: 'Auto' },
+      { key: '__geral__', label: 'Geral' },
+      ...relsPresent.map((rel) => ({ key: rel, label: REL_LABEL[rel] ?? rel })),
+    ]
+
+    rows = competencies
+      .map((c) => {
+        const cells = columns.map(({ key }) => {
+          let dist: Record<string, number> | null
+          if (key === '__geral__') {
+            const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution)
+            dist = extSnaps.length > 0 ? mergeDistributions(extSnaps.map((s) => s.score_distribution)) : null
+          } else {
+            const snap = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === key)
+            dist = snap?.score_distribution ?? null
+          }
+          if (!dist) return null
+          const fav = computeFavorability(dist, scale)
+          return fav.total > 0 ? fav.favoravel : null
+        })
+        if (cells.every((v) => v == null)) return null
+        return { id: c.id, name: c.name, cells }
+      })
+      .filter(Boolean) as { id: string; name: string; cells: (number | null)[] }[]
+  }
+
+  if (rows.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Heatmap de favorabilidade por dimensão
+      </h2>
+      <p className="text-xs text-gray-400 mb-4">
+        Visão consolidada por dimensão e nível de avaliador. Verde ≥ 80% · Azul ≥ 60% · Laranja &lt; 60%.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-separate" style={{ borderSpacing: 4 }}>
+          <thead>
+            <tr>
+              <th className="text-left text-gray-400 font-medium pb-1 pl-1">Dimensão</th>
+              {columns.map((c) => (
+                <th key={c.key} className="text-center text-gray-400 font-medium pb-1 min-w-[64px]">{c.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="text-gray-700 pr-2 py-1 whitespace-nowrap">{r.name}</td>
+                {r.cells.map((v, i) => {
+                  const { bg, fg } = heatmapCellStyle(v)
+                  return (
+                    <td key={i} className="text-center py-1 rounded-md font-semibold" style={{ backgroundColor: bg, color: fg }}>
+                      {v != null ? `${v.toFixed(0)}%` : '—'}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )
@@ -1813,6 +2036,14 @@ export function FavorabilityByRelationshipSection({
 
   if (rows.length < 2) return null
 
+  const chartRows = rows.filter((r) => r.fav) as { key: string; label: string; fav: Favorability }[]
+  const chartData = chartRows.map((r) => ({
+    label:        r.label,
+    Favorável:    Number(r.fav.favoravel.toFixed(1)),
+    Neutro:       Number(r.fav.neutro.toFixed(1)),
+    Desfavorável: Number(r.fav.desfavoravel.toFixed(1)),
+  }))
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
       <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
@@ -1823,7 +2054,46 @@ export function FavorabilityByRelationshipSection({
         mostra o quanto cada nível converge ou diverge na percepção.
       </p>
 
-      <div className="space-y-3 mb-5">
+      {chartData.length > 0 && (
+        <ResponsiveContainer width="100%" height={Math.max(140, chartData.length * 46)}>
+          <BarChart
+            data={chartData}
+            layout="vertical"
+            margin={{ top: 4, right: 36, bottom: 4, left: 4 }}
+            barCategoryGap={18}
+          >
+            <CartesianGrid horizontal={false} stroke="#f1f5f9" />
+            <XAxis
+              type="number"
+              domain={[0, 100]}
+              tickFormatter={(v) => `${v}%`}
+              tick={{ fontSize: 10, fill: '#9ca3af' }}
+              axisLine={{ stroke: '#e5e7eb' }}
+            />
+            <YAxis
+              type="category"
+              dataKey="label"
+              width={110}
+              tick={{ fontSize: 11, fill: '#374151' }}
+              axisLine={{ stroke: '#e5e7eb' }}
+              tickLine={false}
+            />
+            <Tooltip formatter={(val) => (typeof val === 'number' ? `${val}%` : '—')} />
+            <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+            <Bar dataKey="Favorável" stackId="fav" fill="#22c55e">
+              <LabelList dataKey="Favorável" position="inside" formatter={(v: unknown) => (typeof v === 'number' && v >= 12 ? `${v.toFixed(0)}%` : '')} style={{ fill: '#fff', fontSize: 10, fontWeight: 600 }} />
+            </Bar>
+            <Bar dataKey="Neutro" stackId="fav" fill="#93c5fd">
+              <LabelList dataKey="Neutro" position="inside" formatter={(v: unknown) => (typeof v === 'number' && v >= 12 ? `${v.toFixed(0)}%` : '')} style={{ fill: '#fff', fontSize: 10, fontWeight: 600 }} />
+            </Bar>
+            <Bar dataKey="Desfavorável" stackId="fav" fill="#f87171">
+              <LabelList dataKey="Desfavorável" position="inside" formatter={(v: unknown) => (typeof v === 'number' && v >= 12 ? `${v.toFixed(0)}%` : '')} style={{ fill: '#fff', fontSize: 10, fontWeight: 600 }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+
+      <div className="space-y-3 mb-5 mt-5">
         {rows.map((r) => (
           <div key={r.key} className="flex items-center gap-3">
             <p className="text-sm text-gray-700 w-32 shrink-0 truncate">{r.label}</p>
@@ -2742,6 +3012,9 @@ export interface ReportDisplayProps {
   evaluatorWeights?: Record<string, number>
   onSaveConsultantNotes?: (text: string) => Promise<void>
   relationshipDetailFavorability?: RelationshipDetailFavorabilityRow[]
+  /** Distribuição por (competência, relacionamento, detalhe) — permite o heatmap
+   * mostrar Pares/Equipe Direto/Indireto por dimensão em vez do corte coarse. */
+  competencyRelationshipFavorability?: CompetencyRelationshipFavorabilityRow[]
 }
 
 function largestRemainderPct(entries: [string, number][]): [string, number][] {
@@ -2787,6 +3060,7 @@ export function ReportDisplay({
   evaluatorWeights,
   onSaveConsultantNotes,
   relationshipDetailFavorability,
+  competencyRelationshipFavorability,
 }: ReportDisplayProps) {
   const hasCompetencies   = competencies.length > 0
   const hasBenchmark      = benchmark != null && Object.keys(benchmark).length > 0
@@ -2860,6 +3134,21 @@ export function ReportDisplay({
       {/* 4. Dual radar */}
       {hasCompetencies && (
         <DualRadarSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} questionScores={questionScores} />
+      )}
+
+      {/* 4.2 Roda única de favorabilidade (Auto x Externos + Meta) */}
+      {hasCompetencies && (
+        <CombinedFavorabilityRadar snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+      )}
+
+      {/* 4.3 Heatmap de favorabilidade por dimensão */}
+      {hasCompetencies && (
+        <DimensionFavorabilityHeatmap
+          snapshots={snapshots}
+          competencies={competencies}
+          scaleId={scaleId}
+          detailedRows={competencyRelationshipFavorability}
+        />
       )}
 
       {/* 4.5 Competency breakdown with question drill-down */}

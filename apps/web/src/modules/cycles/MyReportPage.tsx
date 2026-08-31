@@ -19,6 +19,7 @@ import {
   ReportDisplay,
   MethodologyAppendixSection,
   type RelationshipDetailFavorabilityRow,
+  type CompetencyRelationshipFavorabilityRow,
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
 
@@ -39,6 +40,7 @@ export function MyReportPage() {
   const [competencyWeights, setCompetencyWeights] = useState<{ name: string; weight: number }[] | undefined>(undefined)
   const [nMinimum,          setNMinimum]          = useState<number | undefined>(undefined)
   const [relDetailFav,      setRelDetailFav]      = useState<RelationshipDetailFavorabilityRow[] | undefined>(undefined)
+  const [compRelFav,        setCompRelFav]        = useState<CompetencyRelationshipFavorabilityRow[] | undefined>(undefined)
   const [loading,          setLoading]          = useState(true)
   const [errorCode,      setErrorCode]      = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
@@ -124,6 +126,10 @@ export function MyReportPage() {
       const { data: relFavData } = await supabase.rpc('get_my_relationship_favorability', { p_cycle_id: id })
       if (Array.isArray(relFavData)) setRelDetailFav(relFavData as RelationshipDetailFavorabilityRow[])
 
+      // Favorabilidade detalhada por competência × nível (heatmap — best-effort)
+      const { data: compRelFavData } = await supabase.rpc('get_my_competency_relationship_favorability', { p_cycle_id: id })
+      if (Array.isArray(compRelFavData)) setCompRelFav(compRelFavData as CompetencyRelationshipFavorabilityRow[])
+
       // Evaluator/competency weights (best-effort — shown na banner e no apêndice de metodologia)
       const { data: wData } = await supabase.rpc('get_cycle_weights', { p_cycle_id: id })
       if (wData) {
@@ -171,6 +177,7 @@ export function MyReportPage() {
           competencyWeights={competencyWeights}
           nMinimum={nMinimum}
           relationshipDetailFavorability={relDetailFav}
+          competencyRelationshipFavorability={compRelFav}
           brandingName={branding.name}
           brandingLogoUrl={branding.logoUrl ?? null}
         />
@@ -275,6 +282,7 @@ export function MyReportPage() {
             questionScores={questionScores}
             evaluatorWeights={evaluatorWeights}
             relationshipDetailFavorability={relDetailFav}
+            competencyRelationshipFavorability={compRelFav}
           />
           {nMinimum != null && (
             <div className="mt-5">

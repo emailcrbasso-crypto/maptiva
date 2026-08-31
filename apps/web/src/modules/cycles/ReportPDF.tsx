@@ -28,6 +28,7 @@ import {
   computeFavorability,
   qrowKey,
   computeGroupAverages,
+  type CompetencyRelationshipFavorabilityRow,
 } from './reportShared'
 import { getScale, scoreToPercent, type ScaleDefinition } from '@/lib/scales'
 
@@ -161,6 +162,7 @@ function PdfRadarChart({
   scaleMax,
   size = 180,
   goalValue,
+  gridRings,
 }: {
   N:        number
   datasets: Array<{ color: string; fillOpacity: number; values: number[] }>
@@ -168,8 +170,13 @@ function PdfRadarChart({
   size?:    number
   /** Valor (na escala) da meta — desenhado como polígono tracejado, sem preenchimento. */
   goalValue?: number
+  /** Nº de anéis da grade. Default = scaleMax (1 anel por ponto) — passe um valor
+   * menor para escalas grandes (ex.: 0-100% de favorabilidade → 5 anéis de 20%). */
+  gridRings?: number
 }) {
   if (N < 3) return null
+
+  const rings = gridRings ?? scaleMax
 
   const cx = size / 2
   const cy = size / 2
@@ -180,8 +187,8 @@ function PdfRadarChart({
   const ptX = (frac: number, i: number) => cx + r * frac * Math.cos(axisAngle(i))
   const ptY = (frac: number, i: number) => cy + r * frac * Math.sin(axisAngle(i))
 
-  const gridPolys = Array.from({ length: scaleMax }, (_, gi) => {
-    const frac = (gi + 1) / scaleMax
+  const gridPolys = Array.from({ length: rings }, (_, gi) => {
+    const frac = (gi + 1) / rings
     return Array.from({ length: N }, (_, i) =>
       `${ptX(frac, i).toFixed(1)},${ptY(frac, i).toFixed(1)}`
     ).join(' ')
@@ -438,7 +445,7 @@ function FavorabilityBarPDF({ fav }: { fav: { favoravel: number; neutro: number;
   )
 }
 
-function mergeDist(snaps: SnapshotRow[]): Record<string, number> {
+function mergeDist(snaps: { score_distribution: Record<string, number> | null | undefined }[]): Record<string, number> {
   const dist: Record<string, number> = {}
   for (const snap of snaps) {
     if (!snap.score_distribution) continue
@@ -527,6 +534,17 @@ function FavorabilityByRelationshipSectionPDF({
         Percentual de favorabilidade por grupo de avaliadores, incluindo autoavaliação.
       </Text>
 
+      {/* Eixo percentual (0/25/50/75/100%) para dar leitura de gráfico às barras */}
+      <View style={{ display: 'flex', flexDirection: 'row', marginBottom: 3 }}>
+        <View style={{ width: 90 }} />
+        <View style={{ flex: 1, display: 'flex', flexDirection: 'row', justifyContent: 'space-between' }}>
+          {[0, 25, 50, 75, 100].map((tick) => (
+            <Text key={tick} style={{ fontSize: 6, color: C.light }}>{tick}%</Text>
+          ))}
+        </View>
+        <View style={{ width: 32 }} />
+      </View>
+
       {rows.map((r) => (
         <View key={r.key} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 5 }} wrap={false}>
           <Text style={{ fontSize: 8, color: C.text, width: 90 }}>{r.label}</Text>
@@ -540,6 +558,205 @@ function FavorabilityByRelationshipSectionPDF({
           ) : (
             <Text style={{ flex: 1, fontSize: 7, color: C.light, fontStyle: 'italic' }}>{r.note}</Text>
           )}
+        </View>
+      ))}
+    </View>
+  )
+}
+
+// ─── 4.2 Roda única de favorabilidade (Auto × Externos + Meta) ────────────────
+
+function CombinedFavorabilityRadarPDF({
+  snapshots, competencies, scaleId, goalPct = 80,
+}: {
+  snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
+  goalPct?: number | null
+}) {
+  const scale = getScale(scaleId)
+
+  const compRows = competencies
+    .map((c) => {
+      const selfSnap = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')
+      const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution)
+      if (!selfSnap?.score_distribution && extSnaps.length === 0) return null
+      const favSelf = selfSnap?.score_distribution ? computeFavorability(selfSnap.score_distribution, scale) : null
+      const favExt  = extSnaps.length > 0 ? computeFavorability(mergeDist(extSnaps), scale) : null
+      return { name: c.name, self: favSelf?.total ? favSelf.favoravel : 0, external: favExt?.total ? favExt.favoravel : 0 }
+    })
+    .filter(Boolean) as { name: string; self: number; external: number }[]
+
+  if (compRows.length < 3) return null
+
+  const N = compRows.length
+  const legendItems = compRows.map((c, i) => ({ num: i + 1, name: c.name.length > 30 ? c.name.slice(0, 28) + '…' : c.name }))
+
+  return (
+    <View style={s.section} break>
+      <SectionTitle>Favorabilidade por dimensão</SectionTitle>
+      <Text style={s.sectionSubtitle}>
+        Autoavaliação × avaliadores externos, em % de favorabilidade (notas {scale.max - 1} e {scale.max}).
+        {goalPct != null ? ` Linha tracejada verde indica a meta de ${goalPct}%.` : ''}
+      </Text>
+
+      <View style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+        <PdfRadarChart
+          N={N}
+          datasets={[
+            { color: '#2563eb', fillOpacity: 0.1, values: compRows.map((c) => c.self) },
+            { color: '#ea580c', fillOpacity: 0.1, values: compRows.map((c) => c.external) },
+          ]}
+          scaleMax={100}
+          gridRings={5}
+          size={220}
+          goalValue={goalPct ?? undefined}
+        />
+      </View>
+
+      <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'center', marginBottom: 8 }}>
+        <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginRight: 14 }}>
+          <View style={{ width: 8, height: 8, backgroundColor: '#2563eb', borderRadius: 2, marginRight: 4 }} />
+          <Text style={{ fontSize: 7.5, color: C.muted }}>Auto Avaliação</Text>
+        </View>
+        <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ width: 8, height: 8, backgroundColor: '#ea580c', borderRadius: 2, marginRight: 4 }} />
+          <Text style={{ fontSize: 7.5, color: C.muted }}>Avaliadores Externos</Text>
+        </View>
+      </View>
+
+      <View style={{ backgroundColor: C.bg, borderRadius: 6, padding: 8 }}>
+        <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.muted, marginBottom: 5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          Legenda dos eixos
+        </Text>
+        <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap' }}>
+          {legendItems.map((item) => (
+            <View key={item.num} style={{ width: '50%', display: 'flex', flexDirection: 'row', marginBottom: 3 }}>
+              <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.primary, width: 14 }}>{item.num}.</Text>
+              <Text style={{ fontSize: 7, color: C.text, flex: 1 }}>{item.name}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    </View>
+  )
+}
+
+// ─── 4.3 Heatmap de favorabilidade por dimensão × nível de avaliador ──────────
+
+function heatmapCellStylePDF(pct: number | null): { bg: string; fg: string } {
+  if (pct == null) return { bg: '#f3f4f6', fg: '#9ca3af' }
+  if (pct >= 80) return { bg: '#22c55e', fg: '#ffffff' }
+  if (pct >= 60) return { bg: '#7dd3c0', fg: '#064e3b' }
+  return { bg: '#fb923c', fg: '#ffffff' }
+}
+
+function DimensionFavorabilityHeatmapPDF({
+  snapshots, competencies, scaleId, detailedRows,
+}: {
+  snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
+}) {
+  const scale = getScale(scaleId)
+  const hasDetail = detailedRows != null && detailedRows.length > 0 && detailedRows.some((r) => r.relationship_detail)
+
+  let columns: { key: string; label: string }[]
+  let rows: { name: string; cells: (number | null)[] }[]
+
+  if (hasDetail && detailedRows) {
+    const detailKeys = REL_DETAIL_ORDER
+      .filter(({ code }) => code !== 'self')
+      .map(({ code, detail }) => qrowKey(code, detail))
+      .filter((key) => detailedRows.some((r) => qrowKey(r.relationship_code, r.relationship_detail) === key))
+
+    columns = [
+      { key: 'self', label: 'Auto' },
+      { key: '__geral__', label: 'Geral' },
+      ...detailKeys.map((key) => ({ key, label: REL_DETAIL_LABEL[key] ?? key })),
+    ]
+
+    rows = competencies
+      .map((c) => {
+        const compRows = detailedRows.filter((r) => r.competency_id === c.id)
+        const cells = columns.map(({ key }) => {
+          let dist: Record<string, number> | null
+          if (key === '__geral__') {
+            const extRows = compRows.filter((r) => r.relationship_code !== 'self' && r.distribution)
+            dist = extRows.length > 0 ? mergeDist(extRows.map((r) => ({ score_distribution: r.distribution }))) : null
+          } else if (key === 'self') {
+            dist = compRows.find((r) => r.relationship_code === 'self')?.distribution ?? null
+          } else {
+            dist = compRows.find((r) => qrowKey(r.relationship_code, r.relationship_detail) === key)?.distribution ?? null
+          }
+          if (!dist) return null
+          const fav = computeFavorability(dist, scale)
+          return fav.total > 0 ? fav.favoravel : null
+        })
+        if (cells.every((v) => v == null)) return null
+        return { name: c.name, cells }
+      })
+      .filter(Boolean) as { name: string; cells: (number | null)[] }[]
+  } else {
+    const relsPresent = [...new Set(
+      snapshots.filter((s) => s.relationship_code !== 'self' && s.score_distribution).map((s) => s.relationship_code)
+    )].sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
+
+    columns = [
+      { key: 'self', label: 'Auto' },
+      { key: '__geral__', label: 'Geral' },
+      ...relsPresent.map((rel) => ({ key: rel, label: REL_LABEL[rel] ?? rel })),
+    ]
+
+    rows = competencies
+      .map((c) => {
+        const cells = columns.map(({ key }) => {
+          let dist: Record<string, number> | null
+          if (key === '__geral__') {
+            const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution)
+            dist = extSnaps.length > 0 ? mergeDist(extSnaps) : null
+          } else {
+            const snap = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === key)
+            dist = snap?.score_distribution ?? null
+          }
+          if (!dist) return null
+          const fav = computeFavorability(dist, scale)
+          return fav.total > 0 ? fav.favoravel : null
+        })
+        if (cells.every((v) => v == null)) return null
+        return { name: c.name, cells }
+      })
+      .filter(Boolean) as { name: string; cells: (number | null)[] }[]
+  }
+
+  if (rows.length === 0) return null
+
+  const colWidth = columns.length > 0 ? `${(72 / columns.length).toFixed(1)}%` : '0%'
+
+  return (
+    <View style={s.section} break>
+      <SectionTitle>Heatmap de favorabilidade por dimensão</SectionTitle>
+      <Text style={s.sectionSubtitle}>
+        Visão consolidada por dimensão e nível de avaliador. Verde ≥ 80% · Azul ≥ 60% · Laranja &lt; 60%.
+      </Text>
+
+      <View style={{ display: 'flex', flexDirection: 'row', marginBottom: 3 }}>
+        <Text style={{ fontSize: 7, color: C.light, width: '28%' }}>Dimensão</Text>
+        {columns.map((c) => (
+          <Text key={c.key} style={{ fontSize: 7, color: C.light, width: colWidth, textAlign: 'center' }}>{c.label}</Text>
+        ))}
+      </View>
+
+      {rows.map((r) => (
+        <View key={r.name} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 3 }} wrap={false}>
+          <Text style={{ fontSize: 7.5, color: C.text, width: '28%' }}>{r.name}</Text>
+          {r.cells.map((v, i) => {
+            const { bg, fg } = heatmapCellStylePDF(v)
+            return (
+              <View key={i} style={{ width: colWidth, paddingHorizontal: 1 }}>
+                <View style={{ backgroundColor: bg, borderRadius: 3, paddingVertical: 3, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: fg }}>{v != null ? `${v.toFixed(0)}%` : '—'}</Text>
+                </View>
+              </View>
+            )
+          })}
         </View>
       ))}
     </View>
@@ -1533,6 +1750,7 @@ export interface ReportPDFProps {
   competencyWeights?: { name: string; weight: number }[]
   nMinimum?:        number
   relationshipDetailFavorability?: RelationshipDetailFavorabilityRowPDF[]
+  competencyRelationshipFavorability?: CompetencyRelationshipFavorabilityRow[]
   /** Meta de favorabilidade (%) no radar. Default 80; passe null para ocultar. */
   goalPct?:         number | null
   brandingName:     string
@@ -1694,7 +1912,7 @@ export function ReportPDFDocument({
   personName, cycleName, generatedAt,
   profile, snapshots, competencies, comments,
   scaleId, benchmark, evaluatorWeights, demographics, questionScores = [], goalPct = 80,
-  competencyWeights, nMinimum, relationshipDetailFavorability,
+  competencyWeights, nMinimum, relationshipDetailFavorability, competencyRelationshipFavorability,
   brandingName, brandingLogoUrl,
 }: ReportPDFProps) {
   const hasCompetencies = competencies.length > 0
@@ -1737,6 +1955,21 @@ export function ReportPDFDocument({
         {/* Roda da liderança */}
         {hasCompetencies && (
           <DualRadarSectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} goalPct={goalPct} questionScores={questionScores} />
+        )}
+
+        {/* Roda única de favorabilidade (Auto x Externos + Meta) */}
+        {hasCompetencies && (
+          <CombinedFavorabilityRadarPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} goalPct={goalPct} />
+        )}
+
+        {/* Heatmap de favorabilidade por dimensão */}
+        {hasCompetencies && (
+          <DimensionFavorabilityHeatmapPDF
+            snapshots={snapshots}
+            competencies={competencies}
+            scaleId={scaleId}
+            detailedRows={competencyRelationshipFavorability}
+          />
         )}
 
         {/* Avaliação por competência */}

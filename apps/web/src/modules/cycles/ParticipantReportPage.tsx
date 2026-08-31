@@ -25,6 +25,7 @@ import {
   ExternalComparisonSection,
   type ExternalComparisonRow,
   type RelationshipDetailFavorabilityRow,
+  type CompetencyRelationshipFavorabilityRow,
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
 
@@ -116,6 +117,7 @@ export function ParticipantReportPage() {
   const [demographics,     setDemographics]     = useState<DemographicGroup[]>([])
   const [externalComparison, setExternalComparison] = useState<ExternalComparisonRow[]>([])
   const [relDetailFav, setRelDetailFav] = useState<RelationshipDetailFavorabilityRow[] | undefined>(undefined)
+  const [compRelFav, setCompRelFav] = useState<CompetencyRelationshipFavorabilityRow[] | undefined>(undefined)
   const [loading,          setLoading]          = useState(true)
   const [error,          setError]          = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
@@ -247,6 +249,13 @@ export function ParticipantReportPage() {
       })
       if (Array.isArray(relFavData)) setRelDetailFav(relFavData as RelationshipDetailFavorabilityRow[])
 
+      // Favorabilidade detalhada por competência × nível (heatmap — best-effort)
+      const { data: compRelFavData } = await supabase.rpc('get_participant_competency_relationship_favorability', {
+        p_cycle_id: id,
+        p_cp_id:    cpId,
+      })
+      if (Array.isArray(compRelFavData)) setCompRelFav(compRelFavData as CompetencyRelationshipFavorabilityRow[])
+
       // Comparativo com ciclo anterior (best-effort — só existe para quem tem histórico)
       if (d.person?.id) {
         const { data: compData } = await supabase.rpc('get_person_external_comparison', {
@@ -292,6 +301,7 @@ export function ParticipantReportPage() {
           competencyWeights={competencyWeights}
           nMinimum={nMinimum}
           relationshipDetailFavorability={relDetailFav}
+          competencyRelationshipFavorability={compRelFav}
           brandingName={branding.name}
           brandingLogoUrl={branding.logoUrl ?? null}
         />
@@ -415,6 +425,7 @@ export function ParticipantReportPage() {
             evaluatorWeights={evaluatorWeights}
             onSaveConsultantNotes={handleSaveConsultantNotes}
             relationshipDetailFavorability={relDetailFav}
+            competencyRelationshipFavorability={compRelFav}
           />
           <FavorabilityByDemographicSection groups={demographics} scaleId={scaleId} />
           <DemographicBreakdownSection groups={demographics} />
