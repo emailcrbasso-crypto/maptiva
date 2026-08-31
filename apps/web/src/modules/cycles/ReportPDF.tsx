@@ -567,20 +567,33 @@ function FavorabilityByRelationshipSectionPDF({
 // ─── 4.2 Roda única de favorabilidade (Auto × Externos + Meta) ────────────────
 
 function CombinedFavorabilityRadarPDF({
-  snapshots, competencies, scaleId, goalPct = 80,
+  snapshots, competencies, scaleId, goalPct = 80, detailedRows,
 }: {
   snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
   goalPct?: number | null
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
 }) {
   const scale = getScale(scaleId)
 
   const compRows = competencies
     .map((c) => {
-      const selfSnap = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')
-      const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution)
-      if (!selfSnap?.score_distribution && extSnaps.length === 0) return null
-      const favSelf = selfSnap?.score_distribution ? computeFavorability(selfSnap.score_distribution, scale) : null
-      const favExt  = extSnaps.length > 0 ? computeFavorability(mergeDist(extSnaps), scale) : null
+      let favSelf: ReturnType<typeof computeFavorability> | null = null
+      let favExt:  ReturnType<typeof computeFavorability> | null = null
+
+      const detRows = detailedRows?.filter((r) => r.competency_id === c.id) ?? []
+      if (detRows.length > 0) {
+        const selfDist = detRows.find((r) => r.relationship_code === 'self')?.distribution
+        const extDist  = detRows.find((r) => r.relationship_code === '__external__')?.distribution
+        favSelf = selfDist ? computeFavorability(selfDist, scale) : null
+        favExt  = extDist  ? computeFavorability(extDist, scale)  : null
+      } else {
+        const selfSnap = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')
+        const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution)
+        favSelf = selfSnap?.score_distribution ? computeFavorability(selfSnap.score_distribution, scale) : null
+        favExt  = extSnaps.length > 0 ? computeFavorability(mergeDist(extSnaps), scale) : null
+      }
+
+      if (!favSelf?.total && !favExt?.total) return null
       return { name: c.name, self: favSelf?.total ? favSelf.favoravel : 0, external: favExt?.total ? favExt.favoravel : 0 }
     })
     .filter(Boolean) as { name: string; self: number; external: number }[]
@@ -679,8 +692,9 @@ function DimensionFavorabilityHeatmapPDF({
         const cells = columns.map(({ key }) => {
           let dist: Record<string, number> | null
           if (key === '__geral__') {
-            const extRows = compRows.filter((r) => r.relationship_code !== 'self' && r.distribution)
-            dist = extRows.length > 0 ? mergeDist(extRows.map((r) => ({ score_distribution: r.distribution }))) : null
+            // '__external__' já vem do backend combinando TODOS os avaliadores
+            // não-self (migração 0080) — evita perder gente de subgrupo suprimido.
+            dist = compRows.find((r) => r.relationship_code === '__external__')?.distribution ?? null
           } else if (key === 'self') {
             dist = compRows.find((r) => r.relationship_code === 'self')?.distribution ?? null
           } else {
@@ -710,8 +724,13 @@ function DimensionFavorabilityHeatmapPDF({
         const cells = columns.map(({ key }) => {
           let dist: Record<string, number> | null
           if (key === '__geral__') {
-            const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution)
-            dist = extSnaps.length > 0 ? mergeDist(extSnaps) : null
+            const extRow = detailedRows?.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
+            if (extRow) {
+              dist = extRow.distribution ?? null
+            } else {
+              const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution)
+              dist = extSnaps.length > 0 ? mergeDist(extSnaps) : null
+            }
           } else {
             const snap = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === key)
             dist = snap?.score_distribution ?? null
@@ -764,23 +783,28 @@ function DimensionFavorabilityHeatmapPDF({
 }
 
 function FavorabilitySectionPDF({
-  snapshots, competencies, scaleId,
+  snapshots, competencies, scaleId, detailedRows,
 }: {
   snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
 }) {
   const scale = getScale(scaleId)
 
-  const allExtSnaps = snapshots.filter((s) => s.relationship_code !== 'self' && s.score_distribution)
-  const overall = computeFavorability(mergeDist(allExtSnaps), scale)
+  const allExtDist = detailedRows && detailedRows.length > 0
+    ? mergeDist(detailedRows.filter((r) => r.relationship_code === '__external__' && r.distribution).map((r) => ({ score_distribution: r.distribution })))
+    : mergeDist(snapshots.filter((s) => s.relationship_code !== 'self' && s.score_distribution))
+  const overall = computeFavorability(allExtDist, scale)
   if (overall.total === 0) return null
 
   const rows = competencies
     .map((c) => {
+      const extRow = detailedRows?.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
       const extSnaps = snapshots.filter(
         (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution
       )
-      if (extSnaps.length === 0) return null
-      const fav = computeFavorability(mergeDist(extSnaps), scale)
+      const dist = extRow ? (extRow.distribution ?? null) : (extSnaps.length > 0 ? mergeDist(extSnaps) : null)
+      if (!dist) return null
+      const fav = computeFavorability(dist, scale)
       if (fav.total === 0) return null
       return { id: c.id, name: c.name, fav }
     })
@@ -1959,7 +1983,7 @@ export function ReportPDFDocument({
 
         {/* Roda única de favorabilidade (Auto x Externos + Meta) */}
         {hasCompetencies && (
-          <CombinedFavorabilityRadarPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} goalPct={goalPct} />
+          <CombinedFavorabilityRadarPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} goalPct={goalPct} detailedRows={competencyRelationshipFavorability} />
         )}
 
         {/* Heatmap de favorabilidade por dimensão */}
@@ -2004,7 +2028,7 @@ export function ReportPDFDocument({
 
         {/* Favorabilidade geral */}
         {hasCompetencies && (
-          <FavorabilitySectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+          <FavorabilitySectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
         )}
 
         {/* Benchmark */}

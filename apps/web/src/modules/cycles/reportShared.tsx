@@ -399,25 +399,43 @@ export function CombinedFavorabilityRadar({
   competencies,
   scaleId = 'likert_5',
   goalPct = 80,
+  detailedRows,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
   scaleId?:     string
   /** Meta de favorabilidade (%) exibida como linha tracejada. Passe null para ocultar. */
   goalPct?:     number | null
+  /** Quando presente, usa a linha '__external__' (todos os avaliadores não-self
+   * combinados, sem perder quem está em subgrupo suprimido pelo N-mínimo — ver
+   * migração 0080). Sem isso, cai para o merge de snapshots (pode faltar
+   * avaliadores de subgrupos pequenos demais para aparecer sozinhos). */
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
 }) {
   const scale = getScale(scaleId)
   const shorten = (name: string) => name.length > 18 ? name.slice(0, 16) + '…' : name
 
   const rows = competencies
     .map((c) => {
-      const selfSnap = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')
-      const extSnaps = snapshots.filter(
-        (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution
-      )
-      if (!selfSnap?.score_distribution && extSnaps.length === 0) return null
-      const favSelf = selfSnap?.score_distribution ? computeFavorability(selfSnap.score_distribution, scale) : null
-      const favExt  = extSnaps.length > 0 ? computeFavorability(mergeDistributions(extSnaps.map((s) => s.score_distribution)), scale) : null
+      let favSelf: Favorability | null = null
+      let favExt: Favorability | null = null
+
+      const detRows = detailedRows?.filter((r) => r.competency_id === c.id) ?? []
+      if (detRows.length > 0) {
+        const selfDist = detRows.find((r) => r.relationship_code === 'self')?.distribution
+        const extDist  = detRows.find((r) => r.relationship_code === '__external__')?.distribution
+        favSelf = selfDist ? computeFavorability(selfDist, scale) : null
+        favExt  = extDist  ? computeFavorability(extDist, scale)  : null
+      } else {
+        const selfSnap = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')
+        const extSnaps = snapshots.filter(
+          (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution
+        )
+        favSelf = selfSnap?.score_distribution ? computeFavorability(selfSnap.score_distribution, scale) : null
+        favExt  = extSnaps.length > 0 ? computeFavorability(mergeDistributions(extSnaps.map((s) => s.score_distribution)), scale) : null
+      }
+
+      if (!favSelf?.total && !favExt?.total) return null
       return {
         subject: shorten(c.name),
         self:     favSelf?.total ? favSelf.favoravel : 0,
@@ -517,8 +535,11 @@ export function DimensionFavorabilityHeatmap({
         const cells = columns.map(({ key }) => {
           let dist: Record<string, number> | null
           if (key === '__geral__') {
-            const extRows = compRows.filter((r) => r.relationship_code !== 'self' && r.distribution)
-            dist = extRows.length > 0 ? mergeDistributions(extRows.map((r) => r.distribution)) : null
+            // '__external__' já vem do backend combinando TODOS os avaliadores
+            // não-self (migração 0080) — não mesclar subgrupos aqui, pois um
+            // subgrupo suprimido pelo N-mínimo não teria distribution e seria
+            // perdido do agregado.
+            dist = compRows.find((r) => r.relationship_code === '__external__')?.distribution ?? null
           } else if (key === 'self') {
             dist = compRows.find((r) => r.relationship_code === 'self')?.distribution ?? null
           } else {
@@ -548,8 +569,16 @@ export function DimensionFavorabilityHeatmap({
         const cells = columns.map(({ key }) => {
           let dist: Record<string, number> | null
           if (key === '__geral__') {
-            const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution)
-            dist = extSnaps.length > 0 ? mergeDistributions(extSnaps.map((s) => s.score_distribution)) : null
+            // Prefere a linha '__external__' do backend (0080 — nunca perde
+            // avaliador de subgrupo suprimido); só cai pro merge de
+            // snapshots se detailedRows nem chegou a carregar.
+            const extRow = detailedRows?.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
+            if (extRow) {
+              dist = extRow.distribution ?? null
+            } else {
+              const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution)
+              dist = extSnaps.length > 0 ? mergeDistributions(extSnaps.map((s) => s.score_distribution)) : null
+            }
           } else {
             const snap = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === key)
             dist = snap?.score_distribution ?? null
@@ -1840,19 +1869,28 @@ export function FavorabilitySection({
   snapshots,
   competencies,
   scaleId = 'likert_5',
+  detailedRows,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
   scaleId?:     string
+  /** Quando presente, usa a linha '__external__' do backend (migração 0080) —
+   * nunca perde avaliadores de subgrupos suprimidos pelo N-mínimo, diferente
+   * do merge de snapshots (que só enxerga subgrupos já acima do mínimo). */
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
 }) {
   const scale = getScale(scaleId)
 
   // Favorabilidade geral: todas as respostas externas (todas as competências)
-  const allExtDist = mergeDistributions(
-    snapshots
-      .filter((s) => s.relationship_code !== 'self' && s.score_distribution)
-      .map((s) => s.score_distribution)
-  )
+  const allExtDist = detailedRows && detailedRows.length > 0
+    ? mergeDistributions(
+        detailedRows.filter((r) => r.relationship_code === '__external__' && r.distribution).map((r) => r.distribution)
+      )
+    : mergeDistributions(
+        snapshots
+          .filter((s) => s.relationship_code !== 'self' && s.score_distribution)
+          .map((s) => s.score_distribution)
+      )
   const overall = computeFavorability(allExtDist, scale)
   if (overall.total === 0) return null
 
@@ -1862,11 +1900,12 @@ export function FavorabilitySection({
 
   const rows = competencies
     .map((c) => {
+      const extRow = detailedRows?.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
       const extSnaps = snapshots.filter(
         (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_distribution
       )
-      if (extSnaps.length === 0) return null
-      const dist = mergeDistributions(extSnaps.map((s) => s.score_distribution))
+      const dist = extRow ? (extRow.distribution ?? null) : (extSnaps.length > 0 ? mergeDistributions(extSnaps.map((s) => s.score_distribution)) : null)
+      if (!dist) return null
       const fav  = computeFavorability(dist, scale)
       if (fav.total === 0) return null
 
@@ -3138,7 +3177,7 @@ export function ReportDisplay({
 
       {/* 4.2 Roda única de favorabilidade (Auto x Externos + Meta) */}
       {hasCompetencies && (
-        <CombinedFavorabilityRadar snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        <CombinedFavorabilityRadar snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
       )}
 
       {/* 4.3 Heatmap de favorabilidade por dimensão */}
@@ -3195,7 +3234,7 @@ export function ReportDisplay({
 
       {/* 7.8 Favorabilidade geral */}
       {hasCompetencies && (
-        <FavorabilitySection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        <FavorabilitySection snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
       )}
 
       {/* 8. Benchmark — participant vs. cycle avg (conditional on data) */}
