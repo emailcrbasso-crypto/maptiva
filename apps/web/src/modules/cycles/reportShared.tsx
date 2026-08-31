@@ -500,18 +500,24 @@ function heatmapCellStyle(pct: number | null): { bg: string; fg: string } {
   return { bg: '#fb923c', fg: '#ffffff' }
 }
 
-export function DimensionFavorabilityHeatmap({
-  snapshots,
-  competencies,
-  scaleId = 'likert_5',
-  detailedRows,
-}: {
-  snapshots:    SnapshotRow[]
-  competencies: CompetencyRow[]
-  scaleId?:     string
-  detailedRows?: CompetencyRelationshipFavorabilityRow[]
-}) {
-  const scale = getScale(scaleId)
+/** Verde ≥80% · azul ≥60% · laranja <60% — mesma convenção do relatório caseiro. */
+export function favorabilityTextColor(pct: number | null): string {
+  if (pct == null) return '#9ca3af'
+  if (pct >= 80) return '#15803d'
+  if (pct >= 60) return '#0369a1'
+  return '#c2410c'
+}
+
+/** Monta as colunas (Auto/Geral/+ grupos) e linhas (1 por competência) do
+ * heatmap e da tabela de favorabilidade por dimensão. Compartilhado pelos
+ * dois porque a lógica de escolher detail vs. coarse e preferir a linha
+ * '__external__' (migração 0080, nunca perde avaliador suprimido) é a mesma. */
+function computeDimensionFavorabilityGrid(
+  scale: ScaleDefinition,
+  competencies: CompetencyRow[],
+  snapshots: SnapshotRow[],
+  detailedRows?: CompetencyRelationshipFavorabilityRow[],
+): { columns: { key: string; label: string }[]; rows: { id: string; name: string; cells: (number | null)[] }[] } {
   const hasDetail = detailedRows != null && detailedRows.length > 0 && detailedRows.some((r) => r.relationship_detail)
 
   let columns: { key: string; label: string }[]
@@ -593,6 +599,23 @@ export function DimensionFavorabilityHeatmap({
       .filter(Boolean) as { id: string; name: string; cells: (number | null)[] }[]
   }
 
+  return { columns, rows }
+}
+
+export function DimensionFavorabilityHeatmap({
+  snapshots,
+  competencies,
+  scaleId = 'likert_5',
+  detailedRows,
+}: {
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+  scaleId?:     string
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
+}) {
+  const scale = getScale(scaleId)
+  const { columns, rows } = computeDimensionFavorabilityGrid(scale, competencies, snapshots, detailedRows)
+
   if (rows.length === 0) return null
 
   return (
@@ -629,6 +652,79 @@ export function DimensionFavorabilityHeatmap({
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  )
+}
+
+// ─── Tabela de favorabilidade por dimensão × nível de avaliador ──────────────
+// Mesma grade de dados do heatmap acima, só que como tabela de números
+// (texto colorido em vez de célula colorida) — formato que o relatório
+// caseiro do cliente usa na seção "2. Análise por Dimensão".
+
+export function DimensionFavorabilityTable({
+  snapshots,
+  competencies,
+  scaleId = 'likert_5',
+  detailedRows,
+}: {
+  snapshots:    SnapshotRow[]
+  competencies: CompetencyRow[]
+  scaleId?:     string
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
+}) {
+  const scale = getScale(scaleId)
+  const { columns, rows } = computeDimensionFavorabilityGrid(scale, competencies, snapshots, detailedRows)
+
+  if (rows.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Favorabilidade por dimensão — tabela
+      </h2>
+      <p className="text-xs text-gray-400 mb-4">
+        % de respostas favoráveis (notas {scale.max - 1} e {scale.max}) por dimensão e nível de avaliador.
+        O "Geral" é a média ponderada de todos os avaliadores externos, individualmente.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="bg-slate-800">
+              <th className="text-left text-white font-semibold px-3 py-2 rounded-l-md">Dimensão</th>
+              {columns.map((c, i) => (
+                <th
+                  key={c.key}
+                  className={`text-center text-white font-semibold px-3 py-2 ${i === columns.length - 1 ? 'rounded-r-md' : ''}`}
+                >
+                  {c.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, ri) => (
+              <tr key={r.id} className={ri % 2 === 1 ? 'bg-slate-50' : ''}>
+                <td className="px-3 py-1.5 text-gray-700 font-medium whitespace-nowrap border-b border-gray-100">{r.name}</td>
+                {r.cells.map((v, i) => (
+                  <td
+                    key={i}
+                    className={`text-center px-3 py-1.5 font-semibold border-b border-gray-100 ${columns[i]?.key === '__geral__' ? 'bg-blue-50' : ''}`}
+                    style={{ color: favorabilityTextColor(v) }}
+                  >
+                    {v != null ? `${v.toFixed(1)}%` : '—'}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
+        <span>Legenda de cores:</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-600 inline-block" /> Verde ≥ 80%</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-sky-600 inline-block" /> Azul ≥ 60%</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-600 inline-block" /> Laranja &lt; 60%</span>
       </div>
     </div>
   )
@@ -3180,7 +3276,17 @@ export function ReportDisplay({
         <CombinedFavorabilityRadar snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
       )}
 
-      {/* 4.3 Heatmap de favorabilidade por dimensão */}
+      {/* 4.3 Tabela de favorabilidade por dimensão */}
+      {hasCompetencies && (
+        <DimensionFavorabilityTable
+          snapshots={snapshots}
+          competencies={competencies}
+          scaleId={scaleId}
+          detailedRows={competencyRelationshipFavorability}
+        />
+      )}
+
+      {/* 4.4 Heatmap de favorabilidade por dimensão */}
       {hasCompetencies && (
         <DimensionFavorabilityHeatmap
           snapshots={snapshots}

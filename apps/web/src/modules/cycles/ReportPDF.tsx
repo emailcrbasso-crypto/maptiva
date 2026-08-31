@@ -662,13 +662,20 @@ function heatmapCellStylePDF(pct: number | null): { bg: string; fg: string } {
   return { bg: '#fb923c', fg: '#ffffff' }
 }
 
-function DimensionFavorabilityHeatmapPDF({
-  snapshots, competencies, scaleId, detailedRows,
-}: {
-  snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
-  detailedRows?: CompetencyRelationshipFavorabilityRow[]
-}) {
-  const scale = getScale(scaleId)
+/** Verde ≥80% · azul ≥60% · laranja <60% — mesma convenção do relatório caseiro. */
+function favorabilityTextColorPDF(pct: number | null): string {
+  if (pct == null) return C.light
+  if (pct >= 80) return '#15803d'
+  if (pct >= 60) return '#0369a1'
+  return '#c2410c'
+}
+
+function computeDimensionFavorabilityGridPDF(
+  scale: ScaleDefinition,
+  competencies: CompetencyRow[],
+  snapshots: SnapshotRow[],
+  detailedRows?: CompetencyRelationshipFavorabilityRow[],
+): { columns: { key: string; label: string }[]; rows: { name: string; cells: (number | null)[] }[] } {
   const hasDetail = detailedRows != null && detailedRows.length > 0 && detailedRows.some((r) => r.relationship_detail)
 
   let columns: { key: string; label: string }[]
@@ -745,6 +752,18 @@ function DimensionFavorabilityHeatmapPDF({
       .filter(Boolean) as { name: string; cells: (number | null)[] }[]
   }
 
+  return { columns, rows }
+}
+
+function DimensionFavorabilityHeatmapPDF({
+  snapshots, competencies, scaleId, detailedRows,
+}: {
+  snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
+}) {
+  const scale = getScale(scaleId)
+  const { columns, rows } = computeDimensionFavorabilityGridPDF(scale, competencies, snapshots, detailedRows)
+
   if (rows.length === 0) return null
 
   const colWidth = columns.length > 0 ? `${(72 / columns.length).toFixed(1)}%` : '0%'
@@ -778,6 +797,66 @@ function DimensionFavorabilityHeatmapPDF({
           })}
         </View>
       ))}
+    </View>
+  )
+}
+
+// ─── 4.3b Tabela de favorabilidade por dimensão (formato do relatório caseiro) ─
+
+function DimensionFavorabilityTablePDF({
+  snapshots, competencies, scaleId, detailedRows,
+}: {
+  snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
+}) {
+  const scale = getScale(scaleId)
+  const { columns, rows } = computeDimensionFavorabilityGridPDF(scale, competencies, snapshots, detailedRows)
+
+  if (rows.length === 0) return null
+
+  const colWidth = columns.length > 0 ? `${(70 / columns.length).toFixed(1)}%` : '0%'
+
+  return (
+    <View style={s.section} break>
+      <SectionTitle>Favorabilidade por dimensão — tabela</SectionTitle>
+      <Text style={s.sectionSubtitle}>
+        % de respostas favoráveis (notas {scale.max - 1} e {scale.max}) por dimensão e nível de avaliador.
+      </Text>
+
+      <View style={{ display: 'flex', flexDirection: 'row', backgroundColor: '#1e293b', borderRadius: 3, paddingVertical: 4, marginBottom: 3 }}>
+        <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#ffffff', width: '30%', paddingLeft: 4 }}>Dimensão</Text>
+        {columns.map((c) => (
+          <Text key={c.key} style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#ffffff', width: colWidth, textAlign: 'center' }}>{c.label}</Text>
+        ))}
+      </View>
+
+      {rows.map((r, ri) => (
+        <View
+          key={r.name}
+          style={{
+            display: 'flex', flexDirection: 'row', alignItems: 'center', paddingVertical: 3,
+            backgroundColor: ri % 2 === 1 ? '#f8fafc' : undefined,
+          }}
+          wrap={false}
+        >
+          <Text style={{ fontSize: 7.5, color: C.text, width: '30%', paddingLeft: 4 }}>{r.name}</Text>
+          {r.cells.map((v, i) => (
+            <Text
+              key={i}
+              style={{
+                fontSize: 7.5, fontFamily: 'Helvetica-Bold', textAlign: 'center', width: colWidth,
+                color: favorabilityTextColorPDF(v),
+              }}
+            >
+              {v != null ? `${v.toFixed(1)}%` : '—'}
+            </Text>
+          ))}
+        </View>
+      ))}
+
+      <Text style={{ fontSize: 6.5, color: C.light, marginTop: 6 }}>
+        Verde ≥ 80% · Azul ≥ 60% · Laranja &lt; 60%
+      </Text>
     </View>
   )
 }
@@ -1984,6 +2063,16 @@ export function ReportPDFDocument({
         {/* Roda única de favorabilidade (Auto x Externos + Meta) */}
         {hasCompetencies && (
           <CombinedFavorabilityRadarPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} goalPct={goalPct} detailedRows={competencyRelationshipFavorability} />
+        )}
+
+        {/* Tabela de favorabilidade por dimensão */}
+        {hasCompetencies && (
+          <DimensionFavorabilityTablePDF
+            snapshots={snapshots}
+            competencies={competencies}
+            scaleId={scaleId}
+            detailedRows={competencyRelationshipFavorability}
+          />
         )}
 
         {/* Heatmap de favorabilidade por dimensão */}
