@@ -2228,23 +2228,7 @@ export function FavorabilityByRelationshipSection({
         </ResponsiveContainer>
       )}
 
-      <div className="space-y-3 mb-5 mt-5">
-        {rows.map((r) => (
-          <div key={r.key} className="flex items-center gap-3">
-            <p className="text-sm text-gray-700 w-32 shrink-0 truncate">{r.label}</p>
-            <div className="flex-1">
-              {r.fav ? <FavorabilityBar fav={r.fav} /> : (
-                <p className="text-[11px] text-gray-400 italic">{r.note}</p>
-              )}
-            </div>
-            <span className="text-xs font-semibold text-gray-600 w-12 text-right shrink-0">
-              {r.fav ? `${r.fav.favoravel.toFixed(0)}%` : '—'}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto mt-5">
         <table className="w-full text-xs">
           <thead>
             <tr className="text-left text-gray-400 border-b border-gray-100">
