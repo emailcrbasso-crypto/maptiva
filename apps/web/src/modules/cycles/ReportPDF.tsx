@@ -2052,6 +2052,18 @@ export function ReportPDFDocument({
         {/* Participação */}
         <ParticipationSectionPDF snapshots={snapshots} />
 
+        {/* Favorabilidade geral */}
+        {hasCompetencies && (
+          <FavorabilitySectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
+        )}
+
+        {/* Favorabilidade por nível de avaliador */}
+        <FavorabilityByRelationshipSectionPDF
+          snapshots={snapshots}
+          scaleId={scaleId}
+          detailedRows={relationshipDetailFavorability}
+        />
+
         {/* Scores consolidados + Autoconhecimento + Insights */}
         <ScoresSection profile={profile} snapshots={snapshots} competencies={competencies} scaleId={scaleId} questionScores={questionScores} />
 
@@ -2108,17 +2120,6 @@ export function ReportPDFDocument({
           <TopBottomQuestionsSectionPDF questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
         )}
 
-        {/* Favorabilidade por nível de avaliador */}
-        <FavorabilityByRelationshipSectionPDF
-          snapshots={snapshots}
-          scaleId={scaleId}
-          detailedRows={relationshipDetailFavorability}
-        />
-
-        {/* Favorabilidade geral */}
-        {hasCompetencies && (
-          <FavorabilitySectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
-        )}
 
         {/* Benchmark */}
         {hasCompetencies && hasBenchmark && (

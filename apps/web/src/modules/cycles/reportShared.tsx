@@ -3196,6 +3196,18 @@ export function ReportDisplay({
       {/* 1. Participation summary */}
       <ParticipationPanel snapshots={snapshots} />
 
+      {/* 1.1 Favorabilidade geral */}
+      {hasCompetencies && (
+        <FavorabilitySection snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
+      )}
+
+      {/* 1.2 Favorabilidade por nível de avaliador */}
+      <FavorabilityByRelationshipSection
+        snapshots={snapshots}
+        scaleId={scaleId}
+        detailedRows={relationshipDetailFavorability}
+      />
+
       {/* 2. Overall scores + self-awareness index */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
@@ -3313,18 +3325,6 @@ export function ReportDisplay({
       {/* 7.5 Top 5 / Bottom 5 (por pergunta — granularidade mais fina) */}
       {questionScores.length > 0 && (
         <Top5QuestionsSection questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
-      )}
-
-      {/* 7.7 Favorabilidade por nível de avaliador */}
-      <FavorabilityByRelationshipSection
-        snapshots={snapshots}
-        scaleId={scaleId}
-        detailedRows={relationshipDetailFavorability}
-      />
-
-      {/* 7.8 Favorabilidade geral */}
-      {hasCompetencies && (
-        <FavorabilitySection snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
       )}
 
       {/* 8. Benchmark — participant vs. cycle avg (conditional on data) */}
