@@ -72,7 +72,9 @@ export interface DpaEmailConfig {
 }
 
 function renderCustomBody(template: string, link: string, participantName: string | null): string {
-  const nome = participantName ?? ''
+  // Fallback genérico quando o participante não tem nome cadastrado —
+  // evita "Olá, ," com vírgula solta no meio da saudação.
+  const nome = participantName?.trim() || 'participante'
   const filled = template
     .replace(/\{\{LINK\}\}/g, link)
     .replace(/\{\{NOME\}\}/g, nome)
