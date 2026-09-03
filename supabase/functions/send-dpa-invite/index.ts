@@ -61,6 +61,39 @@ const DEFAULT_BRANDING: TenantEmailBranding = {
   emailFromAddress: null,
 }
 
+/** Personalização opcional do e-mail por projeto (config.email no dpa_projetos).
+ * Quando presente, body_template substitui o corpo padrão — parágrafos
+ * separados por linha em branco viram <p>, com placeholders {{LINK}} e
+ * {{NOME}} substituídos antes do envio. Mantém a mesma casca visual
+ * (cabeçalho com logo/cor do tenant + rodapé), só troca o conteúdo do meio. */
+export interface DpaEmailConfig {
+  subject?:       string
+  body_template?: string
+}
+
+function renderCustomBody(template: string, link: string, participantName: string | null): string {
+  const nome = participantName ?? ''
+  const filled = template
+    .replace(/\{\{LINK\}\}/g, link)
+    .replace(/\{\{NOME\}\}/g, nome)
+
+  // Parágrafos separados por linha em branco; dentro de um parágrafo,
+  // quebras de linha simples viram <br>. O link (se aparecer sozinho numa
+  // "linha") vira um link clicável de verdade.
+  return filled
+    .split(/\n\s*\n/)
+    .map((par) => par.trim())
+    .filter(Boolean)
+    .map((par) => {
+      const withBreaks = par
+        .split('\n')
+        .map((line) => (line.trim() === link ? `<a href="${link}" style="color:#2563eb;word-break:break-all;">${link}</a>` : line))
+        .join('<br>')
+      return `<p style="font-size:14px;line-height:1.6;color:#374151;margin:0 0 16px;">${withBreaks}</p>`
+    })
+    .join('\n')
+}
+
 function buildEmail(params: {
   participantName: string | null
   projetoNome:     string
@@ -69,10 +102,11 @@ function buildEmail(params: {
   link:            string
   branding:        TenantEmailBranding
   defaultFrom:     string
+  emailConfig?:    DpaEmailConfig
 }): { subject: string; html: string; from: string } {
-  const { participantName, projetoNome, labelUnidade, unidade, link, branding, defaultFrom } = params
+  const { participantName, projetoNome, labelUnidade, unidade, link, branding, defaultFrom, emailConfig } = params
 
-  const subject = `Convite para diagnóstico: ${projetoNome}`
+  const subject = emailConfig?.subject || `Convite para diagnóstico: ${projetoNome}`
 
   const saudacao = participantName ? `Olá, ${participantName}` : 'Olá'
 
@@ -99,6 +133,26 @@ function buildEmail(params: {
   const from = (branding.emailFromAddress && branding.emailFromName)
     ? `${branding.emailFromName} <${branding.emailFromAddress}>`
     : defaultFrom
+
+  const bodyContent = emailConfig?.body_template
+    ? renderCustomBody(emailConfig.body_template, link, participantName)
+    : `
+      <h1>${saudacao}</h1>
+      <p>
+        Você foi convidado(a) para participar do diagnóstico
+        <strong>${projetoNome}</strong>.
+      </p>
+      ${unidadeInfo}
+      <div class="notice">
+        🔒 Suas respostas são <strong>completamente anônimas</strong>.
+        Os resultados são apresentados de forma agregada — sua identidade nunca é revelada individualmente.
+      </div>
+      <p>Clique no botão abaixo para responder:</p>
+      <a href="${link}" class="btn">Responder diagnóstico</a>
+      <p class="link-fallback">
+        Se o botão não funcionar, copie e cole este link no navegador:<br>
+        ${link}
+      </p>`
 
   const html = `
 <!DOCTYPE html>
@@ -130,22 +184,7 @@ function buildEmail(params: {
   <div class="card">
     <div class="header">${headerContent}</div>
     <div class="body">
-      <h1>${saudacao}</h1>
-      <p>
-        Você foi convidado(a) para participar do diagnóstico
-        <strong>${projetoNome}</strong>.
-      </p>
-      ${unidadeInfo}
-      <div class="notice">
-        🔒 Suas respostas são <strong>completamente anônimas</strong>.
-        Os resultados são apresentados de forma agregada — sua identidade nunca é revelada individualmente.
-      </div>
-      <p>Clique no botão abaixo para responder:</p>
-      <a href="${link}" class="btn">Responder diagnóstico</a>
-      <p class="link-fallback">
-        Se o botão não funcionar, copie e cole este link no navegador:<br>
-        ${link}
-      </p>
+      ${bodyContent}
     </div>
     <div class="footer">${footerContent}</div>
   </div>
@@ -265,7 +304,7 @@ serve(async (req: Request) => {
     id: string
     nome: string
     status: string
-    config: { label_unidade: string; perguntas: unknown[] }
+    config: { label_unidade: string; perguntas: unknown[]; email?: DpaEmailConfig }
   }
 
   if (projetoData.status !== 'ativo') {
@@ -322,6 +361,7 @@ serve(async (req: Request) => {
       link,
       branding,
       defaultFrom:     EMAIL_FROM,
+      emailConfig:     projetoData.config?.email,
     })
 
     // Envia com retry (backoff) em caso de 429 (rate limit) do Resend —
