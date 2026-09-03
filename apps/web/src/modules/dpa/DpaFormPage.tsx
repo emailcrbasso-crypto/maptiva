@@ -22,6 +22,12 @@ interface Pergunta {
   multi?:        boolean
   max_escolhas?: number
   permite_outro?: boolean
+  /** Quando presente, agrupa perguntas consecutivas com o mesmo valor num
+   * único bloco visual (cabeçalho + instrução aparecem uma vez só). */
+  bloco?:        string
+  /** Instrução/legenda do bloco (ex.: "Avalie o quanto..."), mostrada uma
+   * única vez no topo do bloco — não repetir em cada pergunta. */
+  bloco_intro?:  string
 }
 
 // Sentinela interna para a seleção "Outro"; convertida em "Outro: <texto>" no envio.
@@ -232,6 +238,21 @@ export function DpaFormPage() {
 
   const { config, projeto_nome, projeto_descricao, nome, unidade } = tokenData
 
+  // Agrupa perguntas consecutivas com o mesmo `bloco` num único bloco visual —
+  // cabeçalho e instrução (`bloco_intro`) aparecem uma vez só, no topo do
+  // bloco, em vez de repetidos em cada pergunta.
+  type Grupo = { bloco: string | null; intro: string | null; items: { pergunta: Pergunta; idx: number }[] }
+  const grupos: Grupo[] = []
+  config.perguntas.forEach((pergunta, idx) => {
+    const chave = pergunta.bloco ?? null
+    const last  = grupos[grupos.length - 1]
+    if (last && last.bloco !== null && last.bloco === chave) {
+      last.items.push({ pergunta, idx })
+    } else {
+      grupos.push({ bloco: chave, intro: pergunta.bloco_intro ?? null, items: [{ pergunta, idx }] })
+    }
+  })
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -274,8 +295,19 @@ export function DpaFormPage() {
         {/* Form */}
         <form onSubmit={handleSubmit} noValidate>
           <div className="space-y-8">
-            {config.perguntas.map((pergunta, idx) => (
-              <div key={pergunta.id} className="bg-white rounded-xl border border-gray-200 p-6">
+            {grupos.map((grupo, gi) => (
+              <div key={gi} className="bg-white rounded-xl border border-gray-200 p-6">
+                {grupo.bloco && (
+                  <div className="mb-5 pb-4 border-b border-gray-100">
+                    <h2 className="text-sm font-semibold text-gray-900">{grupo.bloco}</h2>
+                    {grupo.intro && (
+                      <p className="text-sm text-gray-600 mt-1 whitespace-pre-line">{grupo.intro}</p>
+                    )}
+                  </div>
+                )}
+                <div className="divide-y divide-gray-100">
+                  {grupo.items.map(({ pergunta, idx }) => (
+                    <div key={pergunta.id} className={grupo.bloco ? 'py-5 first:pt-0 last:pb-0' : ''}>
                 <div className="flex items-start gap-3 mb-5">
                   <span className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-100 text-gray-500 text-xs font-semibold flex items-center justify-center mt-0.5">
                     {idx + 1}
@@ -425,6 +457,9 @@ export function DpaFormPage() {
                 {errors[pergunta.id] && (
                   <p className="mt-3 ml-10 text-xs text-red-500">{errors[pergunta.id]}</p>
                 )}
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
