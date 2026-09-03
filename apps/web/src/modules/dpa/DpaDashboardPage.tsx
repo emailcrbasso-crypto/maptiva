@@ -648,7 +648,7 @@ export function DpaDashboardPage() {
                         {idx + 1}
                       </span>
                       <div>
-                        <p className="text-sm font-medium text-gray-900">{p.texto}</p>
+                        <p className="text-sm font-medium text-gray-900 whitespace-pre-line">{p.texto}</p>
                         <p className="text-xs text-gray-400 mt-0.5">
                           {p.tipo === 'escala_5' ? 'Escala 1–5' : p.tipo === 'texto_livre' ? 'Texto livre' : 'Múltipla escolha'}
                           {' · '}{stats?.total ?? 0} resposta{(stats?.total ?? 0) !== 1 ? 's' : ''}

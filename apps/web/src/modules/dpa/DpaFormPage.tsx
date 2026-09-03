@@ -281,7 +281,7 @@ export function DpaFormPage() {
                     {idx + 1}
                   </span>
                   <div>
-                    <p className="text-sm font-medium text-gray-900 leading-relaxed">
+                    <p className="text-sm font-medium text-gray-900 leading-relaxed whitespace-pre-line">
                       {pergunta.texto}
                       {pergunta.obrigatoria && (
                         <span className="text-red-500 ml-1">*</span>
