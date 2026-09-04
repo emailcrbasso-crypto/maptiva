@@ -22,6 +22,9 @@ interface Pergunta {
   multi?:        boolean
   max_escolhas?: number
   permite_outro?: boolean
+  /** Para multipla_escolha de seleção única: 'dropdown' renderiza um <select>
+   * em vez da lista de opções empilhadas — melhor quando há muitas opções. */
+  estilo?:    'lista' | 'dropdown'
   /** Quando presente, agrupa perguntas consecutivas com o mesmo valor num
    * único bloco visual (cabeçalho + instrução aparecem uma vez só). */
   bloco?:        string
@@ -375,8 +378,24 @@ export function DpaFormPage() {
                   </div>
                 )}
 
+                {/* Multiple choice — estilo dropdown (seleção única) */}
+                {pergunta.tipo === 'multipla_escolha' && pergunta.opcoes && pergunta.estilo === 'dropdown' && !pergunta.multi && (
+                  <div className="ml-10">
+                    <select
+                      value={(answers[pergunta.id] as string) || ''}
+                      onChange={(e) => handleSingleChoice(pergunta.id, e.target.value)}
+                      className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    >
+                      <option value="" disabled>Selecione uma opção...</option>
+                      {pergunta.opcoes.map((opcao) => (
+                        <option key={opcao} value={opcao}>{opcao}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 {/* Multiple choice (single ou multi) + opção "Outro" */}
-                {pergunta.tipo === 'multipla_escolha' && pergunta.opcoes && (() => {
+                {pergunta.tipo === 'multipla_escolha' && pergunta.opcoes && pergunta.estilo !== 'dropdown' && (() => {
                   const isMulti  = !!pergunta.multi
                   const selected = answers[pergunta.id]
                   const isChecked = (opcao: string) =>
