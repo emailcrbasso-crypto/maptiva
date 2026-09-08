@@ -234,6 +234,7 @@ serve(async (req: Request) => {
     .select('role')
     .eq('tenant_id', assn.tenant_id)
     .eq('user_id', publicUserId)
+    .eq('status', 'active')
     .in('role', ['admin', 'owner'])
     .maybeSingle()
 

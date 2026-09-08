@@ -274,14 +274,27 @@ serve(async (req: Request) => {
     return json({ ok: false, error: `Participants not found: ${partErr?.message ?? 'no rows'}` })
   }
 
-  // Verify all participants belong to the same tenant as the caller
-  const tenantId = (participants[0] as Record<string, string>).tenant_id
+  // O lote inteiro precisa ser de UM único (tenant, projeto) — se algum id
+  // enviado pertence a outro tenant ou projeto, rejeita o lote inteiro em
+  // vez de autorizar pelo primeiro registro e enviar aos demais sem checagem
+  // (isso permitiria, com ids de outro tenant/projeto, enviar convites fora
+  // do escopo autorizado e/ou com o conteúdo do projeto errado).
+  const tenantId  = (participants[0] as Record<string, string>).tenant_id
+  const projetoId = (participants[0] as Record<string, string>).projeto_id
+
+  const mismatched = (participants as Array<Record<string, string>>).some(
+    (p) => p.tenant_id !== tenantId || p.projeto_id !== projetoId
+  )
+  if (mismatched) {
+    return json({ ok: false, error: 'Lote inválido — todos os participantes precisam pertencer ao mesmo tenant e projeto.' })
+  }
 
   const { data: membership } = await adminClient
     .from('tenant_memberships')
     .select('role')
     .eq('tenant_id', tenantId)
     .eq('user_id', publicUserId)
+    .eq('status', 'active')
     .in('role', ['admin', 'owner'])
     .maybeSingle()
 
@@ -290,12 +303,12 @@ serve(async (req: Request) => {
   }
 
   // ── 5. Carregar projeto ───────────────────────────────────────────────────────
-  const projetoId = (participants[0] as Record<string, string>).projeto_id
 
   const { data: projeto } = await adminClient
     .from('dpa_projetos')
     .select('id, nome, status, config')
     .eq('id', projetoId)
+    .eq('tenant_id', tenantId)
     .single()
 
   if (!projeto) {
