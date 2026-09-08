@@ -239,7 +239,7 @@ export function DpaFormPage() {
 
   if (!tokenData?.config) return null
 
-  const { config, projeto_nome, projeto_descricao, nome, unidade } = tokenData
+  const { config, projeto_nome, projeto_descricao } = tokenData
 
   // Agrupa perguntas consecutivas com o mesmo `bloco` num único bloco visual —
   // cabeçalho e instrução (`bloco_intro`) aparecem uma vez só, no topo do
@@ -261,10 +261,7 @@ export function DpaFormPage() {
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-2xl mx-auto">
-          <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">
-            Diagnóstico Prévio Anônimo
-          </p>
-          <h1 className="text-xl font-semibold text-gray-900 mt-0.5">{projeto_nome}</h1>
+          <h1 className="text-xl font-semibold text-gray-900">{projeto_nome}</h1>
           {projeto_descricao && (
             <p className="text-sm text-gray-500 mt-1">{projeto_descricao}</p>
           )}
@@ -272,19 +269,6 @@ export function DpaFormPage() {
       </div>
 
       <div className="max-w-2xl mx-auto px-6 py-8">
-        {/* Participant info */}
-        {(nome || unidade) && (
-          <div className="bg-blue-50 border border-blue-100 rounded-xl px-5 py-4 mb-8 flex items-start gap-3">
-            <svg className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
-            <div className="text-sm text-blue-800 space-y-0.5">
-              {nome    && <p><span className="font-medium">Participante:</span> {nome}</p>}
-              {unidade && <p><span className="font-medium">{config.label_unidade}:</span> {unidade}</p>}
-            </div>
-          </div>
-        )}
-
         {/* Privacy notice */}
         <div className="bg-amber-50 border border-amber-100 rounded-xl px-5 py-4 mb-8 flex items-start gap-3">
           <svg className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
