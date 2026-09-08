@@ -37,6 +37,29 @@ function json(body: unknown, status = 200) {
   })
 }
 
+// Escapa texto controlado por usuário (nome/unidade importados via CSV, nome
+// do projeto) antes de interpolar no HTML do e-mail.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+// Domínios permitidos pro link do diagnóstico — nunca confia cegamente no
+// base_url enviado pelo cliente (o link do InSight carrega o token real).
+// Configurável via secret ALLOWED_BASE_URLS (lista separada por vírgula).
+const DEFAULT_ALLOWED_ORIGINS = ['https://maptiva.crbasso.com', 'https://app.maptiva.com.br']
+
+function resolveBaseUrl(candidate: string | undefined): string {
+  const allowed = (Deno.env.get('ALLOWED_BASE_URLS') ?? DEFAULT_ALLOWED_ORIGINS.join(','))
+    .split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean)
+  const normalized = candidate?.trim().replace(/\/$/, '')
+  return (normalized && allowed.includes(normalized)) ? normalized : allowed[0]
+}
+
 // ─── Email template ───────────────────────────────────────────────────────────
 
 interface TenantEmailBranding {
@@ -73,8 +96,9 @@ export interface DpaEmailConfig {
 
 function renderCustomBody(template: string, link: string, participantName: string | null): string {
   // Fallback genérico quando o participante não tem nome cadastrado —
-  // evita "Olá, ," com vírgula solta no meio da saudação.
-  const nome = participantName?.trim() || 'participante'
+  // evita "Olá, ," com vírgula solta no meio da saudação. Escapado porque
+  // esse texto acaba dentro do HTML do e-mail (nome vem do CSV importado).
+  const nome = escapeHtml(participantName?.trim() || 'participante')
   const filled = template
     .replace(/\{\{LINK\}\}/g, link)
     .replace(/\{\{NOME\}\}/g, nome)
@@ -106,9 +130,13 @@ function buildEmail(params: {
   defaultFrom:     string
   emailConfig?:    DpaEmailConfig
 }): { subject: string; html: string; from: string } {
-  const { participantName, projetoNome, labelUnidade, unidade, link, branding, defaultFrom, emailConfig } = params
+  const { link, branding, defaultFrom, emailConfig } = params
+  const participantName = params.participantName ? escapeHtml(params.participantName) : null
+  const projetoNome     = escapeHtml(params.projetoNome)
+  const labelUnidade    = escapeHtml(params.labelUnidade)
+  const unidade         = params.unidade ? escapeHtml(params.unidade) : null
 
-  const subject = emailConfig?.subject || `Convite para diagnóstico: ${projetoNome}`
+  const subject = emailConfig?.subject || `Convite para diagnóstico: ${params.projetoNome}`
 
   const saudacao = participantName ? `Olá, ${participantName}` : 'Olá'
 
@@ -137,7 +165,9 @@ function buildEmail(params: {
     : defaultFrom
 
   const bodyContent = emailConfig?.body_template
-    ? renderCustomBody(emailConfig.body_template, link, participantName)
+    // Nome cru aqui — renderCustomBody já escapa por conta própria; usar o
+    // já-escapado duplicaria a escapagem (&amp;amp; etc.).
+    ? renderCustomBody(emailConfig.body_template, link, params.participantName)
     : `
       <h1>${saudacao}</h1>
       <p>
@@ -367,7 +397,7 @@ serve(async (req: Request) => {
       continue
     }
 
-    const link = `${base_url}/diagnostico/${part.token}`
+    const link = `${resolveBaseUrl(base_url)}/diagnostico/${part.token}`
     const { subject, html, from } = buildEmail({
       participantName: part.nome ?? null,
       projetoNome:     projetoData.nome,

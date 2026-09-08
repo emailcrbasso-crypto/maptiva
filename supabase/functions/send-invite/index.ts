@@ -37,6 +37,30 @@ function json(body: unknown, status = 200) {
   })
 }
 
+// Escapa texto controlado por usuário (nomes, ciclo) antes de interpolar no
+// HTML do e-mail — evita injeção de markup/link malicioso via campo de nome.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+// Domínios permitidos pro link mágico do e-mail — nunca confia cegamente no
+// base_url enviado pelo cliente (podia apontar pra um domínio de phishing
+// levando o token real junto). Configurável via secret ALLOWED_BASE_URLS
+// (lista separada por vírgula); sem a secret, usa os domínios de produção.
+const DEFAULT_ALLOWED_ORIGINS = ['https://maptiva.crbasso.com', 'https://app.maptiva.com.br']
+
+function resolveBaseUrl(candidate: string | undefined): string {
+  const allowed = (Deno.env.get('ALLOWED_BASE_URLS') ?? DEFAULT_ALLOWED_ORIGINS.join(','))
+    .split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean)
+  const normalized = candidate?.trim().replace(/\/$/, '')
+  return (normalized && allowed.includes(normalized)) ? normalized : allowed[0]
+}
+
 // ─── Email template ───────────────────────────────────────────────────────────
 
 interface TenantEmailBranding {
@@ -70,7 +94,10 @@ function buildEmail(params: {
   branding:      TenantEmailBranding
   defaultFrom:   string
 }): { subject: string; html: string; from: string } {
-  const { evaluatorName, evaluatedName, cycleName, relationship, magicLink, branding, defaultFrom } = params
+  const evaluatorName = escapeHtml(params.evaluatorName)
+  const evaluatedName = escapeHtml(params.evaluatedName)
+  const cycleName     = escapeHtml(params.cycleName)
+  const { relationship, magicLink, branding, defaultFrom } = params
 
   const relLabel: Record<string, string> = {
     self:        'autoavaliação',
@@ -81,7 +108,7 @@ function buildEmail(params: {
   }
   const relText = relLabel[relationship] ?? 'avaliação'
 
-  const subject = `Convite para participar: ${cycleName}`
+  const subject = `Convite para participar: ${params.cycleName}`
 
   const headerContent = branding.headerHtml
     ?? (branding.logoUrl
@@ -339,7 +366,7 @@ serve(async (req: Request) => {
   }
 
   // ── 9. Build and send email ──────────────────────────────────────────────────
-  const magicLink = `${base_url}/respond/${token}`
+  const magicLink = `${resolveBaseUrl(base_url)}/respond/${token}`
   const { subject, html, from } = buildEmail({
     evaluatorName,
     evaluatedName,
