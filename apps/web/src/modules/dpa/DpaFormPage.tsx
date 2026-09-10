@@ -75,6 +75,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
   const [outroTexts, setOutroTexts] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [errors,     setErrors]     = useState<Record<string, string>>({})
+  const [formError,  setFormError]  = useState<string | null>(null)
 
   useEffect(() => {
     if (!token) return
@@ -128,6 +129,13 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
     })
   }
 
+  // Some o aviso geral assim que todos os campos em vermelho forem corrigidos.
+  useEffect(() => {
+    if (Object.keys(errors).length === 0) {
+      setFormError((prev) => (prev && prev.includes('obrigatória') ? null : prev))
+    }
+  }, [errors])
+
   // Múltipla escolha com seleção única (radio)
   function handleSingleChoice(perguntaId: string, value: string) {
     setAnswers((prev) => ({ ...prev, [perguntaId]: value }))
@@ -159,8 +167,9 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
     return Array.isArray(a) ? a.includes(OUTRO) : a === OUTRO
   }
 
-  function validate(): boolean {
-    if (!tokenData?.config) return false
+  /** Retorna o mapa de erros (vazio = tudo ok). */
+  function validate(): Record<string, string> {
+    if (!tokenData?.config) return { __form__: 'Formulário indisponível.' }
     const errs: Record<string, string> = {}
     for (const p of tokenData.config.perguntas) {
       const ans   = answers[p.id]
@@ -178,7 +187,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
       }
     }
     setErrors(errs)
-    return Object.keys(errs).length === 0
+    return errs
   }
 
   // Converte a sentinela __outro__ em "Outro: <texto>" para persistência
@@ -202,9 +211,34 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
     return out
   }
 
+  function friendlyError(msg: string): string {
+    if (msg.includes('resposta_obrigatoria_ausente'))
+      return 'Uma pergunta obrigatória ficou sem resposta. Confira os campos marcados em vermelho.'
+    if (msg.includes('nota_fora_do_intervalo') || msg.includes('opcao_invalida') || msg.includes('resposta_invalida') || msg.includes('excesso_de_escolhas'))
+      return 'Alguma resposta ficou inválida. Revise as perguntas e tente enviar de novo.'
+    if (msg.includes('não está ativo') || msg.includes('projeto_encerrado') || msg.includes('P0403'))
+      return 'Este diagnóstico não está mais recebendo respostas.'
+    return 'Não foi possível enviar suas respostas. Tente de novo em alguns instantes.'
+  }
+
+  function scrollToFirstError() {
+    setTimeout(() => {
+      document.querySelector('[data-error="true"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 50)
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!validate()) return
+    const errs = validate()
+    const n = Object.keys(errs).length
+    if (n > 0) {
+      setFormError(
+        `${n === 1 ? 'Falta 1 pergunta obrigatória' : `Faltam ${n} perguntas obrigatórias`} para você poder enviar. Role a página e preencha os campos marcados em vermelho.`,
+      )
+      scrollToFirstError()
+      return
+    }
+    setFormError(null)
 
     setSubmitting(true)
     try {
@@ -219,7 +253,9 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
       navigate('/diagnostico/obrigado', { replace: true })
     } catch (err) {
       console.error(err)
+      setFormError(friendlyError((err as Error).message ?? ''))
       setSubmitting(false)
+      scrollToFirstError()
     }
   }
 
@@ -295,7 +331,11 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                 )}
                 <div className="divide-y divide-gray-100">
                   {grupo.items.map(({ pergunta, idx }) => (
-                    <div key={pergunta.id} className={grupo.bloco ? 'py-5 first:pt-0 last:pb-0' : ''}>
+                    <div
+                      key={pergunta.id}
+                      data-error={errors[pergunta.id] ? 'true' : undefined}
+                      className={`${grupo.bloco ? 'py-5 first:pt-0 last:pb-0' : ''} ${errors[pergunta.id] ? '-mx-2 px-2 rounded-lg ring-1 ring-red-300 bg-red-50/40' : ''}`}
+                    >
                 <div className="flex items-start gap-3 mb-5">
                   <span className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-100 text-gray-500 text-xs font-semibold flex items-center justify-center mt-0.5">
                     {idx + 1}
@@ -459,7 +499,9 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
 
                 {/* Error */}
                 {errors[pergunta.id] && (
-                  <p className="mt-3 ml-10 text-xs text-red-500">{errors[pergunta.id]}</p>
+                  <p className="mt-3 ml-10 text-sm font-medium text-red-600 flex items-center gap-1.5">
+                    <span aria-hidden>⚠</span> {errors[pergunta.id]}
+                  </p>
                 )}
                     </div>
                   ))}
@@ -470,6 +512,12 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
 
           {/* Submit */}
           <div className="mt-8">
+            {formError && (
+              <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-start gap-2">
+                <span aria-hidden className="mt-0.5">⚠</span>
+                <span>{formError}</span>
+              </div>
+            )}
             <button
               type="submit"
               disabled={submitting}
