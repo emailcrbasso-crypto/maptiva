@@ -43,6 +43,7 @@ export default function App() {
         <Routes>
           {/* Rotas públicas: avaliadores e participantes DPA chegam via magic link */}
           <Route path="/respond/:token"          element={<RespondPage />} />
+          <Route path="/diagnostico/aberto/:token" element={<DpaFormPage shared />} />
           <Route path="/diagnostico/:token"      element={<DpaFormPage />} />
           <Route path="/diagnostico/obrigado"    element={<DpaObrigadoPage />} />
           <Route path="/diagnostico/ja-respondido" element={<DpaJaRespondidoPage />} />

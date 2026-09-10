@@ -65,7 +65,7 @@ const SCALE_LABELS: Record<number, string> = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function DpaFormPage() {
+export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
   const { token }  = useParams<{ token: string }>()
   const navigate   = useNavigate()
 
@@ -79,9 +79,10 @@ export function DpaFormPage() {
   useEffect(() => {
     if (!token) return
     async function validate() {
-      const { data, error } = await supabase.rpc('validate_dpa_token', {
-        p_token: token,
-      })
+      const { data, error } = await supabase.rpc(
+        shared ? 'validate_dpa_shared_token' : 'validate_dpa_token',
+        { p_token: token },
+      )
 
       if (error || !data) {
         navigate('/diagnostico/acesso-negado', { replace: true })
@@ -103,7 +104,7 @@ export function DpaFormPage() {
       setLoading(false)
     }
     validate()
-  }, [token, navigate])
+  }, [token, navigate, shared])
 
   function handleScale(perguntaId: string, value: number) {
     setAnswers((prev) => ({ ...prev, [perguntaId]: value }))
@@ -207,10 +208,10 @@ export function DpaFormPage() {
 
     setSubmitting(true)
     try {
-      const { data, error } = await supabase.rpc('submit_dpa_response', {
-        p_token:     token,
-        p_respostas: buildPayload(),
-      })
+      const { data, error } = await supabase.rpc(
+        shared ? 'submit_dpa_shared_response' : 'submit_dpa_response',
+        { p_token: token, p_respostas: buildPayload() },
+      )
 
       if (error) throw error
       if (!(data as { sucesso: boolean }).sucesso) throw new Error('Falha ao enviar')

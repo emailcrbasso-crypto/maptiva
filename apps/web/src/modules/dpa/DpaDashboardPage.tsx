@@ -41,6 +41,7 @@ interface DpaProject {
   descricao: string | null
   status:    'rascunho' | 'ativo' | 'encerrado'
   config:    DpaConfig
+  shared_link_token: string | null
 }
 
 interface Resposta {
@@ -57,8 +58,10 @@ interface UnidadeStat {
 }
 
 interface DashboardData {
+  modo_compartilhado:  boolean
   total_participantes: number
   total_respondidos:   number
+  total_respostas:     number
   taxa_resposta:       number
   label_unidade:       string
   por_unidade:         UnidadeStat[]
@@ -136,7 +139,7 @@ export function DpaDashboardPage() {
     const [projRes, partRes] = await Promise.all([
       supabase
         .from('dpa_projetos')
-        .select('id, nome, descricao, status, config')
+        .select('id, nome, descricao, status, config, shared_link_token')
         .eq('id', id)
         .single(),
       supabase
@@ -550,8 +553,43 @@ export function DpaDashboardPage() {
         </div>
       </div>
 
+      {/* ── Link compartilhado ── */}
+      {project.shared_link_token && project.status !== 'rascunho' && (
+        <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5 mb-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-indigo-900">🔗 Link compartilhado</p>
+              <p className="text-xs text-indigo-700 mt-1">
+                Um único link para todo o grupo. <strong>Sem lembretes</strong> para quem não respondeu
+                e a mesma pessoa <strong>pode responder mais de uma vez</strong> — não há identificação.
+              </p>
+              <code className="block text-xs text-indigo-800 bg-white border border-indigo-100 rounded-lg px-3 py-2 mt-2 break-all">
+                {`${window.location.origin}/diagnostico/aberto/${project.shared_link_token}`}
+              </code>
+            </div>
+            <button
+              type="button"
+              onClick={() => copyLink(`aberto/${project.shared_link_token}`)}
+              className="shrink-0 text-xs border border-indigo-300 text-indigo-700 bg-white px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors"
+            >
+              {copied === `aberto/${project.shared_link_token}` ? '✓ Copiado' : 'Copiar link'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── KPI bar ── */}
-      {dashboard ? (
+      {dashboard && dashboard.modo_compartilhado ? (
+        <div className="grid grid-cols-1 gap-4 mb-6">
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <p className="text-xs text-gray-400 mb-1">Respostas recebidas</p>
+            <p className="text-3xl font-bold text-gray-900">{dashboard.total_respostas}</p>
+            <p className="text-xs text-gray-400">
+              via link compartilhado — sem base de participantes para calcular taxa de resposta
+            </p>
+          </div>
+        </div>
+      ) : dashboard ? (
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <p className="text-xs text-gray-400 mb-1">Taxa de resposta</p>
@@ -775,7 +813,7 @@ export function DpaDashboardPage() {
               {participantes.filter((p) => p.status === 'respondido').length} responderam de {participantes.length}
             </p>
             <div className="flex items-center gap-2">
-              {project.status === 'ativo' && participantes.some((p) => p.status === 'pendente') && (
+              {project.status === 'ativo' && !project.shared_link_token && participantes.some((p) => p.status === 'pendente') && (
                 <button
                   onClick={sendEmailBulk}
                   disabled={sendingBulk}
@@ -920,7 +958,7 @@ export function DpaDashboardPage() {
                         >
                           {copied === p.token ? '✓ Link copiado' : 'Copiar link'}
                         </button>
-                        {project.status === 'ativo' && p.status === 'pendente' && (
+                        {project.status === 'ativo' && !project.shared_link_token && p.status === 'pendente' && (
                           <button
                             onClick={() => sendEmail(p.id)}
                             disabled={sendingEmail === p.id}
