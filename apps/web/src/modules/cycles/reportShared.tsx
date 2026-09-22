@@ -353,16 +353,16 @@ export function DualRadarSection({
         Escala de 0 a {scaleMax} — quanto mais próximo da borda, maior o score.
         {goalValue != null && <> A linha tracejada verde indica a meta de {goalPct}%.</>}
       </p>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="space-y-8">
         <div>
           <p className="text-xs font-semibold text-center text-indigo-600 mb-2 uppercase tracking-wide">
             Autoavaliação
           </p>
           {hasSelf ? (
-            <ResponsiveContainer width="100%" height={270}>
+            <ResponsiveContainer width="100%" height={300}>
               <RechartsRadarChart data={selfData} margin={{ top: 10, right: 28, bottom: 10, left: 28 }}>
                 <PolarGrid stroke="#e5e7eb" />
-                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: '#6b7280' }} />
+                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: '#6b7280' }} />
                 <PolarRadiusAxis domain={[0, scaleMax]} tick={{ fontSize: 8, fill: '#9ca3af' }} tickCount={scaleMax + 1} />
                 {goalValue != null && (
                   <Radar name={`Meta ${goalPct}%`} dataKey="goal" stroke="#16a34a" strokeDasharray="4 3" fill="none" strokeWidth={1.5} dot={false} />
@@ -372,7 +372,7 @@ export function DualRadarSection({
               </RechartsRadarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[270px] flex items-center justify-center text-xs text-gray-400">
+            <div className="h-[300px] flex items-center justify-center text-xs text-gray-400">
               Sem autoavaliação registrada
             </div>
           )}
@@ -382,10 +382,10 @@ export function DualRadarSection({
             Avaliadores externos
           </p>
           {hasExternal ? (
-            <ResponsiveContainer width="100%" height={270}>
+            <ResponsiveContainer width="100%" height={externalKeys.length > 3 ? 420 : 340}>
               <RechartsRadarChart data={externalData} margin={{ top: 10, right: 28, bottom: 10, left: 28 }}>
                 <PolarGrid stroke="#e5e7eb" />
-                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: '#6b7280' }} />
+                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: '#6b7280' }} />
                 <PolarRadiusAxis domain={[0, scaleMax]} tick={{ fontSize: 8, fill: '#9ca3af' }} tickCount={scaleMax + 1} />
                 {goalValue != null && (
                   <Radar name={`Meta ${goalPct}%`} dataKey="goal" stroke="#16a34a" strokeDasharray="4 3" fill="none" strokeWidth={1.5} dot={false} />
@@ -402,12 +402,12 @@ export function DualRadarSection({
                     dot={false}
                   />
                 ))}
-                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                <Legend verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: 11, paddingTop: 12 }} />
                 <Tooltip formatter={(val) => (typeof val === 'number' ? val.toFixed(2) : '—')} />
               </RechartsRadarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[270px] flex items-center justify-center text-xs text-gray-400">
+            <div className="h-[340px] flex items-center justify-center text-xs text-gray-400">
               Sem avaliações externas ainda
             </div>
           )}
@@ -2428,12 +2428,14 @@ export function FavorabilityByRelationshipSection({
       </p>
 
       {chartData.length > 0 && (
-        <ResponsiveContainer width="100%" height={Math.max(140, chartData.length * 46)}>
+        <ResponsiveContainer width="100%" height={Math.max(140, chartData.length * 50)}>
           <BarChart
             data={chartData}
             layout="vertical"
             margin={{ top: 4, right: 36, bottom: 4, left: 4 }}
-            barCategoryGap={18}
+            barSize={26}
+            barGap={0}
+            barCategoryGap="24%"
           >
             <CartesianGrid horizontal={false} stroke="#f1f5f9" />
             <XAxis
