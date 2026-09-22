@@ -2082,6 +2082,7 @@ export function FavorabilitySection({
   competencies,
   scaleId = 'likert_5',
   detailedRows,
+  overallOverridePct,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
@@ -2090,6 +2091,10 @@ export function FavorabilitySection({
    * nunca perde avaliadores de subgrupos suprimidos pelo N-mínimo, diferente
    * do merge de snapshots (que só enxerga subgrupos já acima do mínimo). */
   detailedRows?: CompetencyRelationshipFavorabilityRow[]
+  /** % favorável travado (ex.: participant_report_notes.overall_favorability_pct)
+   * — usado como respaldo do número de topo quando a agregação ao vivo fica
+   * oculta pela proteção anti-dedução (exatamente 1 subgrupo suprimido). */
+  overallOverridePct?: number | null
 }) {
   const scale = getScale(scaleId)
 
@@ -2104,7 +2109,7 @@ export function FavorabilitySection({
           .map((s) => s.score_distribution)
       )
   const overall = computeFavorability(allExtDist, scale)
-  if (overall.total === 0) return null
+  const headlinePct = overallOverridePct ?? (overall.total > 0 ? overall.favoravel : null)
 
   // Mesmo limiar usado em app.compute_scores (v_blind_threshold) para
   // ponto cego: autoavaliação supera a média externa em >= 1.0 ponto.
@@ -2132,6 +2137,8 @@ export function FavorabilitySection({
     })
     .filter(Boolean) as { id: string; name: string; fav: Favorability; isBlindSpot: boolean }[]
 
+  if (headlinePct == null && rows.length === 0) return null
+
   rows.sort((a, b) => b.fav.favoravel - a.fav.favoravel)
 
   return (
@@ -2147,12 +2154,16 @@ export function FavorabilitySection({
         )}
       </p>
 
-      <div className="bg-gradient-to-br from-green-50 to-white border border-green-100 rounded-xl p-5 mb-5">
-        <p className="text-4xl font-bold text-green-700">{overall.favoravel.toFixed(1)}%</p>
-        <p className="text-xs text-gray-500 mt-1">
-          {overall.neutro.toFixed(1)}% neutro · {overall.desfavoravel.toFixed(1)}% desfavorável
-        </p>
-      </div>
+      {headlinePct != null && (
+        <div className="bg-gradient-to-br from-green-50 to-white border border-green-100 rounded-xl p-5 mb-5">
+          <p className="text-4xl font-bold text-green-700">{headlinePct.toFixed(1)}%</p>
+          {overall.total > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              {overall.neutro.toFixed(1)}% neutro · {overall.desfavoravel.toFixed(1)}% desfavorável
+            </p>
+          )}
+        </div>
+      )}
 
       {rows.length > 0 && (
         <div className="space-y-3">
@@ -2254,7 +2265,7 @@ export function FavorabilityByRelationshipSection({
 }) {
   const scale = getScale(scaleId)
 
-  let rows: { key: string; label: string; fav: Favorability | null; note?: string }[]
+  let rows: { key: string; label: string; fav: Favorability | null; note?: string; raterCount?: number }[]
 
   if (detailedRows && detailedRows.length > 0) {
     rows = REL_DETAIL_ORDER
@@ -2266,20 +2277,22 @@ export function FavorabilityByRelationshipSection({
         const key = `${code}|${detail ?? ''}`
         const label = relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key
         if (row.suppressed) {
-          return { key, label, fav: null, note: `${row.rater_count} avaliador${row.rater_count !== 1 ? 'es' : ''} — abaixo do mínimo` }
+          return { key, label, fav: null, note: `${row.rater_count} avaliador${row.rater_count !== 1 ? 'es' : ''} — abaixo do mínimo`, raterCount: row.rater_count }
         }
         if (!row.distribution) return null
         const fav = computeFavorability(row.distribution, scale)
         if (fav.total === 0) return null
-        return { key, label, fav }
+        return { key, label, fav, raterCount: row.rater_count }
       })
-      .filter(Boolean) as { key: string; label: string; fav: Favorability | null; note?: string }[]
+      .filter(Boolean) as { key: string; label: string; fav: Favorability | null; note?: string; raterCount?: number }[]
   } else {
     const byRel = new Map<string, (Record<string, number> | null | undefined)[]>()
+    const raterCountByRel = new Map<string, number>()
     for (const s of snapshots) {
       if (!s.score_distribution) continue
       if (!byRel.has(s.relationship_code)) byRel.set(s.relationship_code, [])
       byRel.get(s.relationship_code)!.push(s.score_distribution)
+      raterCountByRel.set(s.relationship_code, (raterCountByRel.get(s.relationship_code) ?? 0) + s.response_count)
     }
     rows = REL_ORDER
       .map((rel) => {
@@ -2287,9 +2300,9 @@ export function FavorabilityByRelationshipSection({
         if (!dists || dists.length === 0) return null
         const fav = computeFavorability(mergeDistributions(dists), scale)
         if (fav.total === 0) return null
-        return { key: rel, label: relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel, fav }
+        return { key: rel, label: relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel, fav, raterCount: raterCountByRel.get(rel) }
       })
-      .filter(Boolean) as { key: string; label: string; fav: Favorability | null; note?: string }[]
+      .filter(Boolean) as { key: string; label: string; fav: Favorability | null; note?: string; raterCount?: number }[]
   }
 
   if (rows.length < 2) return null
@@ -2356,6 +2369,7 @@ export function FavorabilityByRelationshipSection({
           <thead>
             <tr className="text-left text-gray-400 border-b border-gray-100">
               <th className="py-1.5 font-medium">Nível</th>
+              <th className="py-1.5 font-medium text-right">Nº avaliadores</th>
               <th className="py-1.5 font-medium text-right">% Favorável</th>
               <th className="py-1.5 font-medium text-right">% Neutro</th>
               <th className="py-1.5 font-medium text-right">% Desfavorável</th>
@@ -2365,6 +2379,7 @@ export function FavorabilityByRelationshipSection({
             {rows.map((r) => (
               <tr key={r.key} className="border-b border-gray-50 last:border-0">
                 <td className="py-1.5 text-gray-700">{r.label}</td>
+                <td className="py-1.5 text-right text-gray-400">{r.raterCount ?? '—'}</td>
                 {r.fav ? (
                   <>
                     <td className="py-1.5 text-right text-green-700 font-medium">{r.fav.favoravel.toFixed(1)}%</td>
@@ -3327,8 +3342,8 @@ export function ReportNotesSection({ notes }: { notes: ReportNotesRow | null | u
         )}
         {notes.ranking_secondary != null && (
           <div>
-            <p className="text-xs text-gray-400 mb-0.5">Posição no ranking</p>
-            <p className="text-sm text-gray-800 font-medium">{notes.ranking_secondary}º lugar</p>
+            <p className="text-xs text-gray-400 mb-0.5">Posição no ranking (secundária)</p>
+            <p className="text-sm text-gray-500">{notes.ranking_secondary}º lugar</p>
           </div>
         )}
         {notes.reliability_tier && (
@@ -3424,7 +3439,7 @@ export function ReportDisplay({
 
       {/* 1.1 Favorabilidade geral */}
       {hasCompetencies && (
-        <FavorabilitySection snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
+        <FavorabilitySection snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} overallOverridePct={reportNotes?.overall_favorability_pct} />
       )}
 
       {/* 1.2 Favorabilidade por nível de avaliador */}

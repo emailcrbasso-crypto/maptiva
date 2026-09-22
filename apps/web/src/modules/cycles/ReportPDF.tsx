@@ -364,7 +364,7 @@ function ReportNotesSectionPDF({ notes }: { notes: ReportNotesRow | null | undef
       value: positionLabel + (notes.group_position_diff != null ? ` (${notes.group_position_diff >= 0 ? '+' : ''}${notes.group_position_diff.toFixed(2)} pts)` : ''),
     })
   }
-  if (notes.ranking_secondary != null) facts.push({ label: 'Posição no ranking', value: `${notes.ranking_secondary}º lugar` })
+  if (notes.ranking_secondary != null) facts.push({ label: 'Posição no ranking (secundária)', value: `${notes.ranking_secondary}º lugar` })
   if (notes.reliability_tier) facts.push({ label: 'Confiabilidade da nota', value: notes.reliability_tier })
 
   return (
@@ -552,7 +552,7 @@ function FavorabilityByRelationshipSectionPDF({
 }) {
   const scale = getScale(scaleId)
 
-  let rows: { key: string; label: string; fav: ReturnType<typeof computeFavorability> | null; note?: string }[]
+  let rows: { key: string; label: string; fav: ReturnType<typeof computeFavorability> | null; note?: string; raterCount?: number }[]
 
   if (detailedRows && detailedRows.length > 0) {
     rows = REL_DETAIL_ORDER_PDF
@@ -564,14 +564,14 @@ function FavorabilityByRelationshipSectionPDF({
         const key = `${code}|${detail ?? ''}`
         const label = relOverrides?.[key] ?? REL_DETAIL_LABEL_PDF[key] ?? key
         if (row.suppressed) {
-          return { key, label, fav: null, note: `${row.rater_count} avaliador${row.rater_count !== 1 ? 'es' : ''} — abaixo do mínimo` }
+          return { key, label, fav: null, note: `${row.rater_count} avaliador${row.rater_count !== 1 ? 'es' : ''} — abaixo do mínimo`, raterCount: row.rater_count }
         }
         if (!row.distribution) return null
         const fav = computeFavorability(row.distribution, scale)
         if (fav.total === 0) return null
-        return { key, label, fav }
+        return { key, label, fav, raterCount: row.rater_count }
       })
-      .filter(Boolean) as { key: string; label: string; fav: ReturnType<typeof computeFavorability> | null; note?: string }[]
+      .filter(Boolean) as { key: string; label: string; fav: ReturnType<typeof computeFavorability> | null; note?: string; raterCount?: number }[]
   } else {
     rows = REL_ORDER
       .map((rel) => {
@@ -579,9 +579,10 @@ function FavorabilityByRelationshipSectionPDF({
         if (snaps.length === 0) return null
         const fav = computeFavorability(mergeDist(snaps), scale)
         if (fav.total === 0) return null
-        return { key: rel, label: relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel, fav }
+        const raterCount = snaps.reduce((sum, s) => sum + s.response_count, 0)
+        return { key: rel, label: relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel, fav, raterCount }
       })
-      .filter(Boolean) as { key: string; label: string; fav: ReturnType<typeof computeFavorability> | null; note?: string }[]
+      .filter(Boolean) as { key: string; label: string; fav: ReturnType<typeof computeFavorability> | null; note?: string; raterCount?: number }[]
   }
 
   if (rows.length < 2) return null
@@ -607,6 +608,7 @@ function FavorabilityByRelationshipSectionPDF({
       {rows.map((r) => (
         <View key={r.key} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 5 }} wrap={false}>
           <Text style={{ fontSize: 8, color: C.text, width: 90 }}>{r.label}</Text>
+          <Text style={{ fontSize: 6.5, color: C.light, width: 20 }}>{r.raterCount ?? ''}</Text>
           {r.fav ? (
             <>
               <View style={{ flex: 1 }}><FavorabilityBarPDF fav={r.fav} /></View>
@@ -926,10 +928,11 @@ function DimensionFavorabilityTablePDF({
 }
 
 function FavorabilitySectionPDF({
-  snapshots, competencies, scaleId, detailedRows,
+  snapshots, competencies, scaleId, detailedRows, overallOverridePct,
 }: {
   snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
   detailedRows?: CompetencyRelationshipFavorabilityRow[]
+  overallOverridePct?: number | null
 }) {
   const scale = getScale(scaleId)
 
@@ -937,7 +940,7 @@ function FavorabilitySectionPDF({
     ? mergeDist(detailedRows.filter((r) => r.relationship_code === '__external__' && r.distribution).map((r) => ({ score_distribution: r.distribution })))
     : mergeDist(snapshots.filter((s) => s.relationship_code !== 'self' && s.score_distribution))
   const overall = computeFavorability(allExtDist, scale)
-  if (overall.total === 0) return null
+  const headlinePct = overallOverridePct ?? (overall.total > 0 ? overall.favoravel : null)
 
   const rows = competencies
     .map((c) => {
@@ -952,6 +955,9 @@ function FavorabilitySectionPDF({
       return { id: c.id, name: c.name, fav }
     })
     .filter(Boolean) as { id: string; name: string; fav: ReturnType<typeof computeFavorability> }[]
+
+  if (headlinePct == null && rows.length === 0) return null
+
   rows.sort((a, b) => b.fav.favoravel - a.fav.favoravel)
 
   return (
@@ -961,12 +967,16 @@ function FavorabilitySectionPDF({
         Favorável = notas {scale.max - 1} e {scale.max} · Neutro = intermediárias · Desfavorável = notas {scale.min} e {scale.min + 1}.
       </Text>
 
-      <View style={{ backgroundColor: '#f0fdf4', borderRadius: 6, padding: 10, marginBottom: 10 }}>
-        <Text style={{ fontSize: 22, fontFamily: 'Helvetica-Bold', color: '#15803d' }}>{overall.favoravel.toFixed(1)}%</Text>
-        <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 2 }}>
-          {overall.neutro.toFixed(1)}% neutro · {overall.desfavoravel.toFixed(1)}% desfavorável
-        </Text>
-      </View>
+      {headlinePct != null && (
+        <View style={{ backgroundColor: '#f0fdf4', borderRadius: 6, padding: 10, marginBottom: 10 }}>
+          <Text style={{ fontSize: 22, fontFamily: 'Helvetica-Bold', color: '#15803d' }}>{headlinePct.toFixed(1)}%</Text>
+          {overall.total > 0 && (
+            <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 2 }}>
+              {overall.neutro.toFixed(1)}% neutro · {overall.desfavoravel.toFixed(1)}% desfavorável
+            </Text>
+          )}
+        </View>
+      )}
 
       {rows.map((r) => (
         <View key={r.id} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 5 }} wrap={false}>
@@ -2165,7 +2175,7 @@ export function ReportPDFDocument({
 
         {/* Favorabilidade geral */}
         {hasCompetencies && (
-          <FavorabilitySectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
+          <FavorabilitySectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} overallOverridePct={reportNotes?.overall_favorability_pct} />
         )}
 
         {/* Favorabilidade por nível de avaliador */}
