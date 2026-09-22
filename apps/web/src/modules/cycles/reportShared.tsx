@@ -92,30 +92,52 @@ export interface ProfileData {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const REL_LABEL: Record<string, string> = {
-  self:        'Autoavaliação',
-  manager:     'Gestor',
-  peer:        'Pares',
-  subordinate: 'Subordinados',
-  client:      'Clientes',
+  self:              'Autoavaliação',
+  manager:           'Gestor',
+  manager_superior:  'Liderança Superior',
+  peer:              'Pares',
+  subordinate:       'Subordinados',
+  client:            'Clientes',
 }
 
 export const REL_SHORT: Record<string, string> = {
-  self:        'Autoavaliação',
-  manager:     'Gestor',
-  peer:        'Pares',
-  subordinate: 'Subordinados',
-  client:      'Cliente',
+  self:              'Autoavaliação',
+  manager:           'Gestor',
+  manager_superior:  'Liderança Sup.',
+  peer:              'Pares',
+  subordinate:       'Subordinados',
+  client:            'Cliente',
 }
 
 export const RADAR_PALETTE: Record<string, string> = {
-  self:        '#6366f1',
-  manager:     '#10b981',
-  peer:        '#f59e0b',
-  subordinate: '#3b82f6',
-  client:      '#ec4899',
+  self:              '#6366f1',
+  manager:           '#10b981',
+  manager_superior:  '#0d9488',
+  peer:              '#f59e0b',
+  subordinate:       '#3b82f6',
+  client:            '#ec4899',
 }
 
-export const REL_ORDER = ['self', 'manager', 'peer', 'subordinate', 'client']
+export const REL_ORDER = ['self', 'manager', 'manager_superior', 'peer', 'subordinate', 'client']
+
+/** Rótulos específicos de um tenant, sobrepostos aos genéricos acima.
+ * Chaves iguais às usadas em REL_LABEL (código puro) e REL_DETAIL_LABEL
+ * ("código|detalhe"). Hoje só o Flexmetal usa a terminologia exata da
+ * planilha do cliente (Chefe direto / Clientes internos / Equipe). */
+const TENANT_REL_LABEL_OVERRIDES: Record<string, Record<string, string>> = {
+  flexmetal: {
+    manager:                'Chefe direto',
+    client:                 'Clientes internos',
+    'manager|':             'Chefe direto',
+    'subordinate|Direto':   'Equipe',
+    'client|':              'Clientes internos',
+  },
+}
+
+/** Devolve o mapa de sobreposição de rótulos pro tenant, ou {} se nenhum. */
+export function tenantRelOverrides(tenantSlug?: string | null): Record<string, string> {
+  return (tenantSlug ? TENANT_REL_LABEL_OVERRIDES[tenantSlug] : undefined) ?? {}
+}
 
 // ─── Score badge ──────────────────────────────────────────────────────────────
 
@@ -144,7 +166,7 @@ export function ScoreBadge({
 
 // ─── Participation panel ──────────────────────────────────────────────────────
 
-export function ParticipationPanel({ snapshots }: { snapshots: SnapshotRow[] }) {
+export function ParticipationPanel({ snapshots, relOverrides }: { snapshots: SnapshotRow[]; relOverrides?: Record<string, string> }) {
   const overallSnaps = snapshots
     .filter((s) => !s.competency_id && s.response_count > 0)
     .sort((a, b) => REL_ORDER.indexOf(a.relationship_code) - REL_ORDER.indexOf(b.relationship_code))
@@ -182,7 +204,7 @@ export function ParticipationPanel({ snapshots }: { snapshots: SnapshotRow[] }) 
                     className="inline-block w-2 h-2 rounded-full mr-2"
                     style={{ backgroundColor: RADAR_PALETTE[r.relationship_code] ?? '#9ca3af' }}
                   />
-                  {REL_LABEL[r.relationship_code] ?? r.relationship_code}
+                  {relOverrides?.[r.relationship_code] ?? REL_LABEL[r.relationship_code] ?? r.relationship_code}
                 </td>
                 <td className="py-2.5 text-center">
                   <span className="font-semibold text-gray-900">{r.response_count}</span>
@@ -213,6 +235,7 @@ export function ParticipationPanel({ snapshots }: { snapshots: SnapshotRow[] }) 
 // ─── Dual radar ───────────────────────────────────────────────────────────────
 
 const RADAR_DETAIL_PALETTE: Record<string, string> = {
+  'manager_superior|':    '#0d9488',
   'peer|Direto':          '#f59e0b',
   'peer|Indireto':        '#fb923c',
   'subordinate|Direto':   '#3b82f6',
@@ -225,6 +248,7 @@ export function DualRadarSection({
   scaleId = 'likert_5',
   goalPct = 80,
   questionScores,
+  relOverrides,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
@@ -234,6 +258,8 @@ export function DualRadarSection({
   /** Quando presente e com relationship_detail, quebra "avaliadores externos" por
    * Pares/Equipe Direto/Indireto em vez do corte coarse. */
   questionScores?: QuestionScoreRow[]
+  /** Sobreposição de rótulos por tenant (ver tenantRelOverrides). */
+  relOverrides?: Record<string, string>
 }) {
   const scale    = getScale(scaleId)
   const scaleMax = scale.max
@@ -278,7 +304,7 @@ export function DualRadarSection({
       .filter(({ code }) => code !== 'self')
       .map(({ code, detail }) => qrowKey(code, detail))
       .filter((key) => [...byCompRel.values()].some((m) => m.has(key)))
-    externalLabel = (key) => REL_DETAIL_LABEL[key] ?? key
+    externalLabel = (key) => relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key
     externalColor = (key) => RADAR_DETAIL_PALETTE[key] ?? '#94a3b8'
     externalData = compWithSnaps.map((c) => {
       const row: Record<string, number | string> = { subject: shorten(c.name) }
@@ -299,7 +325,7 @@ export function DualRadarSection({
       ),
     ].sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
     externalKeys  = externalRels
-    externalLabel = (key) => REL_LABEL[key] ?? key
+    externalLabel = (key) => relOverrides?.[key] ?? REL_LABEL[key] ?? key
     externalColor = (key) => RADAR_PALETTE[key] ?? '#94a3b8'
     externalData = compWithSnaps.map((c) => {
       const row: Record<string, number | string> = { subject: shorten(c.name) }
@@ -497,15 +523,17 @@ function heatmapCellStyle(pct: number | null): { bg: string; fg: string } {
   if (pct == null) return { bg: '#f3f4f6', fg: '#9ca3af' }
   if (pct >= 80) return { bg: '#22c55e', fg: '#ffffff' }
   if (pct >= 60) return { bg: '#7dd3c0', fg: '#064e3b' }
-  return { bg: '#fb923c', fg: '#ffffff' }
+  if (pct >= 40) return { bg: '#fb923c', fg: '#ffffff' }
+  return { bg: '#ef4444', fg: '#ffffff' }
 }
 
-/** Verde ≥80% · azul ≥60% · laranja <60% — mesma convenção do relatório caseiro. */
+/** Verde ≥80% · azul ≥60% · laranja ≥40% · vermelho <40%. */
 export function favorabilityTextColor(pct: number | null): string {
   if (pct == null) return '#9ca3af'
   if (pct >= 80) return '#15803d'
   if (pct >= 60) return '#0369a1'
-  return '#c2410c'
+  if (pct >= 40) return '#c2410c'
+  return '#b91c1c'
 }
 
 /** Monta as colunas (Auto/Geral/+ grupos) e linhas (1 por competência) do
@@ -517,6 +545,7 @@ function computeDimensionFavorabilityGrid(
   competencies: CompetencyRow[],
   snapshots: SnapshotRow[],
   detailedRows?: CompetencyRelationshipFavorabilityRow[],
+  relOverrides?: Record<string, string>,
 ): { columns: { key: string; label: string }[]; rows: { id: string; name: string; cells: (number | null)[] }[] } {
   const hasDetail = detailedRows != null && detailedRows.length > 0 && detailedRows.some((r) => r.relationship_detail)
 
@@ -532,7 +561,7 @@ function computeDimensionFavorabilityGrid(
     columns = [
       { key: 'self', label: 'Auto' },
       { key: '__geral__', label: 'Geral' },
-      ...detailKeys.map((key) => ({ key, label: REL_DETAIL_LABEL[key] ?? key })),
+      ...detailKeys.map((key) => ({ key, label: relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key })),
     ]
 
     rows = competencies
@@ -567,7 +596,7 @@ function computeDimensionFavorabilityGrid(
     columns = [
       { key: 'self', label: 'Auto' },
       { key: '__geral__', label: 'Geral' },
-      ...relsPresent.map((rel) => ({ key: rel, label: REL_LABEL[rel] ?? rel })),
+      ...relsPresent.map((rel) => ({ key: rel, label: relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel })),
     ]
 
     rows = competencies
@@ -607,14 +636,16 @@ export function DimensionFavorabilityHeatmap({
   competencies,
   scaleId = 'likert_5',
   detailedRows,
+  relOverrides,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
   scaleId?:     string
   detailedRows?: CompetencyRelationshipFavorabilityRow[]
+  relOverrides?: Record<string, string>
 }) {
   const scale = getScale(scaleId)
-  const { columns, rows } = computeDimensionFavorabilityGrid(scale, competencies, snapshots, detailedRows)
+  const { columns, rows } = computeDimensionFavorabilityGrid(scale, competencies, snapshots, detailedRows, relOverrides)
 
   if (rows.length === 0) return null
 
@@ -624,7 +655,7 @@ export function DimensionFavorabilityHeatmap({
         Heatmap de favorabilidade por dimensão
       </h2>
       <p className="text-xs text-gray-400 mb-4">
-        Visão consolidada por dimensão e nível de avaliador. Verde ≥ 80% · Azul ≥ 60% · Laranja &lt; 60%.
+        Visão consolidada por dimensão e nível de avaliador. Verde ≥ 80% · Azul ≥ 60% · Laranja ≥ 40% · Vermelho &lt; 40%.
       </p>
       <div className="overflow-x-auto">
         <table className="w-full text-xs border-separate" style={{ borderSpacing: 4 }}>
@@ -667,14 +698,16 @@ export function DimensionFavorabilityTable({
   competencies,
   scaleId = 'likert_5',
   detailedRows,
+  relOverrides,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
   scaleId?:     string
   detailedRows?: CompetencyRelationshipFavorabilityRow[]
+  relOverrides?: Record<string, string>
 }) {
   const scale = getScale(scaleId)
-  const { columns, rows } = computeDimensionFavorabilityGrid(scale, competencies, snapshots, detailedRows)
+  const { columns, rows } = computeDimensionFavorabilityGrid(scale, competencies, snapshots, detailedRows, relOverrides)
 
   if (rows.length === 0) return null
 
@@ -724,7 +757,8 @@ export function DimensionFavorabilityTable({
         <span>Legenda de cores:</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-600 inline-block" /> Verde ≥ 80%</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-sky-600 inline-block" /> Azul ≥ 60%</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-600 inline-block" /> Laranja &lt; 60%</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-600 inline-block" /> Laranja ≥ 40%</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block" /> Vermelho &lt; 40%</span>
       </div>
     </div>
   )
@@ -1438,6 +1472,83 @@ export function Top5QuestionsSection({
   )
 }
 
+// ─── Divergência entre perspectivas (participant_question_divergence) ─────────
+
+/** Linha de `participant_question_divergence` — amplitude entre o grupo de
+ * avaliador mais favorável e o menos favorável, por pergunta. */
+export interface DivergenceRow {
+  question_number:              number
+  question_prompt:              string
+  dimension_name:                string | null
+  amplitude_points:              number
+  highest_group:                 string | null
+  highest_pct:                   number | null
+  lowest_group:                  string | null
+  lowest_pct:                    number | null
+  groups_compared:                string | null
+  extreme_in_unweighted_group:   boolean | null
+}
+
+export function DivergenceSection({ rows }: { rows: DivergenceRow[] | undefined }) {
+  if (!rows || rows.length === 0) return null
+
+  const sorted = [...rows].sort((a, b) => b.amplitude_points - a.amplitude_points)
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 print-page-break">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
+        Divergência entre perspectivas
+      </h2>
+      <p className="text-xs text-gray-400 mb-4">
+        Diferença entre o grupo de avaliador mais favorável e o menos favorável, por pergunta.
+        Ordenado pela maior amplitude.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="text-left text-gray-400 border-b border-gray-100">
+              <th className="py-1.5 pr-2 font-medium w-8">Nº</th>
+              <th className="py-1.5 px-2 font-medium">Pergunta</th>
+              <th className="py-1.5 px-2 font-medium">Dimensão</th>
+              <th className="py-1.5 px-2 font-medium text-right">Amplitude</th>
+              <th className="py-1.5 px-2 font-medium">Mais alto</th>
+              <th className="py-1.5 px-2 font-medium">Mais baixo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r) => (
+              <tr key={r.question_number} className="border-b border-gray-50 last:border-0 align-top">
+                <td className="py-2 pr-2 text-gray-400">{r.question_number}</td>
+                <td className="py-2 px-2 text-gray-700 leading-snug max-w-sm">
+                  {r.question_prompt}
+                  {r.extreme_in_unweighted_group && (
+                    <span className="ml-1.5 text-[10px] text-amber-600 font-medium">⚠ grupo sem peso</span>
+                  )}
+                </td>
+                <td className="py-2 px-2 text-gray-500 whitespace-nowrap">{r.dimension_name ?? '—'}</td>
+                <td className="py-2 px-2 text-right font-semibold text-gray-800">
+                  {r.amplitude_points.toFixed(2)} pts
+                </td>
+                <td className="py-2 px-2 whitespace-nowrap">
+                  <span className="text-emerald-700 font-medium">{r.highest_group ?? '—'}</span>
+                  {r.highest_pct != null && <span className="text-gray-400"> · {r.highest_pct.toFixed(0)}%</span>}
+                </td>
+                <td className="py-2 px-2 whitespace-nowrap">
+                  <span className="text-red-700 font-medium">{r.lowest_group ?? '—'}</span>
+                  {r.lowest_pct != null && <span className="text-gray-400"> · {r.lowest_pct.toFixed(0)}%</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-gray-400 mt-3">
+        Comparação só entre categorias com respondentes suficientes para leitura individual.
+      </p>
+    </div>
+  )
+}
+
 // ─── Resultado detalhado — todas as perguntas ──────────────────────────────────
 
 export function AllQuestionsDetailSection({
@@ -1517,9 +1628,11 @@ function barBgClass(score: number | null, scale: ScaleDefinition): string {
 export function SnapshotsByRelationship({
   snapshots,
   scaleId = 'likert_5',
+  relOverrides,
 }: {
   snapshots: SnapshotRow[]
   scaleId?:  string
+  relOverrides?: Record<string, string>
 }) {
   const scale = getScale(scaleId)
   const overallSnaps = snapshots
@@ -1541,7 +1654,7 @@ export function SnapshotsByRelationship({
                 className="inline-block w-2 h-2 rounded-full shrink-0"
                 style={{ backgroundColor: RADAR_PALETTE[s.relationship_code] ?? '#9ca3af' }}
               />
-              {REL_LABEL[s.relationship_code] ?? s.relationship_code}
+              {relOverrides?.[s.relationship_code] ?? REL_LABEL[s.relationship_code] ?? s.relationship_code}
             </span>
             <div className="flex-1 bg-gray-100 rounded-full h-2">
               <div
@@ -1571,11 +1684,13 @@ export function CompetencyBreakdown({
   competencies,
   scaleId = 'likert_5',
   questionScores = [],
+  relOverrides,
 }: {
   snapshots:      SnapshotRow[]
   competencies:   CompetencyRow[]
   scaleId?:       string
   questionScores?: QuestionScoreRow[]
+  relOverrides?: Record<string, string>
 }) {
   const scale    = getScale(scaleId)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -1597,10 +1712,10 @@ export function CompetencyBreakdown({
     ? REL_DETAIL_ORDER
         .map(({ code, detail }) => qrowKey(code, detail))
         .filter((key) => questionScores.some((q) => qrowKey(q.relationship_code, q.relationship_detail) === key))
-        .map((key) => ({ key, label: REL_DETAIL_LABEL[key] ?? key }))
+        .map((key) => ({ key, label: relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key }))
     : [...new Set(withComp.map((s) => s.relationship_code))]
         .sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
-        .map((rel) => ({ key: rel, label: REL_SHORT[rel] ?? rel }))
+        .map((rel) => ({ key: rel, label: relOverrides?.[rel] ?? REL_SHORT[rel] ?? rel }))
 
   // Group question scores by competency then by question_id
   const qByComp = new Map<string, Map<string, QuestionScoreRow[]>>()
@@ -2099,18 +2214,20 @@ function avgFromDistribution(dist: Record<string, number> | null | undefined): n
 // Pares Direto / Pares Indireto) — evita traduzir pra self/gestor/pares/
 // subordinados genérico quando o dado tem essa granularidade mais fina.
 export const REL_DETAIL_ORDER: { code: string; detail: string | null }[] = [
-  { code: 'self',        detail: null },
-  { code: 'manager',     detail: null },
-  { code: 'subordinate', detail: 'Direto' },
-  { code: 'subordinate', detail: 'Indireto' },
-  { code: 'peer',        detail: 'Direto' },
-  { code: 'peer',        detail: 'Indireto' },
-  { code: 'client',      detail: null },
+  { code: 'self',              detail: null },
+  { code: 'manager',           detail: null },
+  { code: 'manager_superior',  detail: null },
+  { code: 'subordinate',       detail: 'Direto' },
+  { code: 'subordinate',       detail: 'Indireto' },
+  { code: 'peer',              detail: 'Direto' },
+  { code: 'peer',              detail: 'Indireto' },
+  { code: 'client',            detail: null },
 ]
 
 export const REL_DETAIL_LABEL: Record<string, string> = {
   'self|':               'Auto Avaliação',
   'manager|':            'Gestor',
+  'manager_superior|':   'Liderança Superior',
   'subordinate|Direto':  'Equipe Direta',
   'subordinate|Indireto':'Equipe Indireta',
   'peer|Direto':         'Pares Direto',
@@ -2122,12 +2239,15 @@ export function FavorabilityByRelationshipSection({
   snapshots,
   scaleId = 'likert_5',
   detailedRows,
+  relOverrides,
 }: {
   snapshots: SnapshotRow[]
   scaleId?:  string
   /** Quando presente, usa a terminologia detalhada (Pares/Equipe Direto/Indireto)
    * em vez do corte coarse self/gestor/pares/subordinados. */
   detailedRows?: RelationshipDetailFavorabilityRow[]
+  /** Sobreposição de rótulos por tenant (ver tenantRelOverrides). */
+  relOverrides?: Record<string, string>
 }) {
   const scale = getScale(scaleId)
 
@@ -2141,7 +2261,7 @@ export function FavorabilityByRelationshipSection({
         )
         if (!row) return null
         const key = `${code}|${detail ?? ''}`
-        const label = REL_DETAIL_LABEL[key] ?? key
+        const label = relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key
         if (row.suppressed) {
           return { key, label, fav: null, note: `${row.rater_count} avaliador${row.rater_count !== 1 ? 'es' : ''} — abaixo do mínimo` }
         }
@@ -2164,7 +2284,7 @@ export function FavorabilityByRelationshipSection({
         if (!dists || dists.length === 0) return null
         const fav = computeFavorability(mergeDistributions(dists), scale)
         if (fav.total === 0) return null
-        return { key: rel, label: REL_LABEL[rel] ?? rel, fav }
+        return { key: rel, label: relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel, fav }
       })
       .filter(Boolean) as { key: string; label: string; fav: Favorability | null; note?: string }[]
   }
@@ -3134,6 +3254,106 @@ export interface ReportDisplayProps {
   /** Distribuição por (competência, relacionamento, detalhe) — permite o heatmap
    * mostrar Pares/Equipe Direto/Indireto por dimensão em vez do corte coarse. */
   competencyRelationshipFavorability?: CompetencyRelationshipFavorabilityRow[]
+  /** Notas de leitura pré-calculadas (número único externo) — hoje só populada
+   * para tenants com `cycles.external_overall_scores = true` (ex.: Flexmetal v2). */
+  reportNotes?: ReportNotesRow | null
+  /** Divergência entre perspectivas por pergunta — mesma condição acima. */
+  divergence?: DivergenceRow[]
+  /** Sobreposição de rótulos por tenant (ver tenantRelOverrides). */
+  relOverrides?: Record<string, string>
+}
+
+/** Linha de `participant_report_notes` — leitura narrativa que acompanha um
+ * `overall_score` calculado externamente (fora do compute_scores do Maptiva). */
+export interface ReportNotesRow {
+  overall_score:               number | null
+  overall_favorability_pct:    number | null
+  reading_phrase:               string | null
+  group_position:               string | null
+  group_position_diff:          number | null
+  reading_threshold:            number | null
+  ranking_secondary:            number | null
+  self_favorability_pct:        number | null
+  self_awareness_gap:           number | null
+  reliability_tier:             string | null
+  reliability_alerts:           string | null
+  reliability_mandatory_note:   string | null
+  biggest_weight_group:         string | null
+  biggest_weight_group_pct:     number | null
+  undifferentiated_responses:   number | null
+  direct_manager_name:          string | null
+}
+
+const GROUP_POSITION_LABEL: Record<string, string> = {
+  acima:  'Acima da média do grupo',
+  dentro: 'Dentro da média do grupo',
+  abaixo: 'Abaixo da média do grupo',
+}
+
+/** Bloco de leitura do número único: chefe direto identificado, frase de
+ * leitura, posição contra a média do grupo e confiabilidade — usado quando o
+ * ciclo trava o overall_score (`external_overall_scores = true`). */
+export function ReportNotesSection({ notes }: { notes: ReportNotesRow | null | undefined }) {
+  if (!notes) return null
+
+  const positionLabel = notes.group_position ? (GROUP_POSITION_LABEL[notes.group_position] ?? notes.group_position) : null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+        Leitura do resultado
+      </h2>
+
+      <div className="grid sm:grid-cols-2 gap-4 mb-4">
+        {notes.direct_manager_name && (
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Chefe direto</p>
+            <p className="text-sm text-gray-800 font-medium">{notes.direct_manager_name}</p>
+          </div>
+        )}
+        {positionLabel && (
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Posição contra a média do grupo</p>
+            <p className="text-sm text-gray-800 font-medium">
+              {positionLabel}
+              {notes.group_position_diff != null && (
+                <span className="text-gray-400 font-normal"> ({notes.group_position_diff >= 0 ? '+' : ''}{notes.group_position_diff.toFixed(2)} pts)</span>
+              )}
+            </p>
+          </div>
+        )}
+        {notes.ranking_secondary != null && (
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Posição no ranking</p>
+            <p className="text-sm text-gray-800 font-medium">{notes.ranking_secondary}º lugar</p>
+          </div>
+        )}
+        {notes.reliability_tier && (
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Confiabilidade da nota</p>
+            <p className="text-sm text-gray-800 font-medium">{notes.reliability_tier}</p>
+          </div>
+        )}
+      </div>
+
+      {notes.reading_phrase && (
+        <p className="text-xs text-gray-500 italic border-t border-gray-100 pt-3">
+          {notes.reading_phrase}
+        </p>
+      )}
+
+      {notes.reliability_mandatory_note && (
+        <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
+          <p className="text-xs font-semibold text-amber-800 mb-1">Nota obrigatória</p>
+          <p className="text-xs text-amber-700">{notes.reliability_mandatory_note}</p>
+        </div>
+      )}
+
+      {notes.reliability_alerts && (
+        <p className="text-xs text-gray-400 mt-2">{notes.reliability_alerts}</p>
+      )}
+    </div>
+  )
 }
 
 function largestRemainderPct(entries: [string, number][]): [string, number][] {
@@ -3180,6 +3400,9 @@ export function ReportDisplay({
   onSaveConsultantNotes,
   relationshipDetailFavorability,
   competencyRelationshipFavorability,
+  reportNotes,
+  divergence,
+  relOverrides,
 }: ReportDisplayProps) {
   const hasCompetencies   = competencies.length > 0
   const hasBenchmark      = benchmark != null && Object.keys(benchmark).length > 0
@@ -3194,7 +3417,7 @@ export function ReportDisplay({
       <ConsultantNotesSection notes={profile.consultant_notes} onSave={onSaveConsultantNotes} />
 
       {/* 1. Participation summary */}
-      <ParticipationPanel snapshots={snapshots} />
+      <ParticipationPanel snapshots={snapshots} relOverrides={relOverrides} />
 
       {/* 1.1 Favorabilidade geral */}
       {hasCompetencies && (
@@ -3206,7 +3429,11 @@ export function ReportDisplay({
         snapshots={snapshots}
         scaleId={scaleId}
         detailedRows={relationshipDetailFavorability}
+        relOverrides={relOverrides}
       />
+
+      {/* 1.3 Leitura do resultado (chefe direto, frase de leitura, posição, confiabilidade) */}
+      <ReportNotesSection notes={reportNotes} />
 
       {/* 2. Overall scores + self-awareness index */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -3227,20 +3454,27 @@ export function ReportDisplay({
             }
             return { value: avgFromDistribution(row.distribution), note: undefined }
           }
+          const detailBadges = hasDetail && rows
+            ? REL_DETAIL_ORDER
+                .filter(({ code }) => code !== 'self')
+                .flatMap(({ code, detail }) => {
+                  const row = findRow(code, detail)
+                  if (!row) return []
+                  const key = `${code}|${detail ?? ''}`
+                  return [{ key, label: relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key, ...badgeProps(code, detail) }]
+                })
+            : null
           return (
-            <div className={`grid gap-3 ${hasDetail ? 'grid-cols-3 sm:grid-cols-6' : 'grid-cols-5'}`}>
+            <div className={`grid gap-3 ${detailBadges ? 'grid-cols-3 sm:grid-cols-6' : 'grid-cols-5'}`}>
               <ScoreBadge value={profile.overall_score} label="Média Geral" scaleId={scaleId} />
               <ScoreBadge value={profile.self_score}    label="Autoavaliação" scaleId={scaleId} />
-              {hasDetail ? (
-                <>
-                  <ScoreBadge {...badgeProps('subordinate', 'Direto')}   label="Equipe Direta"   scaleId={scaleId} />
-                  <ScoreBadge {...badgeProps('subordinate', 'Indireto')} label="Equipe Indireta" scaleId={scaleId} />
-                  <ScoreBadge {...badgeProps('peer', 'Direto')}          label="Pares Direto"    scaleId={scaleId} />
-                  <ScoreBadge {...badgeProps('peer', 'Indireto')}        label="Pares Indireto"  scaleId={scaleId} />
-                </>
+              {detailBadges ? (
+                detailBadges.map((b) => (
+                  <ScoreBadge key={b.key} value={b.value} note={b.note} label={b.label} scaleId={scaleId} />
+                ))
               ) : (
                 <>
-                  <ScoreBadge value={profile.manager_score}     label="Gestor"       scaleId={scaleId} />
+                  <ScoreBadge value={profile.manager_score}     label={relOverrides?.manager ?? 'Gestor'}       scaleId={scaleId} />
                   <ScoreBadge value={profile.peer_score}        label="Pares"        scaleId={scaleId} />
                   <ScoreBadge value={profile.subordinate_score} label="Subordinados" scaleId={scaleId} />
                 </>
@@ -3264,7 +3498,7 @@ export function ReportDisplay({
 
       {/* 4. Dual radar */}
       {hasCompetencies && (
-        <DualRadarSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} questionScores={questionScores} />
+        <DualRadarSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} questionScores={questionScores} relOverrides={relOverrides} />
       )}
 
       {/* 4.2 Roda única de favorabilidade (Auto x Externos + Meta) */}
@@ -3279,6 +3513,7 @@ export function ReportDisplay({
           competencies={competencies}
           scaleId={scaleId}
           detailedRows={competencyRelationshipFavorability}
+          relOverrides={relOverrides}
         />
       )}
 
@@ -3289,6 +3524,7 @@ export function ReportDisplay({
           competencies={competencies}
           scaleId={scaleId}
           detailedRows={competencyRelationshipFavorability}
+          relOverrides={relOverrides}
         />
       )}
 
@@ -3299,6 +3535,7 @@ export function ReportDisplay({
           competencies={competencies}
           scaleId={scaleId}
           questionScores={questionScores}
+          relOverrides={relOverrides}
         />
       )}
 
@@ -3306,6 +3543,9 @@ export function ReportDisplay({
       {hasCompetencies && (
         <DimensionBreakdown snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
       )}
+
+      {/* 5.5 Divergência entre perspectivas (só existe em ciclos com número único externo) */}
+      <DivergenceSection rows={divergence} />
 
       {/* 6. GAP visual bars */}
       {hasCompetencies && (
@@ -3338,7 +3578,7 @@ export function ReportDisplay({
       )}
 
       {/* 9. Scores by relationship */}
-      <SnapshotsByRelationship snapshots={snapshots} scaleId={scaleId} />
+      <SnapshotsByRelationship snapshots={snapshots} scaleId={scaleId} relOverrides={relOverrides} />
 
       {/* 10. Score distribution */}
       {hasCompetencies && (

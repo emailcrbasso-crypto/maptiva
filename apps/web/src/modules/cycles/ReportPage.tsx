@@ -5,7 +5,7 @@ import { exportCycleReportExcel } from '@/lib/exportReport'
 import type { CycleSummary } from '@/lib/exportReport'
 import { exportCycleReportPdf, type PdfSnapshotRow, type PdfCompetencyRow } from '@/lib/exportReportPdf'
 import { useTenant } from '@/modules/auth/TenantContext'
-import { ExecutiveSynthesisSection, computeFavorability, mergeDistributions } from './reportShared'
+import { ExecutiveSynthesisSection, computeFavorability, mergeDistributions, REL_DETAIL_ORDER, REL_DETAIL_LABEL, tenantRelOverrides } from './reportShared'
 import { getScale } from '@/lib/scales'
 import {
   Radar,
@@ -47,21 +47,22 @@ interface CommentRow {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const REL_SHORT: Record<string, string> = {
-  self: 'Autoavaliação', manager: 'Gestor', peer: 'Pares',
+  self: 'Autoavaliação', manager: 'Gestor', manager_superior: 'Liderança Sup.', peer: 'Pares',
   subordinate: 'Subordinados', client: 'Cliente',
 }
 
 const REL_LABEL: Record<string, string> = {
-  self: 'Autoavaliação', manager: 'Gestor', peer: 'Pares',
+  self: 'Autoavaliação', manager: 'Gestor', manager_superior: 'Liderança Superior', peer: 'Pares',
   subordinate: 'Subordinados', client: 'Clientes',
 }
 
 const RADAR_PALETTE: Record<string, string> = {
-  self:        '#6366f1',
-  manager:     '#10b981',
-  peer:        '#f59e0b',
-  subordinate: '#3b82f6',
-  client:      '#ec4899',
+  self:              '#6366f1',
+  manager:           '#10b981',
+  manager_superior:  '#0d9488',
+  peer:              '#f59e0b',
+  subordinate:       '#3b82f6',
+  client:            '#ec4899',
 }
 
 // ─── Score badge ──────────────────────────────────────────────────────────────
@@ -93,10 +94,12 @@ function ParticipantRadar({
   cpId,
   snapshots,
   competencies,
+  relOverrides,
 }: {
   cpId:         string
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
+  relOverrides?: Record<string, string>
 }) {
   const mySnaps = snapshots.filter(
     (s) =>
@@ -141,7 +144,7 @@ function ParticipantRadar({
           {relationships.map((rel) => (
             <Radar
               key={rel}
-              name={REL_LABEL[rel] ?? rel}
+              name={relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel}
               dataKey={rel}
               stroke={RADAR_PALETTE[rel] ?? '#94a3b8'}
               fill={RADAR_PALETTE[rel] ?? '#94a3b8'}
@@ -163,10 +166,12 @@ function CompetencyBreakdown({
   cpId,
   snapshots,
   competencies,
+  relOverrides,
 }: {
   cpId: string
   snapshots: SnapshotRow[]
   competencies: CompetencyRow[]
+  relOverrides?: Record<string, string>
 }) {
   const mySnaps = snapshots.filter(
     (s) => s.cycle_participant_id === cpId && s.competency_id && s.visibility_status === 'visible'
@@ -199,7 +204,7 @@ function CompetencyBreakdown({
               </th>
               {relationships.map((r) => (
                 <th key={r} className="text-center text-gray-500 font-medium pb-2 px-2 min-w-[60px]">
-                  {REL_SHORT[r] ?? r}
+                  {relOverrides?.[r] ?? REL_SHORT[r] ?? r}
                 </th>
               ))}
             </tr>
@@ -426,6 +431,7 @@ function FavorabilityBarMini({ fav }: { fav: { favoravel: number; neutro: number
 export function ReportPage() {
   const { id }       = useParams<{ id: string }>()
   const { branding } = useTenant()
+  const relOverrides = tenantRelOverrides(branding.slug)
   const navigate     = useNavigate()
 
   const [summary,      setSummary]      = useState<CycleSummary | null>(null)
@@ -439,6 +445,7 @@ export function ReportPage() {
   const [releasing,    setReleasing]    = useState(false)
   const [exportingPdf, setExportingPdf] = useState(false)
   const [recalculating, setRecalculating] = useState(false)
+  const [externalOverallScores, setExternalOverallScores] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -499,6 +506,13 @@ export function ReportPage() {
         setRelDetailScores(map)
       }
 
+      const { data: cycleRow } = await supabase
+        .from('cycles')
+        .select('external_overall_scores')
+        .eq('id', id)
+        .single()
+      setExternalOverallScores(cycleRow?.external_overall_scores ?? false)
+
       setLoading(false)
     }
     load()
@@ -515,6 +529,10 @@ export function ReportPage() {
   }
 
   async function handleRecalculate() {
+    if (externalOverallScores) {
+      alert('O número único deste ciclo vem pronto da planilha do cliente e está travado — o recálculo não altera o overall_score, só as distribuições por competência.')
+      return
+    }
     if (!id || !confirm('Recalcular scores para todos os participantes? Os dados existentes serão sobrescritos.')) return
     setRecalculating(true)
     const { data, error: err } = await supabase.rpc('compute_scores', { p_cycle_id: id })
@@ -599,11 +617,19 @@ export function ReportPage() {
             {/* Recalculate scores */}
             <button
               onClick={handleRecalculate}
-              disabled={recalculating}
-              title="Recalcula todos os scores a partir das respostas existentes"
-              className="text-sm px-4 py-2 rounded-lg border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 transition-colors"
+              disabled={recalculating || externalOverallScores}
+              title={
+                externalOverallScores
+                  ? 'Número único travado — vem pronto da planilha do cliente'
+                  : 'Recalcula todos os scores a partir das respostas existentes'
+              }
+              className={`text-sm px-4 py-2 rounded-lg border transition-colors disabled:opacity-50 ${
+                externalOverallScores
+                  ? 'border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed'
+                  : 'border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100'
+              }`}
             >
-              {recalculating ? '⏳ Recalculando...' : '🔄 Recalcular scores'}
+              {recalculating ? '⏳ Recalculando...' : externalOverallScores ? '🔒 Número travado' : '🔄 Recalcular scores'}
             </button>
 
             {/* Release / badge */}
@@ -722,17 +748,24 @@ export function ReportPage() {
                 {(() => {
                   const detail = relDetailScores.get(p.cycle_participant_id)
                   const hasDetail = detail != null && [...detail.keys()].some((k) => k.includes('|Direto') || k.includes('|Indireto'))
+                  const detailBadges: { key: string; label: string; value: number | null; note?: string }[] | null = hasDetail && detail
+                    ? REL_DETAIL_ORDER
+                        .filter(({ code }) => code !== 'self')
+                        .flatMap(({ code, detail: d }) => {
+                          const key = `${code}|${d ?? ''}`
+                          const row = detail.get(key)
+                          if (!row) return []
+                          return [{ key, label: relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key, value: row.value, note: row.note }]
+                        })
+                    : null
                   return (
-                    <div className={`grid gap-2 ${hasDetail ? 'grid-cols-3 sm:grid-cols-6' : 'grid-cols-5'}`}>
+                    <div className={`grid gap-2 ${detailBadges ? 'grid-cols-3 sm:grid-cols-6' : 'grid-cols-5'}`}>
                       <ScoreBadge value={p.overall_score} label="Média Geral" />
                       <ScoreBadge value={p.self_score}    label="Autoavaliação" />
-                      {hasDetail && detail ? (
-                        <>
-                          <ScoreBadge value={detail.get('subordinate|Direto')?.value   ?? null} note={detail.get('subordinate|Direto')?.note}   label="Equipe Direta" />
-                          <ScoreBadge value={detail.get('subordinate|Indireto')?.value ?? null} note={detail.get('subordinate|Indireto')?.note} label="Equipe Indireta" />
-                          <ScoreBadge value={detail.get('peer|Direto')?.value          ?? null} note={detail.get('peer|Direto')?.note}          label="Pares Direto" />
-                          <ScoreBadge value={detail.get('peer|Indireto')?.value        ?? null} note={detail.get('peer|Indireto')?.note}        label="Pares Indireto" />
-                        </>
+                      {detailBadges ? (
+                        detailBadges.map((b) => (
+                          <ScoreBadge key={b.key} value={b.value} note={b.note} label={b.label} />
+                        ))
                       ) : (
                         <>
                           <ScoreBadge value={p.manager_score}     label="Gestor" />
@@ -750,6 +783,7 @@ export function ReportPage() {
                     cpId={p.cycle_participant_id}
                     snapshots={snapshots}
                     competencies={competencies}
+                    relOverrides={relOverrides}
                   />
                 )}
 
@@ -759,6 +793,7 @@ export function ReportPage() {
                     cpId={p.cycle_participant_id}
                     snapshots={snapshots}
                     competencies={competencies}
+                    relOverrides={relOverrides}
                   />
                 )}
 

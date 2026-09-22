@@ -37,11 +37,12 @@ interface CompetencyRow {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const REL_ROWS: { code: string; label: string }[] = [
-  { code: 'self',        label: 'Autoavaliação' },
-  { code: 'manager',     label: 'Gestor' },
-  { code: 'peer',        label: 'Pares' },
-  { code: 'subordinate', label: 'Subordinados' },
-  { code: 'client',      label: 'Clientes' },
+  { code: 'self',              label: 'Autoavaliação' },
+  { code: 'manager',           label: 'Gestor' },
+  { code: 'manager_superior',  label: 'Liderança Superior' },
+  { code: 'peer',              label: 'Pares' },
+  { code: 'subordinate',       label: 'Subordinados' },
+  { code: 'client',            label: 'Clientes' },
 ]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

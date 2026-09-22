@@ -74,7 +74,7 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 const REL_LABEL: Record<string, string> = {
-  self: 'Autoavaliação', manager: 'Gestor', peer: 'Par',
+  self: 'Autoavaliação', manager: 'Gestor', manager_superior: 'Liderança Superior', peer: 'Par',
   subordinate: 'Subordinado', client: 'Cliente', mentor: 'Mentor',
 }
 

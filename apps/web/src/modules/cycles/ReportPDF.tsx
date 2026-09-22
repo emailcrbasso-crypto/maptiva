@@ -29,6 +29,8 @@ import {
   qrowKey,
   computeGroupAverages,
   type CompetencyRelationshipFavorabilityRow,
+  type ReportNotesRow,
+  type DivergenceRow,
 } from './reportShared'
 import { getScale, scoreToPercent, type ScaleDefinition } from '@/lib/scales'
 
@@ -304,7 +306,7 @@ function CoverPage({
 
 // ─── 1. Participation section ─────────────────────────────────────────────────
 
-function ParticipationSectionPDF({ snapshots }: { snapshots: SnapshotRow[] }) {
+function ParticipationSectionPDF({ snapshots, relOverrides }: { snapshots: SnapshotRow[]; relOverrides?: Record<string, string> }) {
   const rows = snapshots
     .filter((s) => !s.competency_id && s.response_count > 0)
     .sort((a, b) => REL_ORDER.indexOf(a.relationship_code) - REL_ORDER.indexOf(b.relationship_code))
@@ -323,7 +325,7 @@ function ParticipationSectionPDF({ snapshots }: { snapshots: SnapshotRow[] }) {
       </View>
       {rows.map((r) => (
         <View key={r.relationship_code} style={s.tableRow} wrap={false}>
-          <Text style={[s.tableCell, { flex: 1 }]}>{REL_LABEL[r.relationship_code] ?? r.relationship_code}</Text>
+          <Text style={[s.tableCell, { flex: 1 }]}>{relOverrides?.[r.relationship_code] ?? REL_LABEL[r.relationship_code] ?? r.relationship_code}</Text>
           <Text style={[s.tableCell, { width: 80, textAlign: 'center', fontFamily: 'Helvetica-Bold' }]}>{r.response_count}</Text>
         </View>
       ))}
@@ -341,14 +343,63 @@ function ParticipationSectionPDF({ snapshots }: { snapshots: SnapshotRow[] }) {
   )
 }
 
+// ─── 1.3 Leitura do resultado (chefe direto, frase, posição, confiabilidade) ──
+
+const GROUP_POSITION_LABEL_PDF: Record<string, string> = {
+  acima:  'Acima da média do grupo',
+  dentro: 'Dentro da média do grupo',
+  abaixo: 'Abaixo da média do grupo',
+}
+
+function ReportNotesSectionPDF({ notes }: { notes: ReportNotesRow | null | undefined }) {
+  if (!notes) return null
+
+  const positionLabel = notes.group_position ? (GROUP_POSITION_LABEL_PDF[notes.group_position] ?? notes.group_position) : null
+
+  const facts: { label: string; value: string }[] = []
+  if (notes.direct_manager_name) facts.push({ label: 'Chefe direto', value: notes.direct_manager_name })
+  if (positionLabel) {
+    facts.push({
+      label: 'Posição contra a média do grupo',
+      value: positionLabel + (notes.group_position_diff != null ? ` (${notes.group_position_diff >= 0 ? '+' : ''}${notes.group_position_diff.toFixed(2)} pts)` : ''),
+    })
+  }
+  if (notes.ranking_secondary != null) facts.push({ label: 'Posição no ranking', value: `${notes.ranking_secondary}º lugar` })
+  if (notes.reliability_tier) facts.push({ label: 'Confiabilidade da nota', value: notes.reliability_tier })
+
+  return (
+    <View style={s.section}>
+      <SectionTitle>Leitura do resultado</SectionTitle>
+      {facts.map((f) => (
+        <View key={f.label} style={{ display: 'flex', flexDirection: 'row', marginBottom: 3 }}>
+          <Text style={{ fontSize: 8, color: C.muted, width: 190 }}>{f.label}</Text>
+          <Text style={{ fontSize: 8, color: C.text, fontFamily: 'Helvetica-Bold' }}>{f.value}</Text>
+        </View>
+      ))}
+      {notes.reading_phrase && (
+        <Text style={{ fontSize: 7.5, color: C.muted, fontStyle: 'italic', marginTop: 6 }}>
+          {notes.reading_phrase}
+        </Text>
+      )}
+      {notes.reliability_mandatory_note && (
+        <View style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a', borderWidth: 1, borderRadius: 4, padding: 6, marginTop: 6 }}>
+          <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#92400e', marginBottom: 2 }}>Nota obrigatória</Text>
+          <Text style={{ fontSize: 7.5, color: '#92400e' }}>{notes.reliability_mandatory_note}</Text>
+        </View>
+      )}
+    </View>
+  )
+}
+
 // ─── 2. Scores section ────────────────────────────────────────────────────────
 
 function ScoresSection({
-  profile, snapshots, competencies, scaleId, questionScores = [],
+  profile, snapshots, competencies, scaleId, questionScores = [], relOverrides,
 }: {
   profile: ProfileData; snapshots: SnapshotRow[]
   competencies: CompetencyRow[]; scaleId: string
   questionScores?: QuestionScoreRow[]
+  relOverrides?: Record<string, string>
 }) {
   const scale     = getScale(scaleId)
   const hasDetail = questionScores.some((q) => q.relationship_detail)
@@ -358,15 +409,18 @@ function ScoresSection({
     ? [
         { label: 'Média Geral',     value: profile.overall_score },
         { label: 'Autoavaliação',   value: profile.self_score },
-        { label: 'Equipe Direta',   value: groupAvg['subordinate|Direto']   ?? null },
-        { label: 'Equipe Indireta', value: groupAvg['subordinate|Indireto'] ?? null },
-        { label: 'Pares Direto',    value: groupAvg['peer|Direto']          ?? null },
-        { label: 'Pares Indireto',  value: groupAvg['peer|Indireto']        ?? null },
+        ...REL_DETAIL_ORDER_PDF
+          .filter(({ code }) => code !== 'self')
+          .flatMap(({ code, detail }) => {
+            const key = `${code}|${detail ?? ''}`
+            if (!(key in groupAvg)) return []
+            return [{ label: relOverrides?.[key] ?? REL_DETAIL_LABEL_PDF[key] ?? key, value: groupAvg[key] ?? null }]
+          }),
       ]
     : [
         { label: 'Média Geral', value: profile.overall_score },
         { label: 'Autoavaliação', value: profile.self_score },
-        { label: 'Gestor',     value: profile.manager_score },
+        { label: relOverrides?.manager ?? 'Gestor',     value: profile.manager_score },
         { label: 'Pares',      value: profile.peer_score },
         { label: 'Subordinados', value: profile.subordinate_score },
       ]
@@ -466,18 +520,20 @@ export interface RelationshipDetailFavorabilityRowPDF {
 }
 
 const REL_DETAIL_ORDER_PDF: { code: string; detail: string | null }[] = [
-  { code: 'self',        detail: null },
-  { code: 'manager',     detail: null },
-  { code: 'subordinate', detail: 'Direto' },
-  { code: 'subordinate', detail: 'Indireto' },
-  { code: 'peer',        detail: 'Direto' },
-  { code: 'peer',        detail: 'Indireto' },
-  { code: 'client',      detail: null },
+  { code: 'self',              detail: null },
+  { code: 'manager',           detail: null },
+  { code: 'manager_superior',  detail: null },
+  { code: 'subordinate',       detail: 'Direto' },
+  { code: 'subordinate',       detail: 'Indireto' },
+  { code: 'peer',              detail: 'Direto' },
+  { code: 'peer',              detail: 'Indireto' },
+  { code: 'client',            detail: null },
 ]
 
 const REL_DETAIL_LABEL_PDF: Record<string, string> = {
   'self|':                'Auto Avaliação',
   'manager|':             'Gestor',
+  'manager_superior|':    'Liderança Superior',
   'subordinate|Direto':   'Equipe Direta',
   'subordinate|Indireto': 'Equipe Indireta',
   'peer|Direto':          'Pares Direto',
@@ -486,10 +542,11 @@ const REL_DETAIL_LABEL_PDF: Record<string, string> = {
 }
 
 function FavorabilityByRelationshipSectionPDF({
-  snapshots, scaleId, detailedRows,
+  snapshots, scaleId, detailedRows, relOverrides,
 }: {
   snapshots: SnapshotRow[]; scaleId: string
   detailedRows?: RelationshipDetailFavorabilityRowPDF[]
+  relOverrides?: Record<string, string>
 }) {
   const scale = getScale(scaleId)
 
@@ -503,7 +560,7 @@ function FavorabilityByRelationshipSectionPDF({
         )
         if (!row) return null
         const key = `${code}|${detail ?? ''}`
-        const label = REL_DETAIL_LABEL_PDF[key] ?? key
+        const label = relOverrides?.[key] ?? REL_DETAIL_LABEL_PDF[key] ?? key
         if (row.suppressed) {
           return { key, label, fav: null, note: `${row.rater_count} avaliador${row.rater_count !== 1 ? 'es' : ''} — abaixo do mínimo` }
         }
@@ -520,7 +577,7 @@ function FavorabilityByRelationshipSectionPDF({
         if (snaps.length === 0) return null
         const fav = computeFavorability(mergeDist(snaps), scale)
         if (fav.total === 0) return null
-        return { key: rel, label: REL_LABEL[rel] ?? rel, fav }
+        return { key: rel, label: relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel, fav }
       })
       .filter(Boolean) as { key: string; label: string; fav: ReturnType<typeof computeFavorability> | null; note?: string }[]
   }
@@ -659,15 +716,17 @@ function heatmapCellStylePDF(pct: number | null): { bg: string; fg: string } {
   if (pct == null) return { bg: '#f3f4f6', fg: '#9ca3af' }
   if (pct >= 80) return { bg: '#22c55e', fg: '#ffffff' }
   if (pct >= 60) return { bg: '#7dd3c0', fg: '#064e3b' }
-  return { bg: '#fb923c', fg: '#ffffff' }
+  if (pct >= 40) return { bg: '#fb923c', fg: '#ffffff' }
+  return { bg: '#ef4444', fg: '#ffffff' }
 }
 
-/** Verde ≥80% · azul ≥60% · laranja <60% — mesma convenção do relatório caseiro. */
+/** Verde ≥80% · azul ≥60% · laranja ≥40% · vermelho <40%. */
 function favorabilityTextColorPDF(pct: number | null): string {
   if (pct == null) return C.light
   if (pct >= 80) return '#15803d'
   if (pct >= 60) return '#0369a1'
-  return '#c2410c'
+  if (pct >= 40) return '#c2410c'
+  return '#b91c1c'
 }
 
 function computeDimensionFavorabilityGridPDF(
@@ -675,6 +734,7 @@ function computeDimensionFavorabilityGridPDF(
   competencies: CompetencyRow[],
   snapshots: SnapshotRow[],
   detailedRows?: CompetencyRelationshipFavorabilityRow[],
+  relOverrides?: Record<string, string>,
 ): { columns: { key: string; label: string }[]; rows: { name: string; cells: (number | null)[] }[] } {
   const hasDetail = detailedRows != null && detailedRows.length > 0 && detailedRows.some((r) => r.relationship_detail)
 
@@ -690,7 +750,7 @@ function computeDimensionFavorabilityGridPDF(
     columns = [
       { key: 'self', label: 'Auto' },
       { key: '__geral__', label: 'Geral' },
-      ...detailKeys.map((key) => ({ key, label: REL_DETAIL_LABEL[key] ?? key })),
+      ...detailKeys.map((key) => ({ key, label: relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key })),
     ]
 
     rows = competencies
@@ -723,7 +783,7 @@ function computeDimensionFavorabilityGridPDF(
     columns = [
       { key: 'self', label: 'Auto' },
       { key: '__geral__', label: 'Geral' },
-      ...relsPresent.map((rel) => ({ key: rel, label: REL_LABEL[rel] ?? rel })),
+      ...relsPresent.map((rel) => ({ key: rel, label: relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel })),
     ]
 
     rows = competencies
@@ -756,13 +816,14 @@ function computeDimensionFavorabilityGridPDF(
 }
 
 function DimensionFavorabilityHeatmapPDF({
-  snapshots, competencies, scaleId, detailedRows,
+  snapshots, competencies, scaleId, detailedRows, relOverrides,
 }: {
   snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
   detailedRows?: CompetencyRelationshipFavorabilityRow[]
+  relOverrides?: Record<string, string>
 }) {
   const scale = getScale(scaleId)
-  const { columns, rows } = computeDimensionFavorabilityGridPDF(scale, competencies, snapshots, detailedRows)
+  const { columns, rows } = computeDimensionFavorabilityGridPDF(scale, competencies, snapshots, detailedRows, relOverrides)
 
   if (rows.length === 0) return null
 
@@ -772,7 +833,7 @@ function DimensionFavorabilityHeatmapPDF({
     <View style={s.section} break>
       <SectionTitle>Heatmap de favorabilidade por dimensão</SectionTitle>
       <Text style={s.sectionSubtitle}>
-        Visão consolidada por dimensão e nível de avaliador. Verde ≥ 80% · Azul ≥ 60% · Laranja &lt; 60%.
+        Visão consolidada por dimensão e nível de avaliador. Verde ≥ 80% · Azul ≥ 60% · Laranja ≥ 40% · Vermelho &lt; 40%.
       </Text>
 
       <View style={{ display: 'flex', flexDirection: 'row', marginBottom: 3 }}>
@@ -804,13 +865,14 @@ function DimensionFavorabilityHeatmapPDF({
 // ─── 4.3b Tabela de favorabilidade por dimensão (formato do relatório caseiro) ─
 
 function DimensionFavorabilityTablePDF({
-  snapshots, competencies, scaleId, detailedRows,
+  snapshots, competencies, scaleId, detailedRows, relOverrides,
 }: {
   snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
   detailedRows?: CompetencyRelationshipFavorabilityRow[]
+  relOverrides?: Record<string, string>
 }) {
   const scale = getScale(scaleId)
-  const { columns, rows } = computeDimensionFavorabilityGridPDF(scale, competencies, snapshots, detailedRows)
+  const { columns, rows } = computeDimensionFavorabilityGridPDF(scale, competencies, snapshots, detailedRows, relOverrides)
 
   if (rows.length === 0) return null
 
@@ -855,7 +917,7 @@ function DimensionFavorabilityTablePDF({
       ))}
 
       <Text style={{ fontSize: 6.5, color: C.light, marginTop: 6 }}>
-        Verde ≥ 80% · Azul ≥ 60% · Laranja &lt; 60%
+        Verde ≥ 80% · Azul ≥ 60% · Laranja ≥ 40% · Vermelho &lt; 40%
       </Text>
     </View>
   )
@@ -920,6 +982,7 @@ function FavorabilitySectionPDF({
 // ─── 3. Roda da liderança (Dual Radar) ───────────────────────────────────────
 
 const RADAR_DETAIL_PALETTE_PDF: Record<string, string> = {
+  'manager_superior|':    '#0d9488',
   'peer|Direto':          '#f59e0b',
   'peer|Indireto':        '#fb923c',
   'subordinate|Direto':   '#3b82f6',
@@ -927,12 +990,13 @@ const RADAR_DETAIL_PALETTE_PDF: Record<string, string> = {
 }
 
 function DualRadarSectionPDF({
-  snapshots, competencies, scaleId, goalPct = 80, questionScores = [],
+  snapshots, competencies, scaleId, goalPct = 80, questionScores = [], relOverrides,
 }: {
   snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
   /** Meta de favorabilidade (%) exibida como polígono tracejado. Passe null para ocultar. */
   goalPct?: number | null
   questionScores?: QuestionScoreRow[]
+  relOverrides?: Record<string, string>
 }) {
   const scale = getScale(scaleId)
   const goalValue = goalPct != null ? (goalPct / 100) * scale.max : undefined
@@ -977,7 +1041,7 @@ function DualRadarSectionPDF({
         const e = byCompRel.get(c.id)?.get(key)
         return e ? e.sum / e.n : 0
       }),
-      name: REL_DETAIL_LABEL[key] ?? key,
+      name: relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key,
     }))
   } else {
     const externalRels = [...new Set(
@@ -992,7 +1056,7 @@ function DualRadarSectionPDF({
       values: compWithSnaps.map((c) =>
         snapshots.find((s) => s.competency_id === c.id && s.relationship_code === rel)?.score_avg ?? 0
       ),
-      name: REL_LABEL[rel] ?? rel,
+      name: relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel,
     }))
   }
 
@@ -1084,6 +1148,44 @@ function DualRadarSectionPDF({
   )
 }
 
+// ─── 3.5 Divergência entre perspectivas (participant_question_divergence) ─────
+
+function DivergenceSectionPDF({ rows }: { rows: DivergenceRow[] | undefined }) {
+  if (!rows || rows.length === 0) return null
+  const sorted = [...rows].sort((a, b) => b.amplitude_points - a.amplitude_points)
+
+  return (
+    <View style={s.section} break>
+      <SectionTitle>Divergência entre perspectivas</SectionTitle>
+      <Text style={s.sectionSubtitle}>
+        Diferença entre o grupo de avaliador mais favorável e o menos favorável, por pergunta.
+      </Text>
+      <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: '#e5e7eb', paddingBottom: 3, marginBottom: 3 }}>
+        <Text style={{ width: 16, fontSize: 6.5, color: C.light }}>Nº</Text>
+        <Text style={{ flex: 2, fontSize: 6.5, color: C.light }}>Pergunta</Text>
+        <Text style={{ width: 40, fontSize: 6.5, color: C.light, textAlign: 'right' }}>Amplitude</Text>
+        <Text style={{ flex: 1, fontSize: 6.5, color: C.light }}>Mais alto</Text>
+        <Text style={{ flex: 1, fontSize: 6.5, color: C.light }}>Mais baixo</Text>
+      </View>
+      {sorted.map((r) => (
+        <View key={r.question_number} style={{ display: 'flex', flexDirection: 'row', marginBottom: 4 }} wrap={false}>
+          <Text style={{ width: 16, fontSize: 7, color: C.light }}>{r.question_number}</Text>
+          <Text style={{ flex: 2, fontSize: 7, color: C.text, lineHeight: 1.3, paddingRight: 4 }}>{r.question_prompt}</Text>
+          <Text style={{ width: 40, fontSize: 7, fontFamily: 'Helvetica-Bold', textAlign: 'right', color: C.text }}>
+            {r.amplitude_points.toFixed(2)} pts
+          </Text>
+          <Text style={{ flex: 1, fontSize: 7, color: '#15803d' }}>
+            {r.highest_group ?? '—'}{r.highest_pct != null ? ` · ${r.highest_pct.toFixed(0)}%` : ''}
+          </Text>
+          <Text style={{ flex: 1, fontSize: 7, color: '#b91c1c' }}>
+            {r.lowest_group ?? '—'}{r.lowest_pct != null ? ` · ${r.lowest_pct.toFixed(0)}%` : ''}
+          </Text>
+        </View>
+      ))}
+    </View>
+  )
+}
+
 // ─── 4. GAP section ───────────────────────────────────────────────────────────
 
 function GAPSection({ snapshots, competencies }: { snapshots: SnapshotRow[]; competencies: CompetencyRow[] }) {
@@ -1142,7 +1244,7 @@ function GAPSection({ snapshots, competencies }: { snapshots: SnapshotRow[]; com
 
 // ─── 5. Scores por perspectiva ────────────────────────────────────────────────
 
-function SnapshotsByRelationshipPDF({ snapshots, scaleId }: { snapshots: SnapshotRow[]; scaleId: string }) {
+function SnapshotsByRelationshipPDF({ snapshots, scaleId, relOverrides }: { snapshots: SnapshotRow[]; scaleId: string; relOverrides?: Record<string, string> }) {
   const scale = getScale(scaleId)
   const rows = snapshots
     .filter((s) => !s.competency_id && s.score_avg != null)
@@ -1161,7 +1263,7 @@ function SnapshotsByRelationshipPDF({ snapshots, scaleId }: { snapshots: Snapsho
         return (
           <View key={r.relationship_code} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 7 }}>
             <View style={{ width: 8, height: 8, backgroundColor: relColor, borderRadius: 2, marginRight: 6 }} />
-            <Text style={{ fontSize: 8, color: C.text, width: 90 }}>{REL_LABEL[r.relationship_code] ?? r.relationship_code}</Text>
+            <Text style={{ fontSize: 8, color: C.text, width: 90 }}>{relOverrides?.[r.relationship_code] ?? REL_LABEL[r.relationship_code] ?? r.relationship_code}</Text>
             <View style={{ flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, marginRight: 8 }}>
               <View style={{ height: 6, width: `${pct}%`, backgroundColor: relColor, borderRadius: 3 }} />
             </View>
@@ -1698,10 +1800,11 @@ function DemographicBreakdownSectionPDF({ groups }: { groups: DemographicGroupPD
 // ─── 9. Competency breakdown table ────────────────────────────────────────────
 
 function CompetencyDetailSection({
-  snapshots, competencies, scaleId, questionScores = [],
+  snapshots, competencies, scaleId, questionScores = [], relOverrides,
 }: {
   snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
   questionScores?: QuestionScoreRow[]
+  relOverrides?: Record<string, string>
 }) {
   const scale      = getScale(scaleId)
   const withComp   = snapshots.filter((s) => s.competency_id && s.score_avg != null)
@@ -1713,10 +1816,10 @@ function CompetencyDetailSection({
     ? REL_DETAIL_ORDER
         .map(({ code, detail }) => qrowKey(code, detail))
         .filter((key) => questionScores.some((q) => qrowKey(q.relationship_code, q.relationship_detail) === key))
-        .map((key) => ({ key, label: REL_DETAIL_LABEL[key] ?? key }))
+        .map((key) => ({ key, label: relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key }))
     : [...new Set(withComp.map((s) => s.relationship_code))]
         .sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
-        .map((rel) => ({ key: rel, label: REL_SHORT[rel] ?? rel }))
+        .map((rel) => ({ key: rel, label: relOverrides?.[rel] ?? REL_SHORT[rel] ?? rel }))
 
   const compMap = new Map(competencies.map((c) => [c.id, c]))
   const byComp  = new Map<string, SnapshotRow[]>()
@@ -1854,6 +1957,10 @@ export interface ReportPDFProps {
   nMinimum?:        number
   relationshipDetailFavorability?: RelationshipDetailFavorabilityRowPDF[]
   competencyRelationshipFavorability?: CompetencyRelationshipFavorabilityRow[]
+  reportNotes?: ReportNotesRow | null
+  divergence?: DivergenceRow[]
+  /** Sobreposição de rótulos por tenant (ver tenantRelOverrides em reportShared). */
+  relOverrides?: Record<string, string>
   /** Meta de favorabilidade (%) no radar. Default 80; passe null para ocultar. */
   goalPct?:         number | null
   brandingName:     string
@@ -1861,9 +1968,9 @@ export interface ReportPDFProps {
 }
 
 const REL_SHORT_PDF: Record<string, string> = {
-  self: 'Auto', manager: 'Gestor', peer: 'Pares', subordinate: 'Subord.', client: 'Cliente',
+  self: 'Auto', manager: 'Gestor', manager_superior: 'Lid. Sup.', peer: 'Pares', subordinate: 'Subord.', client: 'Cliente',
 }
-const REL_ORDER_PDF = ['self', 'manager', 'peer', 'subordinate', 'client']
+const REL_ORDER_PDF = ['self', 'manager', 'manager_superior', 'peer', 'subordinate', 'client']
 
 function lrPct(entries: [string, number][]): [string, number][] {
   const total = entries.reduce((s, [, w]) => s + w, 0)
@@ -2016,6 +2123,7 @@ export function ReportPDFDocument({
   profile, snapshots, competencies, comments,
   scaleId, benchmark, evaluatorWeights, demographics, questionScores = [], goalPct = 80,
   competencyWeights, nMinimum, relationshipDetailFavorability, competencyRelationshipFavorability,
+  reportNotes, divergence, relOverrides,
   brandingName, brandingLogoUrl,
 }: ReportPDFProps) {
   const hasCompetencies = competencies.length > 0
@@ -2050,7 +2158,7 @@ export function ReportPDFDocument({
         {profile.consultant_notes && <ConsultantNotesSectionPDF notes={profile.consultant_notes} />}
 
         {/* Participação */}
-        <ParticipationSectionPDF snapshots={snapshots} />
+        <ParticipationSectionPDF snapshots={snapshots} relOverrides={relOverrides} />
 
         {/* Favorabilidade geral */}
         {hasCompetencies && (
@@ -2062,14 +2170,18 @@ export function ReportPDFDocument({
           snapshots={snapshots}
           scaleId={scaleId}
           detailedRows={relationshipDetailFavorability}
+          relOverrides={relOverrides}
         />
 
+        {/* Leitura do resultado (chefe direto, frase, posição, confiabilidade) */}
+        <ReportNotesSectionPDF notes={reportNotes} />
+
         {/* Scores consolidados + Autoconhecimento + Insights */}
-        <ScoresSection profile={profile} snapshots={snapshots} competencies={competencies} scaleId={scaleId} questionScores={questionScores} />
+        <ScoresSection profile={profile} snapshots={snapshots} competencies={competencies} scaleId={scaleId} questionScores={questionScores} relOverrides={relOverrides} />
 
         {/* Roda da liderança */}
         {hasCompetencies && (
-          <DualRadarSectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} goalPct={goalPct} questionScores={questionScores} />
+          <DualRadarSectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} goalPct={goalPct} questionScores={questionScores} relOverrides={relOverrides} />
         )}
 
         {/* Roda única de favorabilidade (Auto x Externos + Meta) */}
@@ -2084,6 +2196,7 @@ export function ReportPDFDocument({
             competencies={competencies}
             scaleId={scaleId}
             detailedRows={competencyRelationshipFavorability}
+            relOverrides={relOverrides}
           />
         )}
 
@@ -2094,13 +2207,17 @@ export function ReportPDFDocument({
             competencies={competencies}
             scaleId={scaleId}
             detailedRows={competencyRelationshipFavorability}
+            relOverrides={relOverrides}
           />
         )}
 
         {/* Avaliação por competência */}
         {hasCompetencies && (
-          <CompetencyDetailSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} questionScores={questionScores} />
+          <CompetencyDetailSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} questionScores={questionScores} relOverrides={relOverrides} />
         )}
+
+        {/* Divergência entre perspectivas */}
+        <DivergenceSectionPDF rows={divergence} />
 
         {/* GAP autoavaliação × avaliadores */}
         {hasCompetencies && (
@@ -2108,7 +2225,7 @@ export function ReportPDFDocument({
         )}
 
         {/* Scores por perspectiva */}
-        <SnapshotsByRelationshipPDF snapshots={snapshots} scaleId={scaleId} />
+        <SnapshotsByRelationshipPDF snapshots={snapshots} scaleId={scaleId} relOverrides={relOverrides} />
 
         {/* Top 5 / Bottom 5 (por competência) */}
         {hasCompetencies && (

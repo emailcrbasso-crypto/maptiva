@@ -26,6 +26,9 @@ import {
   type ExternalComparisonRow,
   type RelationshipDetailFavorabilityRow,
   type CompetencyRelationshipFavorabilityRow,
+  type ReportNotesRow,
+  type DivergenceRow,
+  tenantRelOverrides,
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
 
@@ -99,6 +102,7 @@ function DemographicBreakdownSection({ groups }: { groups: DemographicGroup[] })
 export function ParticipantReportPage() {
   const { id, cpId }  = useParams<{ id: string; cpId: string }>()
   const { branding }  = useTenant()
+  const relOverrides  = tenantRelOverrides(branding.slug)
 
   const [cycleName,      setCycleName]      = useState<string>('')
   const [personName,     setPersonName]     = useState<string>('')
@@ -118,6 +122,8 @@ export function ParticipantReportPage() {
   const [externalComparison, setExternalComparison] = useState<ExternalComparisonRow[]>([])
   const [relDetailFav, setRelDetailFav] = useState<RelationshipDetailFavorabilityRow[] | undefined>(undefined)
   const [compRelFav, setCompRelFav] = useState<CompetencyRelationshipFavorabilityRow[] | undefined>(undefined)
+  const [reportNotes, setReportNotes] = useState<ReportNotesRow | null>(null)
+  const [divergence, setDivergence] = useState<DivergenceRow[] | undefined>(undefined)
   const [loading,          setLoading]          = useState(true)
   const [error,          setError]          = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
@@ -256,6 +262,24 @@ export function ParticipantReportPage() {
       })
       if (Array.isArray(compRelFavData)) setCompRelFav(compRelFavData as CompetencyRelationshipFavorabilityRow[])
 
+      // Leitura pré-calculada do número único (best-effort — só existe em ciclos
+      // com overall_score externo, ex.: Flexmetal v2)
+      const { data: notesData } = await supabase
+        .from('participant_report_notes')
+        .select('*')
+        .eq('cycle_id', id)
+        .eq('cycle_participant_id', cpId)
+        .maybeSingle()
+      setReportNotes((notesData as ReportNotesRow | null) ?? null)
+
+      // Divergência entre perspectivas (best-effort — mesma condição acima)
+      const { data: divData } = await supabase
+        .from('participant_question_divergence')
+        .select('*')
+        .eq('cycle_id', id)
+        .eq('cycle_participant_id', cpId)
+      if (Array.isArray(divData)) setDivergence(divData as DivergenceRow[])
+
       // Comparativo com ciclo anterior (best-effort — só existe para quem tem histórico)
       if (d.person?.id) {
         const { data: compData } = await supabase.rpc('get_person_external_comparison', {
@@ -302,6 +326,9 @@ export function ParticipantReportPage() {
           nMinimum={nMinimum}
           relationshipDetailFavorability={relDetailFav}
           competencyRelationshipFavorability={compRelFav}
+          reportNotes={reportNotes}
+          divergence={divergence}
+          relOverrides={relOverrides}
           brandingName={branding.name}
           brandingLogoUrl={branding.logoUrl ?? null}
         />
@@ -426,6 +453,9 @@ export function ParticipantReportPage() {
             onSaveConsultantNotes={handleSaveConsultantNotes}
             relationshipDetailFavorability={relDetailFav}
             competencyRelationshipFavorability={compRelFav}
+            reportNotes={reportNotes}
+            divergence={divergence}
+            relOverrides={relOverrides}
           />
           <FavorabilityByDemographicSection groups={demographics} scaleId={scaleId} />
           <DemographicBreakdownSection groups={demographics} />

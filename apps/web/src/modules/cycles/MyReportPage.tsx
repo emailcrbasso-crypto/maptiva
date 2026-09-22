@@ -20,12 +20,16 @@ import {
   MethodologyAppendixSection,
   type RelationshipDetailFavorabilityRow,
   type CompetencyRelationshipFavorabilityRow,
+  type ReportNotesRow,
+  type DivergenceRow,
+  tenantRelOverrides,
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
 
 export function MyReportPage() {
   const { id }        = useParams<{ id: string }>()
   const { branding }  = useTenant()
+  const relOverrides  = tenantRelOverrides(branding.slug)
 
   const [cycleName,      setCycleName]      = useState<string>('')
   const [snapshots,      setSnapshots]      = useState<SnapshotRow[]>([])
@@ -41,6 +45,8 @@ export function MyReportPage() {
   const [nMinimum,          setNMinimum]          = useState<number | undefined>(undefined)
   const [relDetailFav,      setRelDetailFav]      = useState<RelationshipDetailFavorabilityRow[] | undefined>(undefined)
   const [compRelFav,        setCompRelFav]        = useState<CompetencyRelationshipFavorabilityRow[] | undefined>(undefined)
+  const [reportNotes,       setReportNotes]       = useState<ReportNotesRow | null>(null)
+  const [divergence,        setDivergence]        = useState<DivergenceRow[] | undefined>(undefined)
   const [loading,          setLoading]          = useState(true)
   const [errorCode,      setErrorCode]      = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
@@ -152,6 +158,21 @@ export function MyReportPage() {
         }
       }
 
+      // Leitura pré-calculada do número único (best-effort, RLS já restringe à própria linha)
+      const { data: notesData } = await supabase
+        .from('participant_report_notes')
+        .select('*')
+        .eq('cycle_id', id)
+        .maybeSingle()
+      setReportNotes((notesData as ReportNotesRow | null) ?? null)
+
+      // Divergência entre perspectivas (best-effort, RLS já restringe à própria linha)
+      const { data: divData } = await supabase
+        .from('participant_question_divergence')
+        .select('*')
+        .eq('cycle_id', id)
+      if (Array.isArray(divData)) setDivergence(divData as DivergenceRow[])
+
       setLoading(false)
     }
     load()
@@ -178,6 +199,9 @@ export function MyReportPage() {
           nMinimum={nMinimum}
           relationshipDetailFavorability={relDetailFav}
           competencyRelationshipFavorability={compRelFav}
+          reportNotes={reportNotes}
+          divergence={divergence}
+          relOverrides={relOverrides}
           brandingName={branding.name}
           brandingLogoUrl={branding.logoUrl ?? null}
         />
@@ -283,6 +307,9 @@ export function MyReportPage() {
             evaluatorWeights={evaluatorWeights}
             relationshipDetailFavorability={relDetailFav}
             competencyRelationshipFavorability={compRelFav}
+            reportNotes={reportNotes}
+            divergence={divergence}
+            relOverrides={relOverrides}
           />
           {nMinimum != null && (
             <div className="mt-5">
