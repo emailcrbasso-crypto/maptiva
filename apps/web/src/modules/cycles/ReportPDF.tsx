@@ -525,6 +525,7 @@ const REL_DETAIL_ORDER_PDF: { code: string; detail: string | null }[] = [
   { code: 'manager_superior',  detail: null },
   { code: 'subordinate',       detail: 'Direto' },
   { code: 'subordinate',       detail: 'Indireto' },
+  { code: 'peer',              detail: null },
   { code: 'peer',              detail: 'Direto' },
   { code: 'peer',              detail: 'Indireto' },
   { code: 'client',            detail: null },
@@ -536,6 +537,7 @@ const REL_DETAIL_LABEL_PDF: Record<string, string> = {
   'manager_superior|':    'Liderança Superior',
   'subordinate|Direto':   'Equipe Direta',
   'subordinate|Indireto': 'Equipe Indireta',
+  'peer|':                'Pares',
   'peer|Direto':          'Pares Direto',
   'peer|Indireto':        'Pares Indireto',
   'client|':              'Clientes',
@@ -983,6 +985,7 @@ function FavorabilitySectionPDF({
 
 const RADAR_DETAIL_PALETTE_PDF: Record<string, string> = {
   'manager_superior|':    '#0d9488',
+  'peer|':                '#f59e0b',
   'peer|Direto':          '#f59e0b',
   'peer|Indireto':        '#fb923c',
   'subordinate|Direto':   '#3b82f6',
