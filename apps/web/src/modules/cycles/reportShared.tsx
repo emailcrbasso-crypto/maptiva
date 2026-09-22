@@ -235,12 +235,14 @@ export function ParticipationPanel({ snapshots, relOverrides }: { snapshots: Sna
 // ─── Dual radar ───────────────────────────────────────────────────────────────
 
 const RADAR_DETAIL_PALETTE: Record<string, string> = {
+  'manager|':             '#10b981',
   'manager_superior|':    '#0d9488',
   'peer|':                '#f59e0b',
   'peer|Direto':          '#f59e0b',
   'peer|Indireto':        '#fb923c',
   'subordinate|Direto':   '#3b82f6',
   'subordinate|Indireto': '#38bdf8',
+  'client|':              '#ec4899',
 }
 
 export function DualRadarSection({
@@ -771,26 +773,38 @@ export function GapSection({
   snapshots,
   competencies,
   scaleId = 'likert_5',
+  detailedRows,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
   scaleId?:     string
+  /** Quando presente, usa a linha '__external__' do backend (já pondera por
+   * pessoa e já exclui Clientes internos em ciclos com número único externo)
+   * em vez da média simples entre grupos — ver FavorabilitySection/heatmap. */
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
 }) {
   const scale = getScale(scaleId)
 
   const rows = competencies
     .map((c) => {
+      const extRow = detailedRows?.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
       const selfSnap = snapshots.find(
         (s) => s.competency_id === c.id && s.relationship_code === 'self'
       )
-      const extSnaps = snapshots.filter(
-        (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null
-      )
-      const selfScore = selfSnap?.score_avg ?? null
-      const extAvg =
-        extSnaps.length > 0
+      let selfScore = selfSnap?.score_avg ?? null
+      let extAvg: number | null
+      if (detailedRows && detailedRows.length > 0) {
+        const selfRow = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === 'self')
+        if (selfRow) selfScore = avgFromDistribution(selfRow.distribution) ?? selfScore
+        extAvg = extRow ? avgFromDistribution(extRow.distribution) : null
+      } else {
+        const extSnaps = snapshots.filter(
+          (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null
+        )
+        extAvg = extSnaps.length > 0
           ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length
           : null
+      }
       const gap = selfScore != null && extAvg != null ? selfScore - extAvg : null
       return { id: c.id, name: c.name, selfScore, extAvg, gap }
     })
@@ -940,21 +954,32 @@ export function JohariMatrixSection({
   snapshots,
   competencies,
   scaleId = 'likert_5',
+  detailedRows,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
   scaleId?:     string
+  /** Ver GapSection — mesma fonte, já pondera por pessoa e exclui Clientes internos. */
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
 }) {
   const scale = getScale(scaleId)
 
   const entries: JohariEntry[] = competencies
     .map((c) => {
+      const extRow = detailedRows?.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
       const selfSnap = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')
-      const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null)
-      const selfScore = selfSnap?.score_avg ?? null
-      const extAvg = extSnaps.length > 0
-        ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length
-        : null
+      let selfScore = selfSnap?.score_avg ?? null
+      let extAvg: number | null
+      if (detailedRows && detailedRows.length > 0) {
+        const selfRow = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === 'self')
+        if (selfRow) selfScore = avgFromDistribution(selfRow.distribution) ?? selfScore
+        extAvg = extRow ? avgFromDistribution(extRow.distribution) : null
+      } else {
+        const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null)
+        extAvg = extSnaps.length > 0
+          ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length
+          : null
+      }
       if (selfScore == null || extAvg == null) return null
       return { id: c.id, name: c.name, selfScore, extAvg }
     })
@@ -1160,24 +1185,32 @@ export function Top5Section({
   snapshots,
   competencies,
   scaleId = 'likert_5',
+  detailedRows,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
   scaleId?:     string
+  /** Ver GapSection — mesma fonte, já pondera por pessoa e exclui Clientes internos. */
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
 }) {
   const scale = getScale(scaleId)
   const scored = competencies
     .map((c) => {
-      const ext = snapshots.filter(
-        (s) =>
-          s.competency_id === c.id &&
-          s.relationship_code !== 'self' &&
-          s.score_avg != null
-      )
-      const extAvg =
-        ext.length > 0
+      let extAvg: number | null
+      if (detailedRows && detailedRows.length > 0) {
+        const extRow = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
+        extAvg = extRow ? avgFromDistribution(extRow.distribution) : null
+      } else {
+        const ext = snapshots.filter(
+          (s) =>
+            s.competency_id === c.id &&
+            s.relationship_code !== 'self' &&
+            s.score_avg != null
+        )
+        extAvg = ext.length > 0
           ? ext.reduce((sum, s) => sum + s.score_avg!, 0) / ext.length
           : null
+      }
       return { id: c.id, name: c.name, extAvg }
     })
     .filter((c) => c.extAvg != null)
@@ -1260,22 +1293,20 @@ export function Top5Section({
 
 interface QRowCol { key: string; label: string }
 
-const QROW_REL_COLS: QRowCol[] = [
-  { key: 'self|',        label: 'Auto' },
-  { key: 'manager|',     label: 'Gestor' },
-  { key: 'peer|',        label: 'Pares' },
-  { key: 'subordinate|', label: 'Subord.' },
-]
-
-// Usada quando o ciclo tem a granularidade Direto/Indireto (relationship_detail)
-// — mesma terminologia da seção "Favorabilidade por nível de avaliador".
-const QROW_REL_COLS_DETAILED: QRowCol[] = [
-  { key: 'self|',                label: 'Auto' },
-  { key: 'subordinate|Direto',   label: 'Eq. Direta' },
-  { key: 'subordinate|Indireto', label: 'Eq. Indireta' },
-  { key: 'peer|Direto',          label: 'P. Direto' },
-  { key: 'peer|Indireto',        label: 'P. Indireto' },
-]
+// Rótulos curtos pras colunas estreitas da tabela de perguntas — cai pro
+// REL_DETAIL_LABEL completo (e pra sobreposição por tenant) quando não
+// houver abreviação específica.
+const QROW_SHORT_LABEL: Record<string, string> = {
+  'self|':                'Auto',
+  'manager|':              'Gestor',
+  'manager_superior|':     'Líd. Sup.',
+  'peer|':                 'Pares',
+  'peer|Direto':           'P. Direto',
+  'peer|Indireto':         'P. Indireto',
+  'subordinate|Direto':    'Eq. Direta',
+  'subordinate|Indireto':  'Eq. Indireta',
+  'client|':               'Clientes',
+}
 
 interface QRow {
   id:             string
@@ -1362,9 +1393,22 @@ export function qrowKey(code: string, detail: string | null | undefined): string
   return `${code}|${detail ?? ''}`
 }
 
-/** Colunas Direto/Indireto quando o ciclo tem essa granularidade, senão as coarse. */
-function pickQuestionCols(questionScores: QuestionScoreRow[]): QRowCol[] {
-  return questionScores.some((q) => q.relationship_detail) ? QROW_REL_COLS_DETAILED : QROW_REL_COLS
+/** Monta as colunas a partir dos grupos realmente presentes nas perguntas
+ * (mesma fonte de verdade que REL_DETAIL_ORDER usa em todo o resto do
+ * relatório — chefe direto, liderança superior, pares c/ e sem detalhe,
+ * equipe direto/indireto, clientes internos), em vez de uma lista fixa. */
+function pickQuestionCols(questionScores: QuestionScoreRow[], relOverrides?: Record<string, string>): QRowCol[] {
+  const present = new Set(
+    questionScores.filter((q) => q.relationship_code !== 'self').map((q) => qrowKey(q.relationship_code, q.relationship_detail))
+  )
+  const cols: QRowCol[] = [{ key: 'self|', label: relOverrides?.['self|'] ?? QROW_SHORT_LABEL['self|'] }]
+  for (const { code, detail } of REL_DETAIL_ORDER) {
+    if (code === 'self') continue
+    const key = qrowKey(code, detail)
+    if (!present.has(key)) continue
+    cols.push({ key, label: relOverrides?.[key] ?? QROW_SHORT_LABEL[key] ?? REL_DETAIL_LABEL[key] ?? key })
+  }
+  return cols
 }
 
 /** Média ponderada por grupo (relationship_code|relationship_detail), somando todas
@@ -1397,7 +1441,7 @@ export function lowSampleCompetencyIds(questionScores: QuestionScoreRow[]): Set<
   return new Set([...byComp.entries()].filter(([, ids]) => ids.size === 1).map(([id]) => id))
 }
 
-function buildQuestionRows(questionScores: QuestionScoreRow[], competencies: CompetencyRow[]): QRow[] {
+function buildQuestionRows(questionScores: QuestionScoreRow[], competencies: CompetencyRow[], excludeClientFromGeral = false): QRow[] {
   const compMap = new Map(competencies.map((c) => [c.id, c.name]))
 
   const byQuestion = new Map<string, {
@@ -1418,7 +1462,7 @@ function buildQuestionRows(questionScores: QuestionScoreRow[], competencies: Com
 
   return [...byQuestion.entries()]
     .map(([id, q]) => {
-      const extEntries = Object.values(q.sums).filter((s) => s.code !== 'self')
+      const extEntries = Object.values(q.sums).filter((s) => s.code !== 'self' && !(excludeClientFromGeral && s.code === 'client'))
       const extN   = extEntries.reduce((s, e) => s + e.n, 0)
       if (extN === 0) return null
       const extSum = extEntries.reduce((s, e) => s + e.sum, 0)
@@ -1442,14 +1486,19 @@ export function Top5QuestionsSection({
   questionScores,
   competencies,
   scaleId = 'likert_5',
+  relOverrides,
+  excludeClientFromGeral = false,
 }: {
   questionScores: QuestionScoreRow[]
   competencies:   CompetencyRow[]
   scaleId?:       string
+  relOverrides?: Record<string, string>
+  /** Exclui Clientes internos do "Geral" por pergunta — ciclos com número único externo. */
+  excludeClientFromGeral?: boolean
 }) {
   const scale  = getScale(scaleId)
-  const scored = buildQuestionRows(questionScores, competencies)
-  const cols   = pickQuestionCols(questionScores)
+  const scored = buildQuestionRows(questionScores, competencies, excludeClientFromGeral)
+  const cols   = pickQuestionCols(questionScores, relOverrides)
 
   if (scored.length === 0) return null
 
@@ -1480,7 +1529,8 @@ export function Top5QuestionsSection({
         calloutLabel="Atenção especial"
       />
       <p className="text-xs text-gray-400 mt-2">
-        "Geral" = média das avaliações externas (gestor, pares e subordinados) por pergunta individual.
+        "Geral" = média de todas as avaliações externas por pergunta individual
+        {excludeClientFromGeral ? ' (exceto Autoavaliação e Clientes internos)' : ' (exceto Autoavaliação)'}.
       </p>
     </div>
   )
@@ -1569,15 +1619,19 @@ export function AllQuestionsDetailSection({
   questionScores,
   competencies,
   scaleId = 'likert_5',
+  relOverrides,
+  excludeClientFromGeral = false,
 }: {
   questionScores: QuestionScoreRow[]
   competencies:   CompetencyRow[]
   scaleId?:       string
+  relOverrides?: Record<string, string>
+  excludeClientFromGeral?: boolean
 }) {
   const scale = getScale(scaleId)
-  const rows  = buildQuestionRows(questionScores, competencies)
+  const rows  = buildQuestionRows(questionScores, competencies, excludeClientFromGeral)
     .sort((a, b) => a.order_index - b.order_index)
-  const cols  = pickQuestionCols(questionScores)
+  const cols  = pickQuestionCols(questionScores, relOverrides)
 
   if (rows.length === 0) return null
 
@@ -1985,19 +2039,28 @@ function calcSelfAwarenessIndex(
   snapshots:    SnapshotRow[],
   competencies: CompetencyRow[],
   scale:        ScaleDefinition,
+  detailedRows?: CompetencyRelationshipFavorabilityRow[],
 ): number | null {
   const gaps = competencies
     .map((c) => {
-      const self = snapshots.find(
-        (s) => s.competency_id === c.id && s.relationship_code === 'self'
-      )?.score_avg
-      const extSnaps = snapshots.filter(
-        (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null
-      )
-      const ext =
-        extSnaps.length > 0
+      let self: number | null | undefined
+      let ext: number | null
+      if (detailedRows && detailedRows.length > 0) {
+        const selfRow = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === 'self')
+        const extRow  = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
+        self = selfRow ? avgFromDistribution(selfRow.distribution) : null
+        ext  = extRow  ? avgFromDistribution(extRow.distribution)  : null
+      } else {
+        self = snapshots.find(
+          (s) => s.competency_id === c.id && s.relationship_code === 'self'
+        )?.score_avg
+        const extSnaps = snapshots.filter(
+          (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null
+        )
+        ext = extSnaps.length > 0
           ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length
           : null
+      }
       if (self == null || ext == null) return null
       return Math.abs(self - ext)
     })
@@ -2012,13 +2075,15 @@ export function SelfAwarenessIndex({
   snapshots,
   competencies,
   scaleId = 'likert_5',
+  detailedRows,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
   scaleId?:     string
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
 }) {
   const scale = getScale(scaleId)
-  const index = calcSelfAwarenessIndex(snapshots, competencies, scale)
+  const index = calcSelfAwarenessIndex(snapshots, competencies, scale, detailedRows)
   if (index == null) return null
 
   const colorBar  = index >= 85 ? 'bg-green-400'  : index >= 70 ? 'bg-yellow-400'  : 'bg-red-400'
@@ -2941,11 +3006,13 @@ export function BenchmarkSection({
   competencies,
   benchmark,
   scaleId = 'likert_5',
+  detailedRows,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
   benchmark:    BenchmarkMap
   scaleId?:     string
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
 }) {
   const scale = getScale(scaleId)
 
@@ -2956,13 +3023,18 @@ export function BenchmarkSection({
       const bmEntry = benchmark[bmKey]
       if (!bmEntry) return null
 
-      const extSnaps = snapshots.filter(
-        (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null
-      )
-      const myAvg =
-        extSnaps.length > 0
+      let myAvg: number | null
+      if (detailedRows && detailedRows.length > 0) {
+        const extRow = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
+        myAvg = extRow ? avgFromDistribution(extRow.distribution) : null
+      } else {
+        const extSnaps = snapshots.filter(
+          (s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null
+        )
+        myAvg = extSnaps.length > 0
           ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length
           : null
+      }
 
       if (myAvg == null) return null
 
@@ -3160,6 +3232,9 @@ export interface MethodologyInfo {
   evaluatorWeights?:  Record<string, number>
   competencyWeights?: { name: string; weight: number }[]
   generatedAt:        string | null
+  /** Ciclo com número único travado externamente (ex.: Flexmetal v2) —
+   * muda a explicação de peso/exclusão de categorias na metodologia. */
+  externalScores?:    boolean
 }
 
 export function MethodologyAppendixSection({
@@ -3172,6 +3247,7 @@ export function MethodologyAppendixSection({
   const scale = getScale(scaleId)
   const hasEvaluatorWeights  = info.evaluatorWeights  != null && Object.values(info.evaluatorWeights).some((w) => w > 0)
   const hasCompetencyWeights = info.competencyWeights != null && info.competencyWeights.length > 0
+  const externalScores       = info.externalScores === true
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6 print-page-break">
@@ -3199,25 +3275,39 @@ export function MethodologyAppendixSection({
           <p className="text-xs text-gray-500">
             Favorável = notas {scale.max - 1} e {scale.max} · Neutro = notas intermediárias ·
             Desfavorável = notas {scale.min} e {scale.min + 1}. Calculada sobre as avaliações
-            externas (exclui autoavaliação).
+            externas{externalScores ? ' (exclui Autoavaliação e Clientes internos)' : ' (exclui autoavaliação)'}.
           </p>
         </div>
+
+        {externalScores && (
+          <div>
+            <p className="text-sm font-semibold text-gray-800 mb-1">Categorias fora do número único</p>
+            <p className="text-xs text-gray-500">
+              Autoavaliação e Clientes internos aparecem no relatório com sua própria nota, mas não
+              entram na Média Geral nem em nenhuma agregação "Geral"/"avaliadores externos" —
+              somam só Chefe direto, Liderança Superior, Pares, Equipe e Equipe Indireta.
+            </p>
+          </div>
+        )}
 
         <div>
           <p className="text-sm font-semibold text-gray-800 mb-1">Regra de N-mínimo (anonimato)</p>
           <p className="text-xs text-gray-500">
             Grupos de avaliadores não-gestor (pares, subordinados) com menos de {info.nMinimum}{' '}
             respondentes são ocultados, para impedir que uma nota individual seja atribuída a um
-            avaliador específico. Autoavaliação e gestor não têm essa restrição.
+            avaliador específico. Autoavaliação, chefe direto e liderança superior não têm essa
+            restrição — são, por design, sempre 1 pessoa identificável.
           </p>
         </div>
 
         <div>
           <p className="text-sm font-semibold text-gray-800 mb-1">Ponto cego / força oculta</p>
           <p className="text-xs text-gray-500">
-            Quando a autoavaliação supera a média externa em 1,0 ponto ou mais numa competência, é
-            classificado como ponto cego; quando a média externa supera a autoavaliação em 1,0 ponto
-            ou mais, como força oculta.
+            Nas comparações por competência (GAP, Matriz de Johari), quando a autoavaliação supera a
+            média externa em 0,5 ponto ou mais, é classificado como ponto cego; quando a média externa
+            supera a autoavaliação em 0,5 ponto ou mais, como força oculta. O resumo no topo do
+            relatório ("X pontos cegos") usa um critério mais rígido, de 1,0 ponto, para contar só os
+            casos mais claros.
           </p>
         </div>
 
@@ -3244,7 +3334,13 @@ export function MethodologyAppendixSection({
 
         <div>
           <p className="text-sm font-semibold text-gray-800 mb-1">Pesos por avaliador</p>
-          {hasEvaluatorWeights ? (
+          {externalScores ? (
+            <p className="text-xs text-gray-500">
+              Peso igual por pessoa entre os avaliadores das categorias que entram no número único —
+              não por grupo. Um grupo com mais avaliadores pesa mais no total, exatamente como se cada
+              resposta individual fosse somada e dividida pelo total de avaliadores dessas categorias.
+            </p>
+          ) : hasEvaluatorWeights ? (
             <ul className="text-xs text-gray-500 space-y-0.5">
               {Object.entries(info.evaluatorWeights!).filter(([, w]) => w > 0).map(([rel, w]) => (
                 <li key={rel}>{REL_LABEL[rel] ?? rel}: peso {w}</li>
@@ -3275,10 +3371,13 @@ export function MethodologyAppendixSection({
         <div>
           <p className="text-sm font-semibold text-gray-800 mb-1">Média simples × Média Geral ponderada</p>
           <p className="text-xs text-gray-500">
-            A "Média Geral" no topo do relatório é a média entre os grupos de avaliadores visíveis
-            {hasEvaluatorWeights || hasCompetencyWeights
-              ? ', ajustada pelos pesos configurados acima.'
-              : ', sem nenhum peso configurado neste ciclo — equivale à média simples.'}
+            {externalScores
+              ? 'A "Média Geral" no topo do relatório vem pronta da consultoria, calculada com peso igual por pessoa entre as categorias que entram no número único (ver acima) — não é recalculada pelo sistema.'
+              : `A "Média Geral" no topo do relatório é a média entre os grupos de avaliadores visíveis${
+                  hasEvaluatorWeights || hasCompetencyWeights
+                    ? ', ajustada pelos pesos configurados acima.'
+                    : ', sem nenhum peso configurado neste ciclo — equivale à média simples.'
+                }`}
           </p>
         </div>
 
@@ -3387,6 +3486,17 @@ export function ReportNotesSection({ notes }: { notes: ReportNotesRow | null | u
           <div>
             <p className="text-xs text-gray-400 mb-0.5">Confiabilidade da nota</p>
             <p className="text-sm text-gray-800 font-medium">{notes.reliability_tier}</p>
+          </div>
+        )}
+        {notes.self_awareness_gap != null && (
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Gap de autopercepção</p>
+            <p className="text-sm text-gray-800 font-medium">
+              {notes.self_awareness_gap >= 0 ? '+' : ''}{notes.self_awareness_gap.toFixed(1)} pts de favorabilidade
+              <span className="text-gray-400 font-normal">
+                {' '}({notes.self_awareness_gap < 0 ? 'autoavaliação abaixo da percepção externa' : 'autoavaliação acima da percepção externa'})
+              </span>
+            </p>
           </div>
         )}
       </div>
@@ -3544,7 +3654,7 @@ export function ReportDisplay({
         )}
         {/* Self-awareness index — only when we have competency-level self + external data */}
         {hasCompetencies && (
-          <SelfAwarenessIndex snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+          <SelfAwarenessIndex snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
         )}
       </div>
 
@@ -3604,22 +3714,22 @@ export function ReportDisplay({
 
       {/* 6. GAP visual bars */}
       {hasCompetencies && (
-        <GapSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        <GapSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
       )}
 
       {/* 6.5 Matriz de Johari */}
       {hasCompetencies && (
-        <JohariMatrixSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        <JohariMatrixSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
       )}
 
       {/* 7. Top 5 / Bottom 5 (por competência) */}
       {hasCompetencies && (
-        <Top5Section snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        <Top5Section snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
       )}
 
       {/* 7.5 Top 5 / Bottom 5 (por pergunta — granularidade mais fina) */}
       {questionScores.length > 0 && (
-        <Top5QuestionsSection questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
+        <Top5QuestionsSection questionScores={questionScores} competencies={competencies} scaleId={scaleId} relOverrides={relOverrides} excludeClientFromGeral={reportNotes != null} />
       )}
 
       {/* 8. Benchmark — participant vs. cycle avg (conditional on data) */}
@@ -3629,6 +3739,7 @@ export function ReportDisplay({
           competencies={competencies}
           benchmark={benchmark!}
           scaleId={scaleId}
+          detailedRows={competencyRelationshipFavorability}
         />
       )}
 
@@ -3642,7 +3753,7 @@ export function ReportDisplay({
 
       {/* 11. Resultado detalhado — todas as perguntas */}
       {questionScores.length > 0 && (
-        <AllQuestionsDetailSection questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
+        <AllQuestionsDetailSection questionScores={questionScores} competencies={competencies} scaleId={scaleId} relOverrides={relOverrides} excludeClientFromGeral={reportNotes != null} />
       )}
 
       {/* 12. Comments */}

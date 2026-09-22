@@ -367,6 +367,12 @@ function ReportNotesSectionPDF({ notes }: { notes: ReportNotesRow | null | undef
   }
   if (notes.ranking_secondary != null) facts.push({ label: 'Posição no ranking (secundária)', value: `${notes.ranking_secondary}º lugar` })
   if (notes.reliability_tier) facts.push({ label: 'Confiabilidade da nota', value: notes.reliability_tier })
+  if (notes.self_awareness_gap != null) {
+    facts.push({
+      label: 'Gap de autopercepção',
+      value: `${notes.self_awareness_gap >= 0 ? '+' : ''}${notes.self_awareness_gap.toFixed(1)} pts (${notes.self_awareness_gap < 0 ? 'auto abaixo da percepção externa' : 'auto acima da percepção externa'})`,
+    })
+  }
 
   return (
     <View style={s.section}>
@@ -395,12 +401,13 @@ function ReportNotesSectionPDF({ notes }: { notes: ReportNotesRow | null | undef
 // ─── 2. Scores section ────────────────────────────────────────────────────────
 
 function ScoresSection({
-  profile, snapshots, competencies, scaleId, questionScores = [], relOverrides,
+  profile, snapshots, competencies, scaleId, questionScores = [], relOverrides, detailedRows,
 }: {
   profile: ProfileData; snapshots: SnapshotRow[]
   competencies: CompetencyRow[]; scaleId: string
   questionScores?: QuestionScoreRow[]
   relOverrides?: Record<string, string>
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
 }) {
   const scale     = getScale(scaleId)
   const hasDetail = questionScores.some((q) => q.relationship_detail)
@@ -428,9 +435,18 @@ function ScoresSection({
 
   // Self-awareness index
   const gaps = competencies.map((c) => {
-    const self = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')?.score_avg
-    const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null)
-    const ext = extSnaps.length > 0 ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length : null
+    let self: number | null | undefined
+    let ext: number | null
+    if (detailedRows && detailedRows.length > 0) {
+      const selfRow = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === 'self')
+      const extRow  = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
+      self = selfRow ? avgFromDistributionPDF(selfRow.distribution) : null
+      ext  = extRow  ? avgFromDistributionPDF(extRow.distribution)  : null
+    } else {
+      self = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')?.score_avg
+      const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null)
+      ext = extSnaps.length > 0 ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length : null
+    }
     if (self == null || ext == null) return null
     return Math.abs(self - ext)
   }).filter((g): g is number => g != null)
@@ -498,6 +514,16 @@ function FavorabilityBarPDF({ fav }: { fav: { favoravel: number; neutro: number;
       {fav.desfavoravel > 0 && <View style={{ width: `${fav.desfavoravel}%`, height: 10, backgroundColor: '#f87171' }} />}
     </View>
   )
+}
+
+function avgFromDistributionPDF(dist: Record<string, number> | null | undefined): number | null {
+  if (!dist) return null
+  let sum = 0, n = 0
+  for (const [k, count] of Object.entries(dist)) {
+    sum += Number(k) * count
+    n   += count
+  }
+  return n > 0 ? sum / n : null
 }
 
 function mergeDist(snaps: { score_distribution: Record<string, number> | null | undefined }[]): Record<string, number> {
@@ -1011,12 +1037,14 @@ function FavorabilitySectionPDF({
 // ─── 3. Roda da liderança (Dual Radar) ───────────────────────────────────────
 
 const RADAR_DETAIL_PALETTE_PDF: Record<string, string> = {
+  'manager|':             '#10b981',
   'manager_superior|':    '#0d9488',
   'peer|':                '#f59e0b',
   'peer|Direto':          '#f59e0b',
   'peer|Indireto':        '#fb923c',
   'subordinate|Direto':   '#3b82f6',
   'subordinate|Indireto': '#38bdf8',
+  'client|':              '#ec4899',
 }
 
 function DualRadarSectionPDF({
@@ -1200,7 +1228,10 @@ function DivergenceSectionPDF({ rows }: { rows: DivergenceRow[] | undefined }) {
       {sorted.map((r) => (
         <View key={r.question_number} style={{ display: 'flex', flexDirection: 'row', marginBottom: 4 }} wrap={false}>
           <Text style={{ width: 16, fontSize: 7, color: C.light }}>{r.question_number}</Text>
-          <Text style={{ flex: 2, fontSize: 7, color: C.text, lineHeight: 1.3, paddingRight: 4 }}>{r.question_prompt}</Text>
+          <Text style={{ flex: 2, fontSize: 7, color: C.text, lineHeight: 1.3, paddingRight: 4 }}>
+            {r.question_prompt}
+            {r.extreme_in_unweighted_group && <Text style={{ color: '#b45309', fontSize: 6.5 }}> ⚠ grupo sem peso</Text>}
+          </Text>
           <Text style={{ width: 40, fontSize: 7, fontFamily: 'Helvetica-Bold', textAlign: 'right', color: C.text }}>
             {r.amplitude_points.toFixed(2)} pts
           </Text>
@@ -1218,13 +1249,26 @@ function DivergenceSectionPDF({ rows }: { rows: DivergenceRow[] | undefined }) {
 
 // ─── 4. GAP section ───────────────────────────────────────────────────────────
 
-function GAPSection({ snapshots, competencies }: { snapshots: SnapshotRow[]; competencies: CompetencyRow[] }) {
+function GAPSection({
+  snapshots, competencies, detailedRows,
+}: {
+  snapshots: SnapshotRow[]; competencies: CompetencyRow[]
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
+}) {
   const rows = competencies
     .map((c) => {
-      const selfScore = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')?.score_avg ?? null
-      const extSnaps  = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null)
-      const extAvg    = extSnaps.length > 0 ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length : null
-      const gap       = selfScore != null && extAvg != null ? selfScore - extAvg : null
+      let selfScore = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')?.score_avg ?? null
+      let extAvg: number | null
+      if (detailedRows && detailedRows.length > 0) {
+        const selfRow = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === 'self')
+        if (selfRow) selfScore = avgFromDistributionPDF(selfRow.distribution) ?? selfScore
+        const extRow = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
+        extAvg = extRow ? avgFromDistributionPDF(extRow.distribution) : null
+      } else {
+        const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null)
+        extAvg = extSnaps.length > 0 ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length : null
+      }
+      const gap = selfScore != null && extAvg != null ? selfScore - extAvg : null
       return { id: c.id, name: c.name, selfScore, extAvg, gap }
     })
     .filter((r) => r.selfScore != null || r.extAvg != null)
@@ -1272,6 +1316,83 @@ function GAPSection({ snapshots, competencies }: { snapshots: SnapshotRow[]; com
   )
 }
 
+// ─── 4b. Matriz de Johari ─────────────────────────────────────────────────────
+
+const JOHARI_QUADRANTS_PDF = [
+  { key: 'arena',   title: 'Arena',        subtitle: 'Auto alta · Externa alta',  color: '#15803d', bg: '#f0fdf4' },
+  { key: 'blind',   title: 'Ponto cego',   subtitle: 'Auto alta · Externa baixa', color: '#b45309', bg: '#fffbeb' },
+  { key: 'facade',  title: 'Fachada',      subtitle: 'Auto baixa · Externa alta', color: '#1d4ed8', bg: '#eff6ff' },
+  { key: 'unknown', title: 'Desconhecido', subtitle: 'Auto baixa · Externa baixa', color: '#4b5563', bg: '#f9fafb' },
+]
+
+function JohariMatrixSectionPDF({
+  snapshots, competencies, detailedRows,
+}: {
+  snapshots: SnapshotRow[]; competencies: CompetencyRow[]
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
+}) {
+  const entries = competencies
+    .map((c) => {
+      let selfScore: number | null = snapshots.find((s) => s.competency_id === c.id && s.relationship_code === 'self')?.score_avg ?? null
+      let extAvg: number | null
+      if (detailedRows && detailedRows.length > 0) {
+        const selfRow = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === 'self')
+        if (selfRow) selfScore = avgFromDistributionPDF(selfRow.distribution) ?? selfScore
+        const extRow = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
+        extAvg = extRow ? avgFromDistributionPDF(extRow.distribution) : null
+      } else {
+        const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null)
+        extAvg = extSnaps.length > 0 ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length : null
+      }
+      if (selfScore == null || extAvg == null) return null
+      return { id: c.id, name: c.name, selfScore, extAvg }
+    })
+    .filter(Boolean) as { id: string; name: string; selfScore: number; extAvg: number }[]
+
+  if (entries.length === 0) return null
+
+  function median(values: number[]): number {
+    const sorted = [...values].sort((a, b) => a - b)
+    const mid = Math.floor(sorted.length / 2)
+    return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+  }
+  const selfThreshold = median(entries.map((e) => e.selfScore))
+  const extThreshold  = median(entries.map((e) => e.extAvg))
+
+  const byQuadrant: Record<string, typeof entries> = { arena: [], blind: [], facade: [], unknown: [] }
+  for (const e of entries) {
+    const selfHigh = e.selfScore >= selfThreshold
+    const extHigh  = e.extAvg   >= extThreshold
+    const key = selfHigh && extHigh ? 'arena' : selfHigh && !extHigh ? 'blind' : !selfHigh && extHigh ? 'facade' : 'unknown'
+    byQuadrant[key].push(e)
+  }
+
+  return (
+    <View style={s.section} break>
+      <SectionTitle>Matriz de Johari</SectionTitle>
+      <Text style={s.sectionSubtitle}>
+        Cada competência é "alta" ou "baixa" em relação à mediana das próprias competências desta
+        pessoa (não um corte fixo da escala).
+      </Text>
+      <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {JOHARI_QUADRANTS_PDF.map((q) => (
+          <View key={q.key} style={{ width: '48%', backgroundColor: q.bg, borderRadius: 4, padding: 8, marginBottom: 6 }} wrap={false}>
+            <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: q.color }}>{q.title}</Text>
+            <Text style={{ fontSize: 6, color: q.color, marginBottom: 4 }}>{q.subtitle}</Text>
+            {byQuadrant[q.key].length === 0 ? (
+              <Text style={{ fontSize: 6.5, color: q.color, fontStyle: 'italic' }}>Nenhuma competência aqui.</Text>
+            ) : (
+              <Text style={{ fontSize: 6.5, color: q.color, lineHeight: 1.5 }}>
+                {byQuadrant[q.key].map((e) => e.name).join(' · ')}
+              </Text>
+            )}
+          </View>
+        ))}
+      </View>
+    </View>
+  )
+}
+
 // ─── 5. Scores por perspectiva ────────────────────────────────────────────────
 
 function SnapshotsByRelationshipPDF({ snapshots, scaleId, relOverrides }: { snapshots: SnapshotRow[]; scaleId: string; relOverrides?: Record<string, string> }) {
@@ -1312,12 +1433,23 @@ function SnapshotsByRelationshipPDF({ snapshots, scaleId, relOverrides }: { snap
 
 // ─── 6. Top 5 / Bottom 5 ─────────────────────────────────────────────────────
 
-function TopBottomSection({ snapshots, competencies, scaleId }: { snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string }) {
+function TopBottomSection({
+  snapshots, competencies, scaleId, detailedRows,
+}: {
+  snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
+}) {
   const scale  = getScale(scaleId)
   const scored = competencies
     .map((c) => {
-      const ext = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null)
-      const extAvg = ext.length > 0 ? ext.reduce((sum, s) => sum + s.score_avg!, 0) / ext.length : null
+      let extAvg: number | null
+      if (detailedRows && detailedRows.length > 0) {
+        const extRow = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
+        extAvg = extRow ? avgFromDistributionPDF(extRow.distribution) : null
+      } else {
+        const ext = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null)
+        extAvg = ext.length > 0 ? ext.reduce((sum, s) => sum + s.score_avg!, 0) / ext.length : null
+      }
       return { id: c.id, name: c.name, extAvg }
     })
     .filter((c) => c.extAvg != null)
@@ -1378,27 +1510,34 @@ function TopBottomSection({ snapshots, competencies, scaleId }: { snapshots: Sna
 
 interface QRowColPDF { key: string; label: string }
 
-const QROW_REL_COLS_PDF: QRowColPDF[] = [
-  { key: 'self|',        label: 'Auto' },
-  { key: 'manager|',     label: 'Gestor' },
-  { key: 'peer|',        label: 'Pares' },
-  { key: 'subordinate|', label: 'Subord.' },
-]
-
-const QROW_REL_COLS_DETAILED_PDF: QRowColPDF[] = [
-  { key: 'self|',                label: 'Auto' },
-  { key: 'subordinate|Direto',   label: 'Eq. Direta' },
-  { key: 'subordinate|Indireto', label: 'Eq. Indireta' },
-  { key: 'peer|Direto',          label: 'P. Direto' },
-  { key: 'peer|Indireto',        label: 'P. Indireto' },
-]
+const QROW_SHORT_LABEL_PDF: Record<string, string> = {
+  'self|':                'Auto',
+  'manager|':              'Gestor',
+  'manager_superior|':     'Líd. Sup.',
+  'peer|':                 'Pares',
+  'peer|Direto':           'P. Direto',
+  'peer|Indireto':         'P. Indireto',
+  'subordinate|Direto':    'Eq. Direta',
+  'subordinate|Indireto':  'Eq. Indireta',
+  'client|':               'Clientes',
+}
 
 function qrowKeyPDF(code: string, detail: string | null | undefined): string {
   return `${code}|${detail ?? ''}`
 }
 
-function pickQuestionColsPDF(questionScores: QuestionScoreRow[]): QRowColPDF[] {
-  return questionScores.some((q) => q.relationship_detail) ? QROW_REL_COLS_DETAILED_PDF : QROW_REL_COLS_PDF
+function pickQuestionColsPDF(questionScores: QuestionScoreRow[], relOverrides?: Record<string, string>): QRowColPDF[] {
+  const present = new Set(
+    questionScores.filter((q) => q.relationship_code !== 'self').map((q) => qrowKeyPDF(q.relationship_code, q.relationship_detail))
+  )
+  const cols: QRowColPDF[] = [{ key: 'self|', label: relOverrides?.['self|'] ?? QROW_SHORT_LABEL_PDF['self|'] }]
+  for (const { code, detail } of REL_DETAIL_ORDER) {
+    if (code === 'self') continue
+    const key = qrowKeyPDF(code, detail)
+    if (!present.has(key)) continue
+    cols.push({ key, label: relOverrides?.[key] ?? QROW_SHORT_LABEL_PDF[key] ?? REL_DETAIL_LABEL[key] ?? key })
+  }
+  return cols
 }
 
 interface QRowPDF {
@@ -1406,7 +1545,7 @@ interface QRowPDF {
   geral: number; perRel: Record<string, number | null>
 }
 
-function buildQuestionRowsPDF(questionScores: QuestionScoreRow[], competencies: CompetencyRow[]): QRowPDF[] {
+function buildQuestionRowsPDF(questionScores: QuestionScoreRow[], competencies: CompetencyRow[], excludeClientFromGeral = false): QRowPDF[] {
   const compMap = new Map(competencies.map((c) => [c.id, c.name]))
 
   const byQuestion = new Map<string, {
@@ -1425,7 +1564,7 @@ function buildQuestionRowsPDF(questionScores: QuestionScoreRow[], competencies: 
 
   return [...byQuestion.entries()]
     .map(([id, q]) => {
-      const extEntries = Object.values(q.sums).filter((s) => s.code !== 'self')
+      const extEntries = Object.values(q.sums).filter((s) => s.code !== 'self' && !(excludeClientFromGeral && s.code === 'client'))
       const extN   = extEntries.reduce((s, e) => s + e.n, 0)
       if (extN === 0) return null
       const extSum = extEntries.reduce((s, e) => s + e.sum, 0)
@@ -1503,13 +1642,15 @@ function QuestionGroupTablePDF({
 }
 
 function TopBottomQuestionsSectionPDF({
-  questionScores, competencies, scaleId,
+  questionScores, competencies, scaleId, relOverrides, excludeClientFromGeral = false,
 }: {
   questionScores: QuestionScoreRow[]; competencies: CompetencyRow[]; scaleId: string
+  relOverrides?: Record<string, string>
+  excludeClientFromGeral?: boolean
 }) {
   const scale  = getScale(scaleId)
-  const scored = buildQuestionRowsPDF(questionScores, competencies)
-  const cols   = pickQuestionColsPDF(questionScores)
+  const scored = buildQuestionRowsPDF(questionScores, competencies, excludeClientFromGeral)
+  const cols   = pickQuestionColsPDF(questionScores, relOverrides)
 
   if (scored.length === 0) return null
 
@@ -1535,7 +1676,8 @@ function TopBottomQuestionsSectionPDF({
         calloutLabel="Atenção especial"
       />
       <Text style={{ fontSize: 6.5, color: C.light, marginTop: 2 }}>
-        "Geral" = média das avaliações externas (gestor, pares e subordinados) por pergunta.
+        "Geral" = média de todas as avaliações externas por pergunta
+        {excludeClientFromGeral ? ' (exceto Autoavaliação e Clientes internos)' : ' (exceto Autoavaliação)'}.
       </Text>
     </View>
   )
@@ -1544,13 +1686,15 @@ function TopBottomQuestionsSectionPDF({
 // ─── 6b. Resultado detalhado — todas as perguntas ──────────────────────────────
 
 function AllQuestionsDetailSectionPDF({
-  questionScores, competencies, scaleId,
+  questionScores, competencies, scaleId, relOverrides, excludeClientFromGeral = false,
 }: {
   questionScores: QuestionScoreRow[]; competencies: CompetencyRow[]; scaleId: string
+  relOverrides?: Record<string, string>
+  excludeClientFromGeral?: boolean
 }) {
   const scale = getScale(scaleId)
-  const rows  = buildQuestionRowsPDF(questionScores, competencies).sort((a, b) => a.order_index - b.order_index)
-  const cols  = pickQuestionColsPDF(questionScores)
+  const rows  = buildQuestionRowsPDF(questionScores, competencies, excludeClientFromGeral).sort((a, b) => a.order_index - b.order_index)
+  const cols  = pickQuestionColsPDF(questionScores, relOverrides)
 
   if (rows.length === 0) return null
 
@@ -1598,17 +1742,24 @@ function AllQuestionsDetailSectionPDF({
 // ─── 7. Benchmark section ─────────────────────────────────────────────────────
 
 function BenchmarkSectionPDF({
-  snapshots, competencies, benchmark,
+  snapshots, competencies, benchmark, detailedRows,
 }: {
   snapshots: SnapshotRow[]; competencies: CompetencyRow[]
   benchmark: BenchmarkMap; scaleId: string
+  detailedRows?: CompetencyRelationshipFavorabilityRow[]
 }) {
   const rows = competencies
     .map((c) => {
       const bmEntry = benchmark[c.id]
       if (!bmEntry) return null
-      const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null)
-      const myAvg = extSnaps.length > 0 ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length : null
+      let myAvg: number | null
+      if (detailedRows && detailedRows.length > 0) {
+        const extRow = detailedRows.find((r) => r.competency_id === c.id && r.relationship_code === '__external__')
+        myAvg = extRow ? avgFromDistributionPDF(extRow.distribution) : null
+      } else {
+        const extSnaps = snapshots.filter((s) => s.competency_id === c.id && s.relationship_code !== 'self' && s.score_avg != null)
+        myAvg = extSnaps.length > 0 ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length : null
+      }
       if (myAvg == null) return null
       const delta = myAvg - bmEntry.score_avg
       return { id: c.id, name: c.name, myAvg, cycleAvg: bmEntry.score_avg, delta, participantCount: bmEntry.participant_count }
@@ -1640,7 +1791,7 @@ function BenchmarkSectionPDF({
         const isAbove  = r.delta > 0.15
         const isBelow  = r.delta < -0.15
         const deltaCol = isAbove ? C.green : isBelow ? C.red : C.muted
-        const deltaLbl = isAbove ? '▲' : isBelow ? '▼' : '≈'
+        const deltaLbl = isAbove ? '+' : isBelow ? '-' : '='
 
         return (
           <View key={r.id} style={s.tableRow} wrap={false}>
@@ -1810,7 +1961,7 @@ function DemographicBreakdownSectionPDF({ groups }: { groups: DemographicGroupPD
             {byDimension[dim].map((g) => (
               <View key={g.value} style={{ marginBottom: 6 }} wrap={false}>
                 <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
-                  <Text style={{ fontSize: 7, color: C.text }}>{g.value}</Text>
+                  <Text style={{ fontSize: 7, color: C.text }}>{dim === 'nivel_detalhe' ? (NIVEL_DETALHE_VALUE_LABEL_PDF[g.value] ?? g.value) : g.value}</Text>
                   <Text style={{ fontSize: 6.5, color: C.light }}>
                     {g.avg_score.toFixed(2)} · {g.respondent_count} resp.
                   </Text>
@@ -1976,6 +2127,11 @@ const DEMOGRAPHIC_DIMENSION_LABEL_PDF: Record<DemographicGroupPDF['dimension'], 
   nivel_detalhe: 'Nível Detalhado',
 }
 
+const NIVEL_DETALHE_VALUE_LABEL_PDF: Record<string, string> = {
+  Direto:   'Equipe Direta',
+  Indireto: 'Equipe Indireta',
+}
+
 export interface ReportPDFProps {
   personName:       string
   cycleName:        string
@@ -2052,13 +2208,14 @@ function ConsultantNotesSectionPDF({ notes }: { notes: string }) {
 }
 
 function MethodologyAppendixSectionPDF({
-  scaleId, nMinimum, evaluatorWeights, competencyWeights, generatedAt,
+  scaleId, nMinimum, evaluatorWeights, competencyWeights, generatedAt, externalScores = false,
 }: {
   scaleId: string
   nMinimum: number
   evaluatorWeights?: Record<string, number>
   competencyWeights?: { name: string; weight: number }[]
   generatedAt: string | null
+  externalScores?: boolean
 }) {
   const scale = getScale(scaleId)
   const hasEvaluatorWeights  = evaluatorWeights  != null && Object.values(evaluatorWeights).some((w) => w > 0)
@@ -2091,19 +2248,32 @@ function MethodologyAppendixSectionPDF({
         <Text style={{ fontSize: 7, color: C.light }}>
           Favorável = notas {scale.max - 1} e {scale.max} · Neutro = notas intermediárias ·
           Desfavorável = notas {scale.min} e {scale.min + 1}. Calculada sobre as avaliações externas
-          (exclui autoavaliação).
+          {externalScores ? ' (exclui Autoavaliação e Clientes internos)' : ' (exclui autoavaliação)'}.
         </Text>
       </Block>
+      {externalScores && (
+        <Block title="Categorias fora do número único">
+          <Text style={{ fontSize: 7, color: C.light }}>
+            Autoavaliação e Clientes internos aparecem no relatório com sua própria nota, mas não
+            entram na Média Geral nem em nenhuma agregação "Geral"/"avaliadores externos" — somam só
+            Chefe direto, Liderança Superior, Pares, Equipe e Equipe Indireta.
+          </Text>
+        </Block>
+      )}
       <Block title="Regra de N-mínimo (anonimato)">
         <Text style={{ fontSize: 7, color: C.light }}>
           Grupos de avaliadores não-gestor (pares, subordinados) com menos de {nMinimum} respondentes
           são ocultados, para impedir que uma nota individual seja atribuída a um avaliador específico.
+          Autoavaliação, chefe direto e liderança superior não têm essa restrição — são, por design,
+          sempre 1 pessoa identificável.
         </Text>
       </Block>
       <Block title="Ponto cego / força oculta">
         <Text style={{ fontSize: 7, color: C.light }}>
-          Autoavaliação supera a média externa em 1,0 ponto ou mais = ponto cego; média externa supera
-          a autoavaliação em 1,0 ponto ou mais = força oculta.
+          Nas comparações por competência (GAP, Matriz de Johari): autoavaliação supera a média externa
+          em 0,5 ponto ou mais = ponto cego; média externa supera a autoavaliação em 0,5 ponto ou mais
+          = força oculta. O resumo no topo do relatório ("X pontos cegos") usa um critério mais rígido,
+          de 1,0 ponto, para contar só os casos mais claros.
         </Text>
       </Block>
       <Block title="Matriz de Johari">
@@ -2120,7 +2290,12 @@ function MethodologyAppendixSectionPDF({
         </Text>
       </Block>
       <Block title="Pesos por avaliador">
-        {hasEvaluatorWeights ? (
+        {externalScores ? (
+          <Text style={{ fontSize: 7, color: C.light }}>
+            Peso igual por pessoa entre os avaliadores das categorias que entram no número único —
+            não por grupo. Um grupo com mais avaliadores pesa mais no total.
+          </Text>
+        ) : hasEvaluatorWeights ? (
           Object.entries(evaluatorWeights!).filter(([, w]) => w > 0).map(([rel, w]) => (
             <Text key={rel} style={{ fontSize: 6.5, color: C.light }}>{REL_LABEL[rel] ?? rel}: peso {w}</Text>
           ))
@@ -2139,8 +2314,9 @@ function MethodologyAppendixSectionPDF({
       </Block>
       <Block title="Média simples × Média Geral ponderada">
         <Text style={{ fontSize: 7, color: C.light }}>
-          A "Média Geral" no topo do relatório é a média entre os grupos de avaliadores visíveis
-          {hasEvaluatorWeights || hasCompetencyWeights ? ', ajustada pelos pesos acima.' : ', sem peso configurado — equivale à média simples.'}
+          {externalScores
+            ? 'A "Média Geral" no topo do relatório vem pronta da consultoria, calculada com peso igual por pessoa entre as categorias que entram no número único (ver acima) — não é recalculada pelo sistema.'
+            : `A "Média Geral" no topo do relatório é a média entre os grupos de avaliadores visíveis${hasEvaluatorWeights || hasCompetencyWeights ? ', ajustada pelos pesos acima.' : ', sem peso configurado — equivale à média simples.'}`}
         </Text>
       </Block>
       {generatedAt && (
@@ -2213,7 +2389,7 @@ export function ReportPDFDocument({
         <ReportNotesSectionPDF notes={reportNotes} />
 
         {/* Scores consolidados + Autoconhecimento + Insights */}
-        <ScoresSection profile={profile} snapshots={snapshots} competencies={competencies} scaleId={scaleId} questionScores={questionScores} relOverrides={relOverrides} />
+        <ScoresSection profile={profile} snapshots={snapshots} competencies={competencies} scaleId={scaleId} questionScores={questionScores} relOverrides={relOverrides} detailedRows={competencyRelationshipFavorability} />
 
         {/* Roda da liderança */}
         {hasCompetencies && (
@@ -2257,7 +2433,12 @@ export function ReportPDFDocument({
 
         {/* GAP autoavaliação × avaliadores */}
         {hasCompetencies && (
-          <GAPSection snapshots={snapshots} competencies={competencies} />
+          <GAPSection snapshots={snapshots} competencies={competencies} detailedRows={competencyRelationshipFavorability} />
+        )}
+
+        {/* Matriz de Johari */}
+        {hasCompetencies && (
+          <JohariMatrixSectionPDF snapshots={snapshots} competencies={competencies} detailedRows={competencyRelationshipFavorability} />
         )}
 
         {/* Scores por perspectiva */}
@@ -2265,18 +2446,18 @@ export function ReportPDFDocument({
 
         {/* Top 5 / Bottom 5 (por competência) */}
         {hasCompetencies && (
-          <TopBottomSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+          <TopBottomSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
         )}
 
         {/* Top 5 / Bottom 5 (por pergunta) */}
         {questionScores.length > 0 && (
-          <TopBottomQuestionsSectionPDF questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
+          <TopBottomQuestionsSectionPDF questionScores={questionScores} competencies={competencies} scaleId={scaleId} relOverrides={relOverrides} excludeClientFromGeral={reportNotes != null} />
         )}
 
 
         {/* Benchmark */}
         {hasCompetencies && hasBenchmark && (
-          <BenchmarkSectionPDF snapshots={snapshots} competencies={competencies} benchmark={benchmark!} scaleId={scaleId} />
+          <BenchmarkSectionPDF snapshots={snapshots} competencies={competencies} benchmark={benchmark!} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
         )}
 
         {/* Distribuição de respostas */}
@@ -2286,7 +2467,7 @@ export function ReportPDFDocument({
 
         {/* Resultado detalhado — todas as perguntas */}
         {questionScores.length > 0 && (
-          <AllQuestionsDetailSectionPDF questionScores={questionScores} competencies={competencies} scaleId={scaleId} />
+          <AllQuestionsDetailSectionPDF questionScores={questionScores} competencies={competencies} scaleId={scaleId} relOverrides={relOverrides} excludeClientFromGeral={reportNotes != null} />
         )}
 
         {/* Favorabilidade por perfil do avaliador */}
@@ -2318,6 +2499,7 @@ export function ReportPDFDocument({
             evaluatorWeights={evaluatorWeights}
             competencyWeights={competencyWeights}
             generatedAt={profile.generated_at}
+            externalScores={reportNotes != null}
           />
         )}
       </Page>

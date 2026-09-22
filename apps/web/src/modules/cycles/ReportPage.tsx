@@ -302,6 +302,11 @@ const CYCLE_DEMOGRAPHIC_LABEL: Record<CycleDemographicGroup['dimension'], string
   nivel_detalhe: 'Nível Detalhado',
 }
 
+const NIVEL_DETALHE_VALUE_LABEL_CYCLE: Record<string, string> = {
+  Direto:   'Equipe Direta',
+  Indireto: 'Equipe Indireta',
+}
+
 function CycleDemographicSection({ groups }: { groups: CycleDemographicGroup[] }) {
   if (groups.length === 0) return null
 
@@ -331,7 +336,9 @@ function CycleDemographicSection({ groups }: { groups: CycleDemographicGroup[] }
               {byDimension[dim].map((g) => (
                 <div key={g.value}>
                   <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-gray-700 truncate">{g.value}</span>
+                    <span className="text-gray-700 truncate">
+                      {dim === 'nivel_detalhe' ? (NIVEL_DETALHE_VALUE_LABEL_CYCLE[g.value] ?? g.value) : g.value}
+                    </span>
                     <span className="text-gray-400 shrink-0 ml-2">
                       {g.avg_score.toFixed(2)} · {g.respondent_count} resp.
                     </span>
