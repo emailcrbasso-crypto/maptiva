@@ -1384,6 +1384,19 @@ export function computeGroupAverages(questionScores: QuestionScoreRow[]): Record
   return out
 }
 
+/** Competências com só 1 pergunta no questionário — a nota vem de uma
+ * amostra pequena demais para leitura isolada confiável (ex.: "Melhor
+ * Ideia" no modelo Flexmetal, que tem 1 único item no questionário). */
+export function lowSampleCompetencyIds(questionScores: QuestionScoreRow[]): Set<string> {
+  const byComp = new Map<string, Set<string>>()
+  for (const q of questionScores) {
+    if (!q.competency_id) continue
+    if (!byComp.has(q.competency_id)) byComp.set(q.competency_id, new Set())
+    byComp.get(q.competency_id)!.add(q.question_id)
+  }
+  return new Set([...byComp.entries()].filter(([, ids]) => ids.size === 1).map(([id]) => id))
+}
+
 function buildQuestionRows(questionScores: QuestionScoreRow[], competencies: CompetencyRow[]): QRow[] {
   const compMap = new Map(competencies.map((c) => [c.id, c.name]))
 
@@ -1759,12 +1772,18 @@ export function CompetencyBreakdown({
   }
 
   const hasQuestions = questionScores.length > 0
+  const lowSampleIds = lowSampleCompetencyIds(questionScores)
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
-      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
         Avaliação geral por competência
       </h2>
+      {lowSampleIds.size > 0 && (
+        <p className="text-xs text-amber-600 mb-3">
+          ⚠ base pequena — competência com apenas 1 pergunta no questionário, leia com ressalva
+        </p>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -1803,7 +1822,10 @@ export function CompetencyBreakdown({
                     key={compId}
                     className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
                   >
-                    <td className="py-3 pr-6 text-gray-700 font-medium">{comp?.name ?? '—'}</td>
+                    <td className="py-3 pr-6 text-gray-700 font-medium">
+                      {comp?.name ?? '—'}
+                      {lowSampleIds.has(compId) && <span className="text-amber-500 ml-1" title="Base pequena — 1 pergunta">⚠</span>}
+                    </td>
                     {relationships.map((r) => {
                       const value = hasDetail
                         ? compAvgByKey.get(compId)?.get(r.key) ?? null
@@ -2083,6 +2105,7 @@ export function FavorabilitySection({
   scaleId = 'likert_5',
   detailedRows,
   overallOverridePct,
+  questionScores = [],
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
@@ -2095,6 +2118,8 @@ export function FavorabilitySection({
    * — usado como respaldo do número de topo quando a agregação ao vivo fica
    * oculta pela proteção anti-dedução (exatamente 1 subgrupo suprimido). */
   overallOverridePct?: number | null
+  /** Usado só para marcar competências de base pequena (1 pergunta). */
+  questionScores?: QuestionScoreRow[]
 }) {
   const scale = getScale(scaleId)
 
@@ -2114,6 +2139,7 @@ export function FavorabilitySection({
   // Mesmo limiar usado em app.compute_scores (v_blind_threshold) para
   // ponto cego: autoavaliação supera a média externa em >= 1.0 ponto.
   const BLIND_SPOT_THRESHOLD = 1.0
+  const lowSampleIds = lowSampleCompetencyIds(questionScores)
 
   const rows = competencies
     .map((c) => {
@@ -2132,10 +2158,11 @@ export function FavorabilitySection({
       const extAvg    = extAvgN > 0 ? extAvgSum / extAvgN : null
       const gap       = selfSnap?.score_avg != null && extAvg != null ? selfSnap.score_avg - extAvg : null
       const isBlindSpot = gap != null && gap >= BLIND_SPOT_THRESHOLD && fav.favoravel < 80
+      const isLowSample = lowSampleIds.has(c.id)
 
-      return { id: c.id, name: c.name, fav, isBlindSpot }
+      return { id: c.id, name: c.name, fav, isBlindSpot, isLowSample }
     })
-    .filter(Boolean) as { id: string; name: string; fav: Favorability; isBlindSpot: boolean }[]
+    .filter(Boolean) as { id: string; name: string; fav: Favorability; isBlindSpot: boolean; isLowSample: boolean }[]
 
   if (headlinePct == null && rows.length === 0) return null
 
@@ -2162,6 +2189,13 @@ export function FavorabilitySection({
               {overall.neutro.toFixed(1)}% neutro · {overall.desfavoravel.toFixed(1)}% desfavorável
             </p>
           )}
+          {overallOverridePct != null && (
+            <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">
+              Percentual calculado pela consultoria com peso igual por pessoa entre os avaliadores
+              das categorias que entram no número único (Chefe direto, Liderança Superior, Pares,
+              Equipe e Equipe Indireta) — Autoavaliação e Clientes internos ficam de fora da soma.
+            </p>
+          )}
         </div>
       )}
 
@@ -2178,6 +2212,9 @@ export function FavorabilitySection({
                   >
                     🔍 ponto cego
                   </span>
+                )}
+                {r.isLowSample && (
+                  <span title="Base pequena — 1 pergunta" className="text-amber-500 shrink-0">⚠</span>
                 )}
               </p>
               <div className="flex-1"><FavorabilityBar fav={r.fav} /></div>
@@ -3439,7 +3476,7 @@ export function ReportDisplay({
 
       {/* 1.1 Favorabilidade geral */}
       {hasCompetencies && (
-        <FavorabilitySection snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} overallOverridePct={reportNotes?.overall_favorability_pct} />
+        <FavorabilitySection snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} overallOverridePct={reportNotes?.overall_favorability_pct} questionScores={questionScores} />
       )}
 
       {/* 1.2 Favorabilidade por nível de avaliador */}

@@ -28,6 +28,7 @@ import {
   computeFavorability,
   qrowKey,
   computeGroupAverages,
+  lowSampleCompetencyIds,
   type CompetencyRelationshipFavorabilityRow,
   type ReportNotesRow,
   type DivergenceRow,
@@ -928,11 +929,12 @@ function DimensionFavorabilityTablePDF({
 }
 
 function FavorabilitySectionPDF({
-  snapshots, competencies, scaleId, detailedRows, overallOverridePct,
+  snapshots, competencies, scaleId, detailedRows, overallOverridePct, questionScores = [],
 }: {
   snapshots: SnapshotRow[]; competencies: CompetencyRow[]; scaleId: string
   detailedRows?: CompetencyRelationshipFavorabilityRow[]
   overallOverridePct?: number | null
+  questionScores?: QuestionScoreRow[]
 }) {
   const scale = getScale(scaleId)
 
@@ -941,6 +943,7 @@ function FavorabilitySectionPDF({
     : mergeDist(snapshots.filter((s) => s.relationship_code !== 'self' && s.score_distribution))
   const overall = computeFavorability(allExtDist, scale)
   const headlinePct = overallOverridePct ?? (overall.total > 0 ? overall.favoravel : null)
+  const lowSampleIds = lowSampleCompetencyIds(questionScores)
 
   const rows = competencies
     .map((c) => {
@@ -952,9 +955,9 @@ function FavorabilitySectionPDF({
       if (!dist) return null
       const fav = computeFavorability(dist, scale)
       if (fav.total === 0) return null
-      return { id: c.id, name: c.name, fav }
+      return { id: c.id, name: c.name, fav, isLowSample: lowSampleIds.has(c.id) }
     })
-    .filter(Boolean) as { id: string; name: string; fav: ReturnType<typeof computeFavorability> }[]
+    .filter(Boolean) as { id: string; name: string; fav: ReturnType<typeof computeFavorability>; isLowSample: boolean }[]
 
   if (headlinePct == null && rows.length === 0) return null
 
@@ -975,18 +978,32 @@ function FavorabilitySectionPDF({
               {overall.neutro.toFixed(1)}% neutro · {overall.desfavoravel.toFixed(1)}% desfavorável
             </Text>
           )}
+          {overallOverridePct != null && (
+            <Text style={{ fontSize: 6.5, color: C.light, marginTop: 4, lineHeight: 1.4 }}>
+              Percentual calculado pela consultoria com peso igual por pessoa entre os avaliadores das
+              categorias que entram no número único (Chefe direto, Liderança Superior, Pares, Equipe e
+              Equipe Indireta) — Autoavaliação e Clientes internos ficam de fora da soma.
+            </Text>
+          )}
         </View>
       )}
 
       {rows.map((r) => (
         <View key={r.id} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 5 }} wrap={false}>
-          <Text style={{ fontSize: 8, color: C.text, width: 130 }}>{r.name.length > 22 ? r.name.slice(0, 20) + '…' : r.name}</Text>
+          <Text style={{ fontSize: 8, color: C.text, width: 130 }}>
+            {r.name.length > 20 ? r.name.slice(0, 20) + '…' : r.name}{r.isLowSample ? ' ⚠' : ''}
+          </Text>
           <View style={{ flex: 1 }}><FavorabilityBarPDF fav={r.fav} /></View>
           <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.text, width: 32, textAlign: 'right' }}>
             {r.fav.favoravel.toFixed(0)}%
           </Text>
         </View>
       ))}
+      {rows.some((r) => r.isLowSample) && (
+        <Text style={{ fontSize: 6.5, color: '#b45309', marginTop: 2 }}>
+          ⚠ base pequena — competência com apenas 1 pergunta no questionário, leia com ressalva
+        </Text>
+      )}
     </View>
   )
 }
@@ -1863,10 +1880,16 @@ function CompetencyDetailSection({
   }
 
   const COL_W = hasDetail ? 34 : 42
+  const lowSampleIds = lowSampleCompetencyIds(questionScores)
 
   return (
     <View style={s.section} break>
       <SectionTitle>Avaliação por competência</SectionTitle>
+      {lowSampleIds.size > 0 && (
+        <Text style={{ fontSize: 6.5, color: '#b45309', marginBottom: 4 }}>
+          ⚠ base pequena — competência com apenas 1 pergunta no questionário, leia com ressalva
+        </Text>
+      )}
 
       <View style={s.tableHeader}>
         <Text style={[s.tableHeaderCell, { flex: 1 }]}>Competência</Text>
@@ -1881,7 +1904,7 @@ function CompetencyDetailSection({
         const comp = compMap.get(compId)
         return (
           <View key={compId} style={s.tableRow} wrap={false}>
-            <Text style={[s.tableCell, { flex: 1 }]}>{comp?.name ?? '—'}</Text>
+            <Text style={[s.tableCell, { flex: 1 }]}>{comp?.name ?? '—'}{lowSampleIds.has(compId) ? ' ⚠' : ''}</Text>
             {relationships.map((r) => {
               const value = hasDetail
                 ? compAvgByKey.get(compId)?.get(r.key) ?? null
@@ -2175,7 +2198,7 @@ export function ReportPDFDocument({
 
         {/* Favorabilidade geral */}
         {hasCompetencies && (
-          <FavorabilitySectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} overallOverridePct={reportNotes?.overall_favorability_pct} />
+          <FavorabilitySectionPDF snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} overallOverridePct={reportNotes?.overall_favorability_pct} questionScores={questionScores} />
         )}
 
         {/* Favorabilidade por nível de avaliador */}
