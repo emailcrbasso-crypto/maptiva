@@ -54,7 +54,7 @@ const DEMOGRAPHIC_DIMENSION_LABEL: Record<DemographicGroup['dimension'], string>
 /** "Direto"/"Indireto" cru fica ambíguo fora de contexto — mostra o rótulo
  * completo (mesma terminologia usada no resto do relatório) quando disponível. */
 const NIVEL_DETALHE_VALUE_LABEL: Record<string, string> = {
-  Direto:   'Equipe Direta',
+  Direto:   'Equipe',
   Indireto: 'Equipe Indireta',
 }
 

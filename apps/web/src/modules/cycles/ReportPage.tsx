@@ -303,7 +303,7 @@ const CYCLE_DEMOGRAPHIC_LABEL: Record<CycleDemographicGroup['dimension'], string
 }
 
 const NIVEL_DETALHE_VALUE_LABEL_CYCLE: Record<string, string> = {
-  Direto:   'Equipe Direta',
+  Direto:   'Equipe',
   Indireto: 'Equipe Indireta',
 }
 

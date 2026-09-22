@@ -2128,7 +2128,7 @@ const DEMOGRAPHIC_DIMENSION_LABEL_PDF: Record<DemographicGroupPDF['dimension'], 
 }
 
 const NIVEL_DETALHE_VALUE_LABEL_PDF: Record<string, string> = {
-  Direto:   'Equipe Direta',
+  Direto:   'Equipe',
   Indireto: 'Equipe Indireta',
 }
 
