@@ -714,7 +714,7 @@ function CombinedFavorabilityRadarPDF({
   if (compRows.length < 3) return null
 
   const N = compRows.length
-  const legendItems = compRows.map((c, i) => ({ num: i + 1, name: c.name.length > 30 ? c.name.slice(0, 28) + '…' : c.name }))
+  const axisLabels = compRows.map((c) => c.name)
 
   return (
     <View style={s.section} break>
@@ -733,12 +733,13 @@ function CombinedFavorabilityRadarPDF({
           ]}
           scaleMax={100}
           gridRings={5}
-          size={220}
+          size={260}
           goalValue={goalPct ?? undefined}
+          axisLabels={axisLabels}
         />
       </View>
 
-      <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'center', marginBottom: 8 }}>
+      <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'center' }}>
         <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginRight: 14 }}>
           <View style={{ width: 8, height: 8, backgroundColor: '#2563eb', borderRadius: 2, marginRight: 4 }} />
           <Text style={{ fontSize: 7.5, color: C.muted }}>Auto Avaliação</Text>
@@ -746,20 +747,6 @@ function CombinedFavorabilityRadarPDF({
         <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
           <View style={{ width: 8, height: 8, backgroundColor: '#ea580c', borderRadius: 2, marginRight: 4 }} />
           <Text style={{ fontSize: 7.5, color: C.muted }}>Avaliadores Externos</Text>
-        </View>
-      </View>
-
-      <View style={{ backgroundColor: C.bg, borderRadius: 6, padding: 8 }}>
-        <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.muted, marginBottom: 5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          Legenda dos eixos
-        </Text>
-        <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap' }}>
-          {legendItems.map((item) => (
-            <View key={item.num} style={{ width: '50%', display: 'flex', flexDirection: 'row', marginBottom: 3 }}>
-              <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.primary, width: 14 }}>{item.num}.</Text>
-              <Text style={{ fontSize: 7, color: C.text, flex: 1 }}>{item.name}</Text>
-            </View>
-          ))}
         </View>
       </View>
     </View>
@@ -1145,7 +1132,7 @@ function DualRadarSectionPDF({
 
   const axisLabels = compWithSnaps.map((c) => c.name)
 
-  const CHART_SIZE = 220
+  const CHART_SIZE = 250
 
   return (
     <View style={s.section} break>
@@ -1156,7 +1143,7 @@ function DualRadarSectionPDF({
       </Text>
 
       {/* Autoavaliação */}
-      <View style={{ alignItems: 'center', marginBottom: 12 }}>
+      <View style={{ alignItems: 'center', marginBottom: 12 }} wrap={false}>
         <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.primary, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
           Autoavaliação
         </Text>
@@ -1177,7 +1164,7 @@ function DualRadarSectionPDF({
       </View>
 
       {/* Avaliadores externos */}
-      <View style={{ alignItems: 'center' }}>
+      <View style={{ alignItems: 'center' }} wrap={false}>
         <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#059669', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
           Avaliadores externos
         </Text>
