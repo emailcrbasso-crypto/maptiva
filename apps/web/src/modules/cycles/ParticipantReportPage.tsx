@@ -281,12 +281,13 @@ export function ParticipantReportPage() {
         .maybeSingle()
       setReportNotes((notesData as ReportNotesRow | null) ?? null)
 
-      // Divergência entre perspectivas (best-effort — mesma condição acima)
-      const { data: divData } = await supabase
-        .from('participant_question_divergence')
-        .select('*')
-        .eq('cycle_id', id)
-        .eq('cycle_participant_id', cpId)
+      // Divergência entre perspectivas — calculada ao vivo a partir das
+      // respostas (mesma fonte que o resto do relatório), não mais lida da
+      // tabela importada verbatim da planilha do cliente.
+      const { data: divData } = await supabase.rpc('get_participant_question_divergence', {
+        p_cycle_id: id,
+        p_cp_id:    cpId,
+      })
       if (Array.isArray(divData)) setDivergence(divData as DivergenceRow[])
 
       // Comparativo com ciclo anterior (best-effort — só existe para quem tem histórico)

@@ -166,11 +166,9 @@ export function MyReportPage() {
         .maybeSingle()
       setReportNotes((notesData as ReportNotesRow | null) ?? null)
 
-      // Divergência entre perspectivas (best-effort, RLS já restringe à própria linha)
-      const { data: divData } = await supabase
-        .from('participant_question_divergence')
-        .select('*')
-        .eq('cycle_id', id)
+      // Divergência entre perspectivas — calculada ao vivo a partir das
+      // respostas (mesma fonte que o resto do relatório).
+      const { data: divData } = await supabase.rpc('get_my_question_divergence', { p_cycle_id: id })
       if (Array.isArray(divData)) setDivergence(divData as DivergenceRow[])
 
       setLoading(false)

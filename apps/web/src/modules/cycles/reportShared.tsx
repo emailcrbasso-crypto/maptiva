@@ -1571,17 +1571,18 @@ export interface DivergenceRow {
   question_prompt:              string
   dimension_name:                string | null
   amplitude_points:              number
-  highest_group:                 string | null
+  /** relationship_code — pode ter mais de um quando os grupos empatam no extremo. */
+  highest_groups:                string[]
   highest_pct:                   number | null
-  lowest_group:                  string | null
+  lowest_groups:                 string[]
   lowest_pct:                    number | null
-  groups_compared:                string | null
   extreme_in_unweighted_group:   boolean | null
 }
 
-export function DivergenceSection({ rows }: { rows: DivergenceRow[] | undefined }) {
+export function DivergenceSection({ rows, relOverrides }: { rows: DivergenceRow[] | undefined; relOverrides?: Record<string, string> }) {
   if (!rows || rows.length === 0) return null
 
+  const groupLabel = (code: string) => relOverrides?.[`${code}|`] ?? relOverrides?.[code] ?? REL_LABEL[code] ?? code
   const sorted = [...rows].sort((a, b) => b.amplitude_points - a.amplitude_points)
 
   return (
@@ -1620,11 +1621,15 @@ export function DivergenceSection({ rows }: { rows: DivergenceRow[] | undefined 
                   {r.amplitude_points.toFixed(2)} pts
                 </td>
                 <td className="py-2 px-2 whitespace-nowrap">
-                  <span className="text-emerald-700 font-medium">{r.highest_group ?? '—'}</span>
+                  <span className="text-emerald-700 font-medium">
+                    {r.highest_groups.length > 0 ? r.highest_groups.map(groupLabel).join(' e ') : '—'}
+                  </span>
                   {r.highest_pct != null && <span className="text-gray-400"> · {r.highest_pct.toFixed(0)}%</span>}
                 </td>
                 <td className="py-2 px-2 whitespace-nowrap">
-                  <span className="text-red-700 font-medium">{r.lowest_group ?? '—'}</span>
+                  <span className="text-red-700 font-medium">
+                    {r.lowest_groups.length > 0 ? r.lowest_groups.map(groupLabel).join(' e ') : '—'}
+                  </span>
                   {r.lowest_pct != null && <span className="text-gray-400"> · {r.lowest_pct.toFixed(0)}%</span>}
                 </td>
               </tr>
@@ -3516,12 +3521,6 @@ export function ReportNotesSection({ notes }: { notes: ReportNotesRow | null | u
       </h2>
 
       <div className="grid sm:grid-cols-2 gap-4 mb-4">
-        {notes.direct_manager_name && (
-          <div>
-            <p className="text-xs text-gray-400 mb-0.5">Chefe direto</p>
-            <p className="text-sm text-gray-800 font-medium">{notes.direct_manager_name}</p>
-          </div>
-        )}
         {positionLabel && (
           <div>
             <p className="text-xs text-gray-400 mb-0.5">Posição contra a média do grupo</p>
@@ -3767,7 +3766,7 @@ export function ReportDisplay({
       )}
 
       {/* 5.5 Divergência entre perspectivas (só existe em ciclos com número único externo) */}
-      <DivergenceSection rows={divergence} />
+      <DivergenceSection rows={divergence} relOverrides={relOverrides} />
 
       {/* 6. GAP visual bars */}
       {hasCompetencies && (

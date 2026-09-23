@@ -390,7 +390,6 @@ function ReportNotesSectionPDF({ notes }: { notes: ReportNotesRow | null | undef
   const positionLabel = notes.group_position ? (GROUP_POSITION_LABEL_PDF[notes.group_position] ?? notes.group_position) : null
 
   const facts: { label: string; value: string }[] = []
-  if (notes.direct_manager_name) facts.push({ label: 'Chefe direto', value: notes.direct_manager_name })
   if (positionLabel) {
     facts.push({
       label: 'Posição contra a média do grupo',
@@ -1208,9 +1207,10 @@ function DualRadarSectionPDF({
 
 // ─── 3.5 Divergência entre perspectivas (participant_question_divergence) ─────
 
-function DivergenceSectionPDF({ rows }: { rows: DivergenceRow[] | undefined }) {
+function DivergenceSectionPDF({ rows, relOverrides }: { rows: DivergenceRow[] | undefined; relOverrides?: Record<string, string> }) {
   if (!rows || rows.length === 0) return null
   const sorted = [...rows].sort((a, b) => b.amplitude_points - a.amplitude_points)
+  const groupLabel = (code: string) => relOverrides?.[`${code}|`] ?? relOverrides?.[code] ?? REL_LABEL[code] ?? code
 
   const renderRow = (r: DivergenceRow) => (
     <View key={r.question_number} style={{ display: 'flex', flexDirection: 'row', marginBottom: 4 }} wrap={false}>
@@ -1223,10 +1223,12 @@ function DivergenceSectionPDF({ rows }: { rows: DivergenceRow[] | undefined }) {
         {r.amplitude_points.toFixed(2)} pts
       </Text>
       <Text style={{ flex: 1, fontSize: 7, color: '#15803d', paddingLeft: 4 }}>
-        {r.highest_group ?? '—'}{r.highest_pct != null ? ` · ${r.highest_pct.toFixed(0)}%` : ''}
+        {r.highest_groups.length > 0 ? r.highest_groups.map(groupLabel).join(' e ') : '—'}
+        {r.highest_pct != null ? ` · ${r.highest_pct.toFixed(0)}%` : ''}
       </Text>
       <Text style={{ flex: 1, fontSize: 7, color: '#b91c1c', paddingLeft: 4 }}>
-        {r.lowest_group ?? '—'}{r.lowest_pct != null ? ` · ${r.lowest_pct.toFixed(0)}%` : ''}
+        {r.lowest_groups.length > 0 ? r.lowest_groups.map(groupLabel).join(' e ') : '—'}
+        {r.lowest_pct != null ? ` · ${r.lowest_pct.toFixed(0)}%` : ''}
       </Text>
     </View>
   )
@@ -2524,7 +2526,7 @@ export function ReportPDFDocument({
         )}
 
         {/* Divergência entre perspectivas */}
-        <DivergenceSectionPDF rows={divergence} />
+        <DivergenceSectionPDF rows={divergence} relOverrides={relOverrides} />
 
         {/* GAP autoavaliação × avaliadores */}
         {hasCompetencies && (
