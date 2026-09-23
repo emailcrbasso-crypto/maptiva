@@ -68,6 +68,13 @@ export interface ReliabilityInfo {
   has_pares:           boolean
   max_group_share_pct: number
   tier:                'bom' | 'atencao' | 'fragil'
+  indiferenciados_detail?: { relationship_code: string; value: number }[]
+}
+
+export interface BenchmarkOverall {
+  score_avg:         number
+  participant_count: number
+  my_rank:           number
 }
 
 export interface ReportExecutivePDFProps {
@@ -84,6 +91,7 @@ export interface ReportExecutivePDFProps {
   divergence:      DivergenceRow[]
   demographics:    DemographicGroup[]
   benchmark:       BenchmarkMap | undefined
+  benchmarkOverall: BenchmarkOverall | null
   reliability:     ReliabilityInfo | null
   nMinimum:        number
 }
@@ -170,17 +178,18 @@ function aggregateCompetencies(
   }).filter((c) => c.fav.total > 0)
 }
 
-/** get_cycle_benchmark só devolve linhas por competência (nunca um "geral"
- * agregado) — a posição geral em relação ao grupo é a média simples dessas
- * médias por competência, consistente com como o resto do relatório trata
- * "Média Geral" como não-ponderada entre competências. */
-function benchmarkOverall(benchmark: BenchmarkMap | undefined): { score_avg: number; participant_count: number } | null {
+/** Fallback só usado se get_cycle_benchmark_overall (migration 0105) ainda
+ * não rodou nesta base: aproxima a "média do grupo" pela média simples das
+ * médias por competência de get_cycle_benchmark — menos exato que a RPC
+ * dedicada (que pesa por resposta dentro de cada pessoa, não por
+ * competência), mas evita a página ficar sem nenhum número. */
+function estimateBenchmarkOverall(benchmark: BenchmarkMap | undefined): BenchmarkOverall | null {
   if (!benchmark) return null
   const rows = Object.values(benchmark)
   if (rows.length === 0) return null
   const score_avg = rows.reduce((s2, b) => s2 + b.score_avg, 0) / rows.length
   const participant_count = Math.max(...rows.map((b) => b.participant_count))
-  return { score_avg, participant_count }
+  return { score_avg, participant_count, my_rank: 0 }
 }
 
 function faixa(pct: number): { label: string; color: string; bg: string } {
@@ -476,7 +485,7 @@ const GROUP_DESC: Record<string, string> = {
 
 function OverviewPage(props: {
   personName: string; tenantName: string; cycleLabel: string
-  groups: GroupAgg[]; benchmark: BenchmarkMap | undefined; reliability: ReliabilityInfo | null
+  groups: GroupAgg[]; benchmark: BenchmarkMap | undefined; benchmarkOverall: BenchmarkOverall | null; reliability: ReliabilityInfo | null
 }) {
   const { groups, benchmark, reliability } = props
   const geralRows = groups.filter((g) => GERAL_ENTRA[g.code])
@@ -488,7 +497,7 @@ function OverviewPage(props: {
   const geralMean = meanFromDist(geralDist)
   const selfFav = groups.find((g) => g.code === 'self')?.fav.favoravel ?? null
 
-  const bm = benchmarkOverall(benchmark)
+  const bm = props.benchmarkOverall ?? estimateBenchmarkOverall(benchmark)
   const groupMean = bm?.score_avg ?? null
   const margem = reliability?.margem ?? 0.26
   const diff = groupMean != null && geralMean != null ? round2(geralMean) - round2(groupMean) : null
@@ -609,6 +618,9 @@ function OverviewPage(props: {
           geral. Neutro e desfavorável completam as respostas do grupo e separam comportamento visto só
           às vezes, resposta intermediária, de comportamento raro. Por isso vale ler o resultado geral
           junto com o resultado de cada grupo.
+          {bm != null && bm.my_rank > 0 && (
+            ` No ranking dos ${bm.participant_count} gestores pela média geral, a sua ficou em ${bm.my_rank}º lugar, informação secundária, porque médias de gestores vizinhos na lista não são estatisticamente diferentes.`
+          )}
         </Text>
       </View>
     </PageChrome>
@@ -639,7 +651,7 @@ function reliabilityReason(r: ReliabilityInfo): string {
 
 function buildSynthesisBullets(
   groups: GroupAgg[], comps: CompAgg[], divergence: DivergenceRow[], reliability: ReliabilityInfo | null,
-  benchmark: BenchmarkMap | undefined, scale: ScaleDefinition, readingThreshold: number,
+  benchmark: BenchmarkMap | undefined, benchmarkOverallData: BenchmarkOverall | null, scale: ScaleDefinition, readingThreshold: number,
 ): string[] {
   const bullets: string[] = []
   const geralRows = groups.filter((g) => GERAL_ENTRA[g.code])
@@ -647,7 +659,7 @@ function buildSynthesisBullets(
   const geralFav = computeFavorability(geralDist, scale)
   const geralMean = meanFromDist(geralDist)
   const faixaInfo = faixa(geralFav.favoravel)
-  const bm = benchmarkOverall(benchmark)
+  const bm = benchmarkOverallData ?? estimateBenchmarkOverall(benchmark)
   const margem = reliability?.margem ?? 0.26
   const diff = bm?.score_avg != null && geralMean != null ? round2(geralMean) - round2(bm.score_avg) : null
 
@@ -740,9 +752,9 @@ function joinNumbers(nums: number[]): string {
 function SynthesisPage(props: {
   personName: string; tenantName: string; cycleLabel: string
   groups: GroupAgg[]; comps: CompAgg[]; divergence: DivergenceRow[]; reliability: ReliabilityInfo | null
-  benchmark: BenchmarkMap | undefined; scale: ScaleDefinition; readingThreshold: number
+  benchmark: BenchmarkMap | undefined; benchmarkOverall: BenchmarkOverall | null; scale: ScaleDefinition; readingThreshold: number
 }) {
-  const bullets = buildSynthesisBullets(props.groups, props.comps, props.divergence, props.reliability, props.benchmark, props.scale, props.readingThreshold)
+  const bullets = buildSynthesisBullets(props.groups, props.comps, props.divergence, props.reliability, props.benchmark, props.benchmarkOverall, props.scale, props.readingThreshold)
   return (
     <PageChrome label="Síntese" {...props}>
       <Text style={s.h1}>Síntese dos dados</Text>
@@ -1020,6 +1032,18 @@ function SelfPerceptionPage(props: {
           </View>
         )
       })}
+      {(() => {
+        const acima = ranked.filter((c) => round2(c.selfMean!) - round2(c.mean!) >= readingThreshold).length
+        const abaixo = ranked.filter((c) => round2(c.mean!) - round2(c.selfMean!) >= readingThreshold).length
+        const alinhado = ranked.length - acima - abaixo
+        return (
+          <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginTop: 4, marginBottom: 4 }}>
+            Em {acima} competência{acima !== 1 ? 's' : ''} a sua autoavaliação ficou acima da visão dos avaliadores por{' '}
+            {fmt(readingThreshold, 1)} ponto ou mais. Em {alinhado} as duas visões estão alinhadas, e em {abaixo} você se
+            avaliou abaixo do que os avaliadores observam.
+          </Text>
+        )
+      })()}
       <View style={s.howToRead}>
         <Text style={s.howToReadTitle}>Como ler</Text>
         <Text style={s.howToReadText}>
@@ -1063,7 +1087,7 @@ function HighlightsPage(props: {
   comps: CompAgg[]; qRows: QRow[]
 }) {
   const { comps, qRows } = props
-  const rankedComps = [...comps].sort((a, b) => b.fav.favoravel - a.fav.favoravel)
+  const rankedComps = [...comps].sort((a, b) => b.fav.favoravel - a.fav.favoravel || (b.mean ?? 0) - (a.mean ?? 0))
   const top3Comp = rankedComps.slice(0, 3), bottom3Comp = [...rankedComps].reverse().slice(0, 3)
   const ranked = [...qRows].sort((a, b) => b.fav - a.fav || (b.mean ?? 0) - (a.mean ?? 0))
   const top5 = ranked.slice(0, 5)
@@ -1323,8 +1347,11 @@ function ValuesPage(props: {
     return { value, numbers, fav, mean: meanFromDist(dist), selfFavPct: selfFav.total > 0 ? selfFav.favoravel : null }
   })
 
-  const compNames = new Set(competencies.map((c) => c.name))
-  const sharedNames = [...byValue.keys()].filter((v) => compNames.has(v))
+  // Compara ignorando plural simples ("Resultado" valor vs "Resultados" competência
+  // são o mesmo conceito com conjuntos de perguntas diferentes).
+  const stripPluralS = (name: string) => name.replace(/s$/i, '')
+  const compNameStems = new Set(competencies.map((c) => stripPluralS(c.name)))
+  const sharedNames = [...byValue.keys()].filter((v) => compNameStems.has(stripPluralS(v)))
 
   return (
     <PageChrome label="Valores" {...props}>
@@ -1593,7 +1620,7 @@ function PlanPage(props: { personName: string; tenantName: string; cycleLabel: s
 
 function MethodologyPage(props: {
   personName: string; tenantName: string; cycleLabel: string
-  scale: ScaleDefinition; nMinimum: number; reliability: ReliabilityInfo | null; nComp: number
+  scale: ScaleDefinition; nMinimum: number; reliability: ReliabilityInfo | null; nComp: number; nQuestions: number
 }) {
   const { scale, nMinimum, reliability } = props
   const r = reliability
@@ -1646,6 +1673,9 @@ function MethodologyPage(props: {
       <Block title="Respostas indiferenciadas">
         Formulário com a mesma marcação em todas as perguntas. Não afeta o resultado geral por si só, só
         entra como um dos critérios de confiabilidade. Formulários assim são mantidos no cálculo.
+        {r?.indiferenciados_detail && r.indiferenciados_detail.length > 0 && (
+          ` ${r.indiferenciados_detail.length === 1 ? '1 formulário' : `${r.indiferenciados_detail.length} formulários`} deste relatório ${r.indiferenciados_detail.length === 1 ? 'veio' : 'vieram'} com a mesma marcação nas ${props.nQuestions} perguntas: ${r.indiferenciados_detail.map((d) => `${GROUP_LABEL[d.relationship_code] ?? d.relationship_code}, com ${scale.labels.find((l) => l.value === d.value)?.label ?? d.value}`).join('; ')}.`
+        )}
       </Block>
       <Block title="Divergência entre perspectivas">
         Em cada pergunta, a diferença entre o grupo de maior e o de menor favorabilidade, só com grupos de
@@ -1675,7 +1705,7 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
   const {
     personName, personRole, tenantName, cycleLabel, issuedAt, scaleId,
     competencies, questionScores, questionValueNames, relDetailFav, divergence,
-    demographics, benchmark, reliability, nMinimum,
+    demographics, benchmark, benchmarkOverall, reliability, nMinimum,
   } = props
   const scale = getScale(scaleId)
   const groups = aggregateByCode(relDetailFav, scale)
@@ -1701,8 +1731,8 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
       <CoverPage personName={personName} personRole={personRole} tenantName={tenantName} cycleLabel={cycleLabel} issuedAt={issuedAt} nAvaliadores={nAvaliadores} nFormularios={nFormularios} />
       <TOCPage {...chrome} hasValues={hasValues} />
       <HowToReadPage {...chrome} scale={scale} groups={groupList} nFormularios={nFormularios} limiar={readingThreshold} margem={margem} nQuestions={qRows.length} nComp={competencies.length} />
-      <OverviewPage {...chrome} groups={groupList} benchmark={benchmark} reliability={reliability} />
-      <SynthesisPage {...chrome} groups={groupList} comps={comps} divergence={divergence} reliability={reliability} benchmark={benchmark} scale={scale} readingThreshold={readingThreshold} />
+      <OverviewPage {...chrome} groups={groupList} benchmark={benchmark} benchmarkOverall={benchmarkOverall} reliability={reliability} />
+      <SynthesisPage {...chrome} groups={groupList} comps={comps} divergence={divergence} reliability={reliability} benchmark={benchmark} benchmarkOverall={benchmarkOverall} scale={scale} readingThreshold={readingThreshold} />
       <CompetencyResultsPage {...chrome} comps={comps} scale={scale} n={nAvaliadores} />
       <PerspectivePage {...chrome} comps={comps} questionScores={questionScores} groups={groupList} />
       <SelfPerceptionPage {...chrome} comps={comps} scale={scale} readingThreshold={readingThreshold} geralFavPct={geralFav.favoravel} selfFavPct={selfFav} />
@@ -1714,7 +1744,7 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
       <ProfilePage {...chrome} demographics={demographics} />
       <GuidePage {...chrome} />
       <PlanPage {...chrome} />
-      <MethodologyPage {...chrome} scale={scale} nMinimum={nMinimum} reliability={reliability} nComp={competencies.length} />
+      <MethodologyPage {...chrome} scale={scale} nMinimum={nMinimum} reliability={reliability} nComp={competencies.length} nQuestions={qRows.length} />
     </Document>
   )
 }

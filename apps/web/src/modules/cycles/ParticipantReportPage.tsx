@@ -31,7 +31,7 @@ import {
   tenantRelOverrides,
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
-import { ReportExecutivePDFDocument, type ReliabilityInfo } from './ReportExecutivePDF'
+import { ReportExecutivePDFDocument, type ReliabilityInfo, type BenchmarkOverall } from './ReportExecutivePDF'
 
 // ─── Corte demográfico (Opção A — lê metadata_json do avaliador quando existir) ─
 
@@ -149,6 +149,7 @@ export function ParticipantReportPage() {
   const [personRole,     setPersonRole]     = useState<string | null>(null)
   const [questionValueNames, setQuestionValueNames] = useState<Record<number, string>>({})
   const [reliability,    setReliability]    = useState<ReliabilityInfo | null>(null)
+  const [benchmarkOverall, setBenchmarkOverall] = useState<BenchmarkOverall | null>(null)
   const [loading,          setLoading]          = useState(true)
   const [error,          setError]          = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
@@ -259,6 +260,15 @@ export function ParticipantReportPage() {
         p_cp_id:    cpId,
       })
       if (relData) setReliability(relData as ReliabilityInfo)
+
+      // Média geral do grupo comparativo + posição no ranking (best-effort —
+      // migration 0105, calcula "média das médias gerais por pessoa" exatamente
+      // como a metodologia do relatório executivo define)
+      const { data: bmOverallData } = await supabase.rpc('get_cycle_benchmark_overall', {
+        p_cycle_id: id,
+        p_cp_id:    cpId,
+      })
+      if (bmOverallData) setBenchmarkOverall(bmOverallData as BenchmarkOverall)
 
       // Load cycle benchmark (best-effort)
       const { data: bmData } = await supabase.rpc('get_cycle_benchmark', { p_cycle_id: id })
@@ -423,6 +433,7 @@ export function ParticipantReportPage() {
           demographics={demographics}
           benchmark={benchmark}
           reliability={reliability}
+          benchmarkOverall={benchmarkOverall}
           nMinimum={nMinimum ?? 3}
         />
       ).toBlob()
