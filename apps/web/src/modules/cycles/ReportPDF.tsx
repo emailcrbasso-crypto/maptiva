@@ -166,6 +166,7 @@ function PdfRadarChart({
   size = 180,
   goalValue,
   gridRings,
+  axisLabels,
 }: {
   N:        number
   datasets: Array<{ color: string; fillOpacity: number; values: number[] }>
@@ -176,15 +177,22 @@ function PdfRadarChart({
   /** Nº de anéis da grade. Default = scaleMax (1 anel por ponto) — passe um valor
    * menor para escalas grandes (ex.: 0-100% de favorabilidade → 5 anéis de 20%). */
   gridRings?: number
+  /** Nome de cada eixo — quando informado, substitui os números 1,2,3… pelo texto. */
+  axisLabels?: string[]
 }) {
   if (N < 3) return null
 
   const rings = gridRings ?? scaleMax
 
-  const cx = size / 2
-  const cy = size / 2
-  const r  = size * 0.34  // data radius (leaves room for labels)
-  const labelR = size * 0.47  // label text radius
+  // Text labels overhang past the data circle — give the <Svg> extra canvas
+  // on every side so long axis names don't get clipped by the SVG viewport.
+  const canvasPad = axisLabels ? 58 : 0
+  const canvas = size + canvasPad * 2
+
+  const cx = canvas / 2
+  const cy = canvas / 2
+  const r  = size * (axisLabels ? 0.3 : 0.34)  // data radius (leaves room for labels)
+  const labelR = size * (axisLabels ? 0.44 : 0.47)  // label text radius
 
   const axisAngle = (i: number) => (2 * Math.PI * i / N) - Math.PI / 2
   const ptX = (frac: number, i: number) => cx + r * frac * Math.cos(axisAngle(i))
@@ -224,7 +232,7 @@ function PdfRadarChart({
   })
 
   return (
-    <Svg width={size} height={size}>
+    <Svg width={canvas} height={canvas}>
       {/* Grid polygons */}
       {gridPolys.map((pts, gi) => (
         <Polygon key={`g${gi}`} points={pts} fill="none" stroke="#e5e7eb" strokeWidth={0.5} />
@@ -243,18 +251,35 @@ function PdfRadarChart({
       {[...dataPolys].reverse().map((dp, ri) => (
         <Polygon key={`d${ri}`} points={dp.points} fill={dp.color} fillOpacity={dp.fillOpacity} stroke={dp.color} strokeWidth={1.5} />
       ))}
-      {/* Axis number labels */}
-      {tipPositions.map((tp, i) => (
-        <Text
-          key={`l${i}`}
-          x={tp.x}
-          y={tp.y + 2}
-          textAnchor={tp.anchor}
-          style={{ fontSize: 6.5, fill: '#9ca3af', fontFamily: 'Helvetica-Bold' } as object}
-        >
-          {String(i + 1)}
-        </Text>
-      ))}
+      {/* Axis labels: competency name when provided, else the axis number */}
+      {tipPositions.map((tp, i) => {
+        const label = axisLabels?.[i]
+        if (label != null) {
+          const truncated = label.length > 20 ? label.slice(0, 19) + '…' : label
+          return (
+            <Text
+              key={`l${i}`}
+              x={tp.x}
+              y={tp.y + 2}
+              textAnchor={tp.anchor}
+              style={{ fontSize: 5.2, fill: '#6b7280', fontFamily: 'Helvetica-Bold' } as object}
+            >
+              {truncated}
+            </Text>
+          )
+        }
+        return (
+          <Text
+            key={`l${i}`}
+            x={tp.x}
+            y={tp.y + 2}
+            textAnchor={tp.anchor}
+            style={{ fontSize: 6.5, fill: '#9ca3af', fontFamily: 'Helvetica-Bold' } as object}
+          >
+            {String(i + 1)}
+          </Text>
+        )
+      })}
     </Svg>
   )
 }
@@ -473,7 +498,7 @@ function ScoresSection({
       </View>
 
       {selfIndex != null && (
-        <View style={s.indexRow}>
+        <View style={s.indexRow} wrap={false}>
           <Text style={s.indexLabel}>Índice de Autoconhecimento</Text>
           <View style={s.indexBarBg}>
             <View style={{ height: 6, width: `${selfIndex}%`, backgroundColor: indexColor, borderRadius: 3 }} />
@@ -483,7 +508,7 @@ function ScoresSection({
       )}
 
       {(profile.blind_spot_count > 0 || profile.hidden_strength_count > 0) && (
-        <View style={{ display: 'flex', flexDirection: 'row', marginTop: 10 }}>
+        <View style={{ display: 'flex', flexDirection: 'row', marginTop: 10 }} wrap={false}>
           {profile.blind_spot_count > 0 && (
             <View style={{ backgroundColor: C.bgAmber, borderRadius: 6, padding: 8, marginRight: 8, flex: 1 }}>
               <Text style={{ fontSize: 14, fontFamily: 'Helvetica-Bold', color: C.amber }}>{profile.blind_spot_count}</Text>
@@ -1118,89 +1143,70 @@ function DualRadarSectionPDF({
     }))
   }
 
-  // Legend of competency axis numbers
-  const legendItems = compWithSnaps.map((c, i) => ({
-    num: i + 1,
-    name: c.name.length > 30 ? c.name.slice(0, 28) + '…' : c.name,
-  }))
+  const axisLabels = compWithSnaps.map((c) => c.name)
 
-  const CHART_SIZE = 200
+  const CHART_SIZE = 220
 
   return (
     <View style={s.section} break>
       <SectionTitle>Roda da liderança</SectionTitle>
       <Text style={s.sectionSubtitle}>
-        Escala de 0 a {scale.max}. Os números nos eixos correspondem às competências listadas abaixo.
+        Escala de 0 a {scale.max}. Os nomes nos eixos correspondem às competências avaliadas.
         {goalValue != null ? ` Linha tracejada verde indica a meta de ${goalPct}%.` : ''}
       </Text>
 
-      <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-around', marginBottom: 8 }}>
-        {/* Left: Self */}
-        <View style={{ alignItems: 'center' }}>
-          <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.primary, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Autoavaliação
-          </Text>
-          {hasSelf ? (
-            <PdfRadarChart
-              N={N}
-              datasets={[{ color: C.primary, fillOpacity: 0.18, values: selfValues }]}
-              scaleMax={scale.max}
-              size={CHART_SIZE}
-              goalValue={goalValue}
-            />
-          ) : (
-            <View style={{ width: CHART_SIZE, height: CHART_SIZE, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 8, color: C.light }}>Sem autoavaliação</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Right: External */}
-        <View style={{ alignItems: 'center' }}>
-          <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#059669', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Avaliadores externos
-          </Text>
-          {externalDatasets.length > 0 ? (
-            <PdfRadarChart
-              N={N}
-              datasets={externalDatasets}
-              scaleMax={scale.max}
-              size={CHART_SIZE}
-              goalValue={goalValue}
-            />
-          ) : (
-            <View style={{ width: CHART_SIZE, height: CHART_SIZE, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 8, color: C.light }}>Sem avaliações externas</Text>
-            </View>
-          )}
-        </View>
+      {/* Autoavaliação */}
+      <View style={{ alignItems: 'center', marginBottom: 12 }}>
+        <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.primary, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          Autoavaliação
+        </Text>
+        {hasSelf ? (
+          <PdfRadarChart
+            N={N}
+            datasets={[{ color: C.primary, fillOpacity: 0.18, values: selfValues }]}
+            scaleMax={scale.max}
+            size={CHART_SIZE}
+            goalValue={goalValue}
+            axisLabels={axisLabels}
+          />
+        ) : (
+          <View style={{ width: CHART_SIZE, height: CHART_SIZE, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 8, color: C.light }}>Sem autoavaliação</Text>
+          </View>
+        )}
       </View>
 
-      {/* External legend */}
-      {externalDatasets.length > 1 && (
-        <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
-          {externalDatasets.map((ds) => (
-            <View key={ds.name} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginRight: 12, marginBottom: 3 }}>
-              <View style={{ width: 8, height: 8, backgroundColor: ds.color, borderRadius: 2, marginRight: 4 }} />
-              <Text style={{ fontSize: 7.5, color: C.muted }}>{ds.name}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {/* Competency axis legend */}
-      <View style={{ backgroundColor: C.bg, borderRadius: 6, padding: 8 }}>
-        <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.muted, marginBottom: 5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          Legenda dos eixos
+      {/* Avaliadores externos */}
+      <View style={{ alignItems: 'center' }}>
+        <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#059669', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          Avaliadores externos
         </Text>
-        <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap' }}>
-          {legendItems.map((item) => (
-            <View key={item.num} style={{ width: '50%', display: 'flex', flexDirection: 'row', marginBottom: 3 }}>
-              <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.primary, width: 14 }}>{item.num}.</Text>
-              <Text style={{ fontSize: 7, color: C.text, flex: 1 }}>{item.name}</Text>
-            </View>
-          ))}
-        </View>
+        {externalDatasets.length > 0 ? (
+          <PdfRadarChart
+            N={N}
+            datasets={externalDatasets}
+            scaleMax={scale.max}
+            size={CHART_SIZE}
+            goalValue={goalValue}
+            axisLabels={axisLabels}
+          />
+        ) : (
+          <View style={{ width: CHART_SIZE, height: CHART_SIZE, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 8, color: C.light }}>Sem avaliações externas</Text>
+          </View>
+        )}
+
+        {/* External legend */}
+        {externalDatasets.length > 1 && (
+          <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginTop: 6 }}>
+            {externalDatasets.map((ds) => (
+              <View key={ds.name} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginRight: 12, marginBottom: 3 }}>
+                <View style={{ width: 8, height: 8, backgroundColor: ds.color, borderRadius: 2, marginRight: 4 }} />
+                <Text style={{ fontSize: 7.5, color: C.muted }}>{ds.name}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
     </View>
   )
@@ -1221,9 +1227,9 @@ function DivergenceSectionPDF({ rows }: { rows: DivergenceRow[] | undefined }) {
       <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: '#e5e7eb', paddingBottom: 3, marginBottom: 3 }}>
         <Text style={{ width: 16, fontSize: 6.5, color: C.light }}>Nº</Text>
         <Text style={{ flex: 2, fontSize: 6.5, color: C.light }}>Pergunta</Text>
-        <Text style={{ width: 40, fontSize: 6.5, color: C.light, textAlign: 'right' }}>Amplitude</Text>
-        <Text style={{ flex: 1, fontSize: 6.5, color: C.light }}>Mais alto</Text>
-        <Text style={{ flex: 1, fontSize: 6.5, color: C.light }}>Mais baixo</Text>
+        <Text style={{ width: 54, fontSize: 6.5, color: C.light, textAlign: 'right', paddingRight: 8 }}>Amplitude</Text>
+        <Text style={{ flex: 1, fontSize: 6.5, color: C.light, paddingLeft: 4 }}>Mais alto</Text>
+        <Text style={{ flex: 1, fontSize: 6.5, color: C.light, paddingLeft: 4 }}>Mais baixo</Text>
       </View>
       {sorted.map((r) => (
         <View key={r.question_number} style={{ display: 'flex', flexDirection: 'row', marginBottom: 4 }} wrap={false}>
@@ -1232,13 +1238,13 @@ function DivergenceSectionPDF({ rows }: { rows: DivergenceRow[] | undefined }) {
             {r.question_prompt}
             {r.extreme_in_unweighted_group && <Text style={{ color: '#b45309', fontSize: 6.5 }}> ⚠ grupo sem peso</Text>}
           </Text>
-          <Text style={{ width: 40, fontSize: 7, fontFamily: 'Helvetica-Bold', textAlign: 'right', color: C.text }}>
+          <Text style={{ width: 54, fontSize: 7, fontFamily: 'Helvetica-Bold', textAlign: 'right', color: C.text, paddingRight: 8 }}>
             {r.amplitude_points.toFixed(2)} pts
           </Text>
-          <Text style={{ flex: 1, fontSize: 7, color: '#15803d' }}>
+          <Text style={{ flex: 1, fontSize: 7, color: '#15803d', paddingLeft: 4 }}>
             {r.highest_group ?? '—'}{r.highest_pct != null ? ` · ${r.highest_pct.toFixed(0)}%` : ''}
           </Text>
-          <Text style={{ flex: 1, fontSize: 7, color: '#b91c1c' }}>
+          <Text style={{ flex: 1, fontSize: 7, color: '#b91c1c', paddingLeft: 4 }}>
             {r.lowest_group ?? '—'}{r.lowest_pct != null ? ` · ${r.lowest_pct.toFixed(0)}%` : ''}
           </Text>
         </View>
@@ -1319,10 +1325,26 @@ function GAPSection({
 // ─── 4b. Matriz de Johari ─────────────────────────────────────────────────────
 
 const JOHARI_QUADRANTS_PDF = [
-  { key: 'arena',   title: 'Arena',        subtitle: 'Auto alta · Externa alta',  color: '#15803d', bg: '#f0fdf4' },
-  { key: 'blind',   title: 'Ponto cego',   subtitle: 'Auto alta · Externa baixa', color: '#b45309', bg: '#fffbeb' },
-  { key: 'facade',  title: 'Fachada',      subtitle: 'Auto baixa · Externa alta', color: '#1d4ed8', bg: '#eff6ff' },
-  { key: 'unknown', title: 'Desconhecido', subtitle: 'Auto baixa · Externa baixa', color: '#4b5563', bg: '#f9fafb' },
+  {
+    key: 'arena', title: 'Arena', subtitle: 'Auto alta · Externa alta',
+    desc: 'Comportamento reconhecido por você e pelos avaliadores — força consolidada.',
+    color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0',
+  },
+  {
+    key: 'blind', title: 'Ponto cego', subtitle: 'Auto alta · Externa baixa',
+    desc: 'Você se avalia bem, mas os avaliadores discordam — vale investigar.',
+    color: '#b45309', bg: '#fffbeb', border: '#fde68a',
+  },
+  {
+    key: 'facade', title: 'Fachada', subtitle: 'Auto baixa · Externa alta',
+    desc: 'Os avaliadores reconhecem uma força que você mesmo subestima.',
+    color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe',
+  },
+  {
+    key: 'unknown', title: 'Desconhecido', subtitle: 'Auto baixa · Externa baixa',
+    desc: 'Nem você nem os avaliadores reconhecem força consolidada aqui.',
+    color: '#4b5563', bg: '#f9fafb', border: '#e5e7eb',
+  },
 ]
 
 function JohariMatrixSectionPDF({
@@ -1374,17 +1396,34 @@ function JohariMatrixSectionPDF({
         Cada competência é "alta" ou "baixa" em relação à mediana das próprias competências desta
         pessoa (não um corte fixo da escala).
       </Text>
-      <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+      <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
         {JOHARI_QUADRANTS_PDF.map((q) => (
-          <View key={q.key} style={{ width: '48%', backgroundColor: q.bg, borderRadius: 4, padding: 8, marginBottom: 6 }} wrap={false}>
-            <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: q.color }}>{q.title}</Text>
-            <Text style={{ fontSize: 6, color: q.color, marginBottom: 4 }}>{q.subtitle}</Text>
+          <View
+            key={q.key}
+            style={{ width: '48.5%', backgroundColor: q.bg, borderWidth: 1, borderColor: q.border, borderRadius: 6, padding: 9, marginBottom: 8 }}
+            wrap={false}
+          >
+            <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 3 }}>
+              <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: q.color }}>{q.title}</Text>
+              <Text style={{ fontSize: 5.5, color: q.color, textTransform: 'uppercase', letterSpacing: 0.3 }}>{q.subtitle}</Text>
+            </View>
+            <Text style={{ fontSize: 6.5, color: q.color, opacity: 0.85, lineHeight: 1.35, marginBottom: 6 }}>{q.desc}</Text>
             {byQuadrant[q.key].length === 0 ? (
               <Text style={{ fontSize: 6.5, color: q.color, fontStyle: 'italic' }}>Nenhuma competência aqui.</Text>
             ) : (
-              <Text style={{ fontSize: 6.5, color: q.color, lineHeight: 1.5 }}>
-                {byQuadrant[q.key].map((e) => e.name).join(' · ')}
-              </Text>
+              <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap' }}>
+                {byQuadrant[q.key].map((e) => (
+                  <View
+                    key={e.id}
+                    style={{
+                      backgroundColor: '#ffffff', borderWidth: 0.5, borderColor: q.border, borderRadius: 9,
+                      paddingVertical: 2.5, paddingHorizontal: 7, marginRight: 4, marginBottom: 4,
+                    }}
+                  >
+                    <Text style={{ fontSize: 6.5, color: q.color }}>{e.name}</Text>
+                  </View>
+                ))}
+              </View>
             )}
           </View>
         ))}
