@@ -116,6 +116,17 @@ function meanFromDist(dist: Record<string, number> | null | undefined): number |
 
 function round2(v: number): number { return Math.round(v * 100) / 100 }
 
+/** Perfis demográficos às vezes vêm em CAIXA ALTA do cadastro importado
+ * pelo cliente (ex.: "ADMINISTRATIVO") — normaliza pra Title Case. */
+const TITLE_CASE_LOWERCASE_WORDS = new Set(['de', 'da', 'do', 'das', 'dos', 'e'])
+function toTitleCasePtBr(text: string): string {
+  return text
+    .toLocaleLowerCase('pt-BR')
+    .split(' ')
+    .map((word, i) => (i > 0 && TITLE_CASE_LOWERCASE_WORDS.has(word) ? word : word.charAt(0).toLocaleUpperCase('pt-BR') + word.slice(1)))
+    .join(' ')
+}
+
 function fmt(v: number | null | undefined, digits = 2): string {
   if (v == null || Number.isNaN(v)) return '—'
   return v.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })
@@ -854,71 +865,84 @@ function PerspectivePage(props: {
     return { pct: fav.total > 0 ? fav.favoravel : null, mean: meanFromDist(dist) }
   }
 
+  function HeaderRow() {
+    return (
+      <View style={s.tableHeader}>
+        <Text style={[s.th, { width: 100 }]}>Competência</Text>
+        {cols.map((c) => (
+          <Text key={c} style={[s.th, { flex: 1, textAlign: 'right' }]}>{PERSPECTIVE_COL_LABEL[c] ?? c}{'\n'}n={c === 'geral' ? geralN : groups.find((g) => g.code === c)?.n}</Text>
+        ))}
+      </View>
+    )
+  }
+
   return (
-    <PageChrome label="Perspectivas" {...props}>
-      <Text style={s.h1}>Competências por perspectiva</Text>
-      <Text style={s.intro}>Favorabilidade de cada competência em cada grupo de avaliadores, em porcentagem.</Text>
-      <View style={s.tableHeader}>
-        <Text style={[s.th, { width: 100 }]}>Competência</Text>
-        {cols.map((c) => (
-          <Text key={c} style={[s.th, { flex: 1, textAlign: 'right' }]}>{PERSPECTIVE_COL_LABEL[c] ?? c}{'\n'}n={c === 'geral' ? geralN : groups.find((g) => g.code === c)?.n}</Text>
+    <>
+      <PageChrome label="Perspectivas" {...props}>
+        <Text style={s.h1}>Competências por perspectiva</Text>
+        <Text style={s.intro}>Favorabilidade de cada competência em cada grupo de avaliadores, em porcentagem.</Text>
+        <HeaderRow />
+        {ranked.map((c) => (
+          <View key={c.id} style={s.tableRow} wrap={false}>
+            <Text style={[s.td, { width: 100, fontFamily: 'Helvetica-Bold' }]}>{c.name}</Text>
+            {cols.map((code) => {
+              const v = cell(c, code)
+              const outOfGeral = code === 'self' || code === 'client'
+              return (
+                <View key={code} style={{ flex: 1, alignItems: 'flex-end', paddingRight: 2 }}>
+                  <Text style={{
+                    fontSize: 7.5, fontFamily: outOfGeral ? 'Helvetica' : 'Helvetica-Bold',
+                    color: outOfGeral ? C.muted : (v.pct != null && v.pct >= 60 ? C.white : C.text),
+                    backgroundColor: outOfGeral ? C.cream : (v.pct != null ? heatColor(v.pct) : C.cream),
+                    paddingVertical: 2, paddingHorizontal: 4, borderRadius: 2,
+                  }}>
+                    {v.pct != null ? fmt(v.pct, 1) : '—'}
+                  </Text>
+                </View>
+              )
+            })}
+          </View>
         ))}
-      </View>
-      {ranked.map((c) => (
-        <View key={c.id} style={s.tableRow}>
-          <Text style={[s.td, { width: 100, fontFamily: 'Helvetica-Bold' }]}>{c.name}</Text>
-          {cols.map((code) => {
-            const v = cell(c, code)
-            const outOfGeral = code === 'self' || code === 'client'
-            return (
-              <View key={code} style={{ flex: 1, alignItems: 'flex-end', paddingRight: 2 }}>
-                <Text style={{
-                  fontSize: 7.5, fontFamily: outOfGeral ? 'Helvetica' : 'Helvetica-Bold',
-                  color: outOfGeral ? C.muted : (v.pct != null && v.pct >= 60 ? C.white : C.text),
-                  backgroundColor: outOfGeral ? C.cream : (v.pct != null ? heatColor(v.pct) : C.cream),
-                  paddingVertical: 2, paddingHorizontal: 4, borderRadius: 2,
-                }}>
-                  {v.pct != null ? fmt(v.pct, 1) : '—'}
+        <View style={s.howToRead}>
+          <Text style={s.howToReadTitle}>Como ler</Text>
+          <Text style={s.howToReadText}>
+            Cada linha é uma competência e cada coluna um grupo de avaliadores. Quanto mais escuro o azul,
+            maior a favorabilidade. A coluna Geral reúne os avaliadores do resultado geral. As colunas em
+            cinza, Auto e Cli. int., aparecem só para comparação. Em grupos de uma pessoa, o percentual só
+            pode assumir poucos valores (0%, 33,3%, 50%...), e 0% não significa nota zero — vale ler esses
+            grupos junto com a média.
+          </Text>
+        </View>
+      </PageChrome>
+
+      <PageChrome label="Perspectivas" {...props}>
+        <Text style={s.h1}>Competências por perspectiva, em média</Text>
+        <Text style={s.intro}>As mesmas competências em média, de {getScale('frequency_5_strict').min} a {getScale('frequency_5_strict').max}.</Text>
+        <HeaderRow />
+        {ranked.map((c) => (
+          <View key={c.id} style={s.tableRow} wrap={false}>
+            <Text style={[s.td, { width: 100, fontFamily: 'Helvetica-Bold' }]}>{c.name}</Text>
+            {cols.map((code) => {
+              const v = cell(c, code)
+              const outOfGeral = code === 'self' || code === 'client'
+              return (
+                <Text key={code} style={{ flex: 1, textAlign: 'right', fontSize: 7.8, color: outOfGeral ? C.light : C.text }}>
+                  {v.mean != null ? fmt(v.mean, 2) : '—'}
                 </Text>
-              </View>
-            )
-          })}
-        </View>
-      ))}
-
-      <Text style={[s.sectionLabel, { marginTop: 14 }]}>As mesmas competências em média, de 1 a 5</Text>
-      <View style={s.tableHeader}>
-        <Text style={[s.th, { width: 100 }]}>Competência</Text>
-        {cols.map((c) => (
-          <Text key={c} style={[s.th, { flex: 1, textAlign: 'right' }]}>{PERSPECTIVE_COL_LABEL[c] ?? c}{'\n'}n={c === 'geral' ? geralN : groups.find((g) => g.code === c)?.n}</Text>
+              )
+            })}
+          </View>
         ))}
-      </View>
-      {ranked.map((c) => (
-        <View key={c.id} style={s.tableRow}>
-          <Text style={[s.td, { width: 100, fontFamily: 'Helvetica-Bold' }]}>{c.name}</Text>
-          {cols.map((code) => {
-            const v = cell(c, code)
-            const outOfGeral = code === 'self' || code === 'client'
-            return (
-              <Text key={code} style={{ flex: 1, textAlign: 'right', fontSize: 7.8, color: outOfGeral ? C.light : C.text }}>
-                {v.mean != null ? fmt(v.mean, 2) : '—'}
-              </Text>
-            )
-          })}
+        <View style={s.howToRead}>
+          <Text style={s.howToReadTitle}>Como ler</Text>
+          <Text style={s.howToReadText}>
+            As mesmas competências e grupos da página anterior, agora em média de {getScale('frequency_5_strict').min} a{' '}
+            {getScale('frequency_5_strict').max} em vez de favorabilidade. As colunas em cinza, Auto e Cli. int.,
+            aparecem só para comparação.
+          </Text>
         </View>
-      ))}
-
-      <View style={s.howToRead}>
-        <Text style={s.howToReadTitle}>Como ler</Text>
-        <Text style={s.howToReadText}>
-          Cada linha é uma competência e cada coluna um grupo de avaliadores. Quanto mais escuro o azul,
-          maior a favorabilidade. A coluna Geral reúne os avaliadores do resultado geral. As colunas em
-          cinza, Auto e Cli. int., aparecem só para comparação. Em grupos de uma pessoa, o percentual só
-          pode assumir poucos valores (0%, 33,3%, 50%...), e 0% não significa nota zero — vale ler esses
-          grupos junto com a média.
-        </Text>
-      </View>
-    </PageChrome>
+      </PageChrome>
+    </>
   )
 }
 
@@ -1443,8 +1467,8 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
       ) : (
         <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
           {dims.map((dim) => (
-            <View key={dim} style={{ width: 230 }}>
-              <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 4 }}>{DEMO_DIM_LABEL[dim] ?? dim}</Text>
+            <View key={dim} style={{ width: 240, backgroundColor: C.cream, borderRadius: 4, padding: 10 }}>
+              <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 6 }}>{DEMO_DIM_LABEL[dim] ?? dim}</Text>
               <View style={{ display: 'flex', flexDirection: 'row', borderBottom: `0.5pt solid ${C.border}`, paddingBottom: 3, marginBottom: 2 }}>
                 <Text style={[s.th, { flex: 1 }]}></Text>
                 <Text style={[s.th, { width: 42, textAlign: 'right' }]}>Pessoas</Text>
@@ -1455,7 +1479,7 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
                 const fav = computeFavorability(g.distribution ?? {}, getScale('frequency_5_strict'))
                 return (
                   <View key={g.value} style={{ display: 'flex', flexDirection: 'row', paddingTop: 3, paddingBottom: 3 }}>
-                    <Text style={{ flex: 1, fontSize: 7.8 }}>{g.value}</Text>
+                    <Text style={{ flex: 1, fontSize: 7.8 }}>{toTitleCasePtBr(g.value)}</Text>
                     <Text style={{ width: 42, textAlign: 'right', fontSize: 7.8 }}>{g.respondent_count}</Text>
                     <Text style={{ width: 42, textAlign: 'right', fontSize: 7.8, fontFamily: 'Helvetica-Bold' }}>{fmtPct(fav.total > 0 ? fav.favoravel : null, 1)}</Text>
                     <Text style={{ width: 34, textAlign: 'right', fontSize: 7.8 }}>{fmt(g.avg_score)}</Text>
