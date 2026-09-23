@@ -1232,7 +1232,13 @@ function DualRadarSectionPDF({
 function DivergenceSectionPDF({ rows, relOverrides }: { rows: DivergenceRow[] | undefined; relOverrides?: Record<string, string> }) {
   if (!rows || rows.length === 0) return null
   const sorted = [...rows].sort((a, b) => b.amplitude_points - a.amplitude_points)
-  const groupLabel = (code: string) => relOverrides?.[`${code}|`] ?? relOverrides?.[code] ?? REL_LABEL[code] ?? code
+  // relOverrides é indexado por "code|detail" (ex.: 'subordinate|Direto'); a
+  // Divergência só tem o code (sem detail), então casa com a primeira chave
+  // que começa com "code|" em vez de exigir o detail exato.
+  const groupLabel = (code: string) => {
+    const key = relOverrides && Object.keys(relOverrides).find((k) => k.startsWith(`${code}|`))
+    return (key ? relOverrides![key] : undefined) ?? REL_LABEL[code] ?? code
+  }
 
   const renderRow = (r: DivergenceRow) => (
     <View key={r.question_number} style={{ display: 'flex', flexDirection: 'row', marginBottom: 4 }} wrap={false}>
