@@ -376,16 +376,22 @@ function HowToReadPage(props: {
             <View key={l.value} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 3 }}>
               <Text style={{ width: 14, fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy }}>{l.value}</Text>
               <Text style={{ flex: 1, fontSize: 8, color: C.text }}>{l.label}</Text>
-              {l.value === scale.max && (
+              {l.value >= scale.max - 1 && (
                 <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                   <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: C.blue }} />
                   <Text style={{ fontSize: 7, color: C.blue }}>Favorável</Text>
                 </View>
               )}
-              {l.value === scale.min && (
+              {l.value <= scale.min + 1 && (
                 <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                   <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: C.red }} />
                   <Text style={{ fontSize: 7, color: C.red }}>Desfavorável</Text>
+                </View>
+              )}
+              {l.value > scale.min + 1 && l.value < scale.max - 1 && (
+                <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: C.light }} />
+                  <Text style={{ fontSize: 7, color: C.muted }}>Neutro</Text>
                 </View>
               )}
             </View>
@@ -768,7 +774,7 @@ function CompetencyResultsPage(props: { personName: string; tenantName: string; 
         <Text style={[s.th, { width: 44, textAlign: 'right' }]}>Favor.</Text>
         <Text style={[s.th, { width: 40, textAlign: 'right' }]}>Neutro</Text>
         <Text style={[s.th, { width: 44, textAlign: 'right' }]}>Desfav.</Text>
-        <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Média</Text>
+        <Text style={[s.th, { width: 34, textAlign: 'right', marginRight: 8 }]}>Média</Text>
         <Text style={[s.th, { width: 76 }]}>Faixa</Text>
       </View>
       {ranked.map((c) => {
@@ -787,7 +793,7 @@ function CompetencyResultsPage(props: { personName: string; tenantName: string; 
             <Text style={[s.td, { width: 44, textAlign: 'right', fontFamily: 'Helvetica-Bold' }]}>{fmtPct(c.fav.favoravel, 1)}</Text>
             <Text style={[s.td, { width: 40, textAlign: 'right', color: C.muted }]}>{fmtPct(c.fav.neutro, 1)}</Text>
             <Text style={[s.td, { width: 44, textAlign: 'right', color: C.muted }]}>{fmtPct(c.fav.desfavoravel, 1)}</Text>
-            <Text style={[s.td, { width: 34, textAlign: 'right' }]}>{fmt(c.mean)}</Text>
+            <Text style={[s.td, { width: 34, textAlign: 'right', marginRight: 8 }]}>{fmt(c.mean)}</Text>
             <View style={{ width: 76 }}>
               <Text style={[s.badge, { backgroundColor: f.bg, color: f.color }]}>{f.label}</Text>
             </View>
