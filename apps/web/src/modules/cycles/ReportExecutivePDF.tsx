@@ -879,6 +879,29 @@ function PerspectivePage(props: {
           })}
         </View>
       ))}
+
+      <Text style={[s.sectionLabel, { marginTop: 14 }]}>As mesmas competências em média, de 1 a 5</Text>
+      <View style={s.tableHeader}>
+        <Text style={[s.th, { width: 100 }]}>Competência</Text>
+        {cols.map((c) => (
+          <Text key={c} style={[s.th, { flex: 1, textAlign: 'right' }]}>{PERSPECTIVE_COL_LABEL[c] ?? c}{'\n'}n={c === 'geral' ? geralN : groups.find((g) => g.code === c)?.n}</Text>
+        ))}
+      </View>
+      {ranked.map((c) => (
+        <View key={c.id} style={s.tableRow}>
+          <Text style={[s.td, { width: 100, fontFamily: 'Helvetica-Bold' }]}>{c.name}</Text>
+          {cols.map((code) => {
+            const v = cell(c, code)
+            const outOfGeral = code === 'self' || code === 'client'
+            return (
+              <Text key={code} style={{ flex: 1, textAlign: 'right', fontSize: 7.8, color: outOfGeral ? C.light : C.text }}>
+                {v.mean != null ? fmt(v.mean, 2) : '—'}
+              </Text>
+            )
+          })}
+        </View>
+      ))}
+
       <View style={s.howToRead}>
         <Text style={s.howToReadTitle}>Como ler</Text>
         <Text style={s.howToReadText}>
@@ -1014,10 +1037,24 @@ function HighlightsPage(props: {
   const top3Comp = rankedComps.slice(0, 3), bottom3Comp = [...rankedComps].reverse().slice(0, 3)
   const ranked = [...qRows].sort((a, b) => b.fav - a.fav || (b.mean ?? 0) - (a.mean ?? 0))
   const top5 = ranked.slice(0, 5)
-  const bottom5 = [...ranked].sort((a, b) => a.fav - b.fav || (a.mean ?? 0) - (b.mean ?? 0)).slice(0, 5)
+  const bottomRanked = [...ranked].sort((a, b) => a.fav - b.fav || (a.mean ?? 0) - (b.mean ?? 0))
+  const bottom5 = bottomRanked.slice(0, 5)
+
+  function tieFootnote(list: QRow[], top5Set: QRow[]): string | null {
+    if (top5Set.length < 5) return null
+    const cutoffFav = top5Set[4].fav
+    const shown = new Set(top5Set.map((r) => r.number))
+    const tied = list.filter((r) => r.fav === cutoffFav && !shown.has(r.number)).sort((a, b) => a.number - b.number)
+    if (tied.length === 0) return null
+    return `Outras ${tied.length} pergunta${tied.length !== 1 ? 's' : ''} também ${tied.length !== 1 ? 'têm' : 'tem'} ${fmtPct(cutoffFav, 1)} de favorabilidade (${tied.map((r) => r.number).join(', ')}) e ${tied.length !== 1 ? 'ficaram' : 'ficou'} fora da lista pelo critério de desempate.`
+  }
+  const top5Footnote = tieFootnote(ranked, top5)
+  const bottom5Footnote = tieFootnote(bottomRanked, bottom5)
 
   function GroupMeansText({ row }: { row: QRow }) {
-    const text = row.groupMeans.filter((g) => g.mean != null).map((g) => `${GROUP_SHORT[g.code]} ${fmt(g.mean)}`).join(' · ')
+    const text = row.groupMeans
+      .filter((g) => GERAL_CODES.includes(g.code) && g.mean != null)
+      .map((g) => `${GROUP_SHORT[g.code]} ${fmt(g.mean)}`).join(' · ')
     return <Text style={{ fontSize: 6.5, color: C.light }}>{row.compName} · média por grupo, {text}</Text>
   }
 
@@ -1059,6 +1096,9 @@ function HighlightsPage(props: {
           </View>
         </View>
       ))}
+      {top5Footnote && (
+        <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 2, lineHeight: 1.4 }}>{top5Footnote}</Text>
+      )}
 
       <Text style={[s.sectionLabel, { marginTop: 12 }]}>Os 5 comportamentos com mais espaço para evoluir</Text>
       {bottom5.map((r) => (
@@ -1074,6 +1114,9 @@ function HighlightsPage(props: {
           </View>
         </View>
       ))}
+      {bottom5Footnote && (
+        <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 2, lineHeight: 1.4 }}>{bottom5Footnote}</Text>
+      )}
       <View style={s.howToRead}>
         <Text style={s.howToReadTitle}>Como ler</Text>
         <Text style={s.howToReadText}>
@@ -1152,7 +1195,11 @@ function QuestionsPages(props: {
   qRows: QRow[]; nMinimum: number; groups: GroupAgg[]
 }) {
   const { qRows, groups } = props
-  const perPage = 10
+  // 11 caberia matematicamente em 3 páginas (33/11), mas com as colunas
+  // Auto/Cli.int. o texto da pergunta quebra em mais linhas e a última
+  // chunk estourava a página sem cabeçalho de tabela na continuação —
+  // 9 garante folga mesmo em perguntas com prompt longo.
+  const perPage = 9
   const chunks: QRow[][] = []
   for (let i = 0; i < qRows.length; i += perPage) chunks.push(qRows.slice(i, i + perPage))
   const hasClient = (groups.find((g) => g.code === 'client')?.n ?? 0) > 0
@@ -1183,7 +1230,7 @@ function QuestionsPages(props: {
             const f = faixa(r.fav)
             const byCode = Object.fromEntries(r.groupMeans.map((g) => [g.code, g.mean]))
             return (
-              <View key={r.number} style={s.tableRow}>
+              <View key={r.number} style={s.tableRow} wrap={false}>
                 <Text style={{ width: 16, fontSize: 7.5, color: C.muted }}>{r.number}</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 7.8, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
@@ -1225,8 +1272,9 @@ function QuestionsPages(props: {
 function ValuesPage(props: {
   personName: string; tenantName: string; cycleLabel: string
   qRows: QRow[]; questionValueNames: Record<number, string>; questionScores: QuestionScoreRow[]; scale: ScaleDefinition
+  competencies: CompetencyRow[]
 }) {
-  const { qRows, questionValueNames, questionScores, scale } = props
+  const { qRows, questionValueNames, questionScores, scale, competencies } = props
   const byValue = new Map<string, number[]>()
   for (const r of qRows) {
     const v = questionValueNames[r.number - 1]
@@ -1245,12 +1293,17 @@ function ValuesPage(props: {
     return { value, numbers, fav, mean: meanFromDist(dist), selfFavPct: selfFav.total > 0 ? selfFav.favoravel : null }
   })
 
+  const compNames = new Set(competencies.map((c) => c.name))
+  const sharedNames = [...byValue.keys()].filter((v) => compNames.has(v))
+
   return (
     <PageChrome label="Valores" {...props}>
       <Text style={s.h1}>Valores organizacionais</Text>
       <Text style={s.intro}>
-        As mesmas perguntas agrupadas pelos valores da {props.tenantName}. Quando um valor também é nome
-        de competência, o conjunto de perguntas pode ser diferente, e por isso os números não coincidem.
+        As mesmas {qRows.length} perguntas agrupadas pelos {byValue.size} valores da {props.tenantName}.
+        {sharedNames.length > 0 && (
+          ` ${joinNames(sharedNames)} também ${sharedNames.length > 1 ? 'são nomes' : 'é nome'} de competência${sharedNames.length > 1 ? 's' : ''}, mas ${sharedNames.length > 1 ? 'reúnem' : 'reúne'} um conjunto diferente de perguntas, e por isso os números são diferentes.`
+        )}
       </Text>
       <View style={s.tableHeader}>
         <Text style={[s.th, { width: 130 }]}>Valor</Text>
@@ -1292,9 +1345,9 @@ function ValuesPage(props: {
 
 function BenchmarkPage(props: {
   personName: string; tenantName: string; cycleLabel: string
-  comps: CompAgg[]; benchmark: BenchmarkMap | undefined; margem: number
+  comps: CompAgg[]; benchmark: BenchmarkMap | undefined; limiar: number
 }) {
-  const { comps, benchmark, margem } = props
+  const { comps, benchmark, limiar } = props
   const hasBenchmark = benchmark != null && Object.keys(benchmark).length > 0
   const cohortN = benchmark ? Math.max(0, ...Object.values(benchmark).map((b) => b.participant_count)) : 0
   const rows = comps
@@ -1325,7 +1378,7 @@ function BenchmarkPage(props: {
             <Text style={[s.th, { flex: 1 }]}>Leitura</Text>
           </View>
           {rows.map((r) => {
-            const rel = r.diff != null && Math.abs(r.diff) >= margem
+            const rel = r.diff != null && Math.abs(r.diff) >= limiar
             const leitura = !rel ? 'Sem diferença relevante' : r.diff! > 0 ? 'Acima do grupo' : 'Abaixo do grupo'
             const color = !rel ? C.muted : r.diff! > 0 ? C.blueTag : C.orangeTag
             const bg = !rel ? C.cream : r.diff! > 0 ? C.blueTagBg : C.orangeTagBg
@@ -1348,8 +1401,9 @@ function BenchmarkPage(props: {
         <Text style={s.howToReadText}>
           A coluna Você mostra a sua média com os avaliadores do resultado geral. A coluna Grupo mostra a
           média simples das médias gerais de todo o grupo comparativo do ciclo. A diferença é Você menos
-          Grupo, e a leitura usa o limiar de {fmt(margem, 2)}. Esta página dá contexto e não serve para
-          ranquear pessoas.
+          Grupo, e a leitura usa o limiar de {fmt(limiar, 1)} ponto. Como cada competência tem poucas
+          perguntas, diferenças perto do limiar devem ser tratadas como indício, e não como conclusão.
+          Esta página dá contexto e não serve para ranquear pessoas.
         </Text>
       </View>
     </PageChrome>
@@ -1522,8 +1576,9 @@ function MethodologyPage(props: {
     <PageChrome label="Metodologia" {...props}>
       <Text style={s.h1}>Metodologia e glossário</Text>
       <Block title="Origem dos dados">
-        Respostas coletadas pela plataforma Maptiva, nos formulários de avaliação 360° e de
-        autoavaliação. Nenhuma resposta foi acrescentada, alterada ou estimada.
+        Respostas coletadas pela plataforma Maptiva nos formulários de avaliação 360° e de autoavaliação
+        da {props.tenantName}. Todos os números deste relatório são calculados diretamente a partir das
+        respostas originais — nenhuma foi acrescentada, alterada ou estimada.
       </Block>
       <Block title="Instrumento">
         Perguntas fechadas de frequência de comportamento, organizadas em {props.nComp} competências. O
@@ -1576,6 +1631,10 @@ function MethodologyPage(props: {
         posições únicas na estrutura, sem expor o nome de quem respondeu. Os demais grupos aparecem de
         forma agregada, respeitando o n-mínimo de {nMinimum} pessoas.
       </Block>
+      <Block title="Ciclos anteriores">
+        Este relatório não compara com ciclos anteriores. Mudanças no questionário, na escala ou no
+        conjunto de avaliadores entre ciclos tornam a comparação direta não confiável.
+      </Block>
     </PageChrome>
   )
 }
@@ -1620,8 +1679,8 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
       <HighlightsPage {...chrome} comps={comps} qRows={qRows} />
       <DivergencePage {...chrome} divergence={divergence} nMinimum={nMinimum} relDetailFav={relDetailFav} />
       <QuestionsPages {...chrome} qRows={qRows} nMinimum={nMinimum} groups={groupList} />
-      {hasValues && <ValuesPage {...chrome} qRows={qRows} questionValueNames={questionValueNames} questionScores={questionScores} scale={scale} />}
-      <BenchmarkPage {...chrome} comps={comps} benchmark={benchmark} margem={margem} />
+      {hasValues && <ValuesPage {...chrome} qRows={qRows} questionValueNames={questionValueNames} questionScores={questionScores} scale={scale} competencies={competencies} />}
+      <BenchmarkPage {...chrome} comps={comps} benchmark={benchmark} limiar={readingThreshold} />
       <ProfilePage {...chrome} demographics={demographics} />
       <GuidePage {...chrome} />
       <PlanPage {...chrome} />

@@ -59,6 +59,18 @@ const NIVEL_DETALHE_VALUE_LABEL: Record<string, string> = {
   Indireto: 'Equipe Indireta',
 }
 
+/** Cargo/área às vezes vêm em CAIXA ALTA do cadastro importado pelo cliente
+ * (ex.: "COORDENADOR MANUTENÇAO") — normaliza pra Title Case pro cabeçalho
+ * do relatório executivo, mantendo preposições comuns em minúsculo. */
+const TITLE_CASE_LOWERCASE_WORDS = new Set(['de', 'da', 'do', 'das', 'dos', 'e'])
+function toTitleCasePtBr(text: string): string {
+  return text
+    .toLocaleLowerCase('pt-BR')
+    .split(' ')
+    .map((word, i) => (i > 0 && TITLE_CASE_LOWERCASE_WORDS.has(word) ? word : word.charAt(0).toLocaleUpperCase('pt-BR') + word.slice(1)))
+    .join(' ')
+}
+
 function DemographicBreakdownSection({ groups }: { groups: DemographicGroup[] }) {
   if (groups.length === 0) return null
 
@@ -236,7 +248,7 @@ export function ParticipantReportPage() {
           .eq('id', d.person.id)
           .maybeSingle()
         if (personRow) {
-          const parts = [personRow.job_title, personRow.department].filter(Boolean)
+          const parts = [personRow.job_title, personRow.department].filter(Boolean).map(toTitleCasePtBr)
           setPersonRole(parts.length > 0 ? parts.join(' · ') : null)
         }
       }
