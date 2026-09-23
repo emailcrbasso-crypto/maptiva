@@ -61,6 +61,7 @@ export interface QuestionScoreRow {
   relationship_detail?: string | null
   score_avg:           number
   response_count:      number
+  score_distribution?: Record<string, number> | null
 }
 
 export interface CompetencyRow {
@@ -774,6 +775,7 @@ export function GapSection({
   competencies,
   scaleId = 'likert_5',
   detailedRows,
+  readingThreshold = 0.5,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
@@ -782,6 +784,9 @@ export function GapSection({
    * pessoa e já exclui Clientes internos em ciclos com número único externo)
    * em vez da média simples entre grupos — ver FavorabilitySection/heatmap. */
   detailedRows?: CompetencyRelationshipFavorabilityRow[]
+  /** Diferença mínima (já arredondada) para ler como ponto cego/força oculta —
+   * vem de participant_report_notes.reading_threshold. */
+  readingThreshold?: number
 }) {
   const scale = getScale(scaleId)
 
@@ -805,7 +810,9 @@ export function GapSection({
           ? extSnaps.reduce((sum, s) => sum + s.score_avg!, 0) / extSnaps.length
           : null
       }
-      const gap = selfScore != null && extAvg != null ? selfScore - extAvg : null
+      // Subtrai os valores já arredondados (2 casas) para a diferença exibida
+      // sempre fechar com a conta feita a partir dos números impressos.
+      const gap = selfScore != null && extAvg != null ? round2(round2(selfScore) - round2(extAvg)) : null
       return { id: c.id, name: c.name, selfScore, extAvg, gap }
     })
     .filter((r) => r.selfScore != null || r.extAvg != null)
@@ -829,8 +836,8 @@ export function GapSection({
 
       <div className="space-y-4">
         {rows.map((r) => {
-          const isBlindSpot      = r.gap != null && r.gap > 0.5
-          const isHiddenStrength = r.gap != null && r.gap < -0.5
+          const isBlindSpot      = r.gap != null && r.gap > readingThreshold
+          const isHiddenStrength = r.gap != null && r.gap < -readingThreshold
 
           const selfPct = r.selfScore != null ? (r.selfScore / scale.max) * 100 : 0
           const extPct  = r.extAvg    != null ? (r.extAvg    / scale.max) * 100 : 0
@@ -908,11 +915,11 @@ export function GapSection({
       <div className="flex flex-wrap gap-3 mt-5 pt-4 border-t border-gray-50">
         <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 px-3 py-1.5 rounded-lg">
           <span>⚠️</span>
-          <span><strong>Ponto cego</strong> — Auto &gt; Aval. em mais de 0,5 pontos</span>
+          <span><strong>Ponto cego</strong> — Auto &gt; Aval. em mais de {String(readingThreshold).replace('.', ',')} pontos</span>
         </div>
         <div className="flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg">
           <span>💎</span>
-          <span><strong>Força oculta</strong> — Aval. &gt; Auto em mais de 0,5 pontos</span>
+          <span><strong>Força oculta</strong> — Aval. &gt; Auto em mais de {String(readingThreshold).replace('.', ',')} pontos</span>
         </div>
         <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-50 px-3 py-1.5 rounded-lg">
           <span>✓</span>
@@ -987,21 +994,16 @@ export function JohariMatrixSection({
 
   if (entries.length === 0) return null
 
-  // Corte relativo (mediana das próprias competências dessa pessoa em cada
-  // eixo) em vez de um valor fixo da escala — evita que alguém com notas
-  // geralmente altas (ou baixas) caia inteiro num único quadrante.
-  function median(values: number[]): number {
-    const sorted = [...values].sort((a, b) => a - b)
-    const mid = Math.floor(sorted.length / 2)
-    return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
-  }
-  const selfThreshold = median(entries.map((e) => e.selfScore))
-  const extThreshold  = median(entries.map((e) => e.extAvg))
+  // "Alta" = nota favorável (últimos 2 pontos da escala) — mesmo corte usado
+  // em "Favorabilidade Geral" no resto do relatório. Antes usava a mediana
+  // das próprias competências da pessoa, o que podia contradizer o GAP na
+  // mesma página (uma competência "alinhada" pelo GAP virava "ponto cego" aqui).
+  const favCut = scale.max - 1
 
   const byQuadrant: Record<string, JohariEntry[]> = { arena: [], blind: [], facade: [], unknown: [] }
   for (const e of entries) {
-    const selfHigh = e.selfScore >= selfThreshold
-    const extHigh  = e.extAvg   >= extThreshold
+    const selfHigh = e.selfScore >= favCut
+    const extHigh  = e.extAvg   >= favCut
     const key = selfHigh && extHigh ? 'arena' : selfHigh && !extHigh ? 'blind' : !selfHigh && extHigh ? 'facade' : 'unknown'
     byQuadrant[key].push(e)
   }
@@ -1012,10 +1014,8 @@ export function JohariMatrixSection({
         Matriz de Johari
       </h2>
       <p className="text-xs text-gray-400 mb-5">
-        Cada competência é classificada como "alta" ou "baixa" em relação à mediana das próprias
-        competências desta pessoa — autoavaliação ≥ {selfThreshold.toFixed(1)}, percepção externa ≥{' '}
-        {extThreshold.toFixed(1)} (escala {scale.min}–{scale.max}). Mostra onde essa pessoa se destaca
-        ou fica abaixo do seu próprio padrão, não um corte absoluto da escala.
+        Cada competência é classificada como "alta" (nota {favCut} ou {scale.max}) ou "baixa" (abaixo
+        disso) — o mesmo corte de favorabilidade usado no resto do relatório.
       </p>
       <div className="grid sm:grid-cols-2 gap-4">
         {JOHARI_QUADRANTS.map((q) => (
@@ -1314,6 +1314,8 @@ interface QRow {
   order_index:    number
   competencyName: string | null
   geral:          number
+  favoravel:      number | null
+  desfavoravel:   number | null
   perRel:         Record<string, number | null>
 }
 
@@ -1331,10 +1333,12 @@ function QuestionGroupTable({
   if (rows.length === 0) return null
 
   // Menor nota individual entre grupos externos (para o alerta automático).
+  // Chefe direto e Liderança Superior são, por design, sempre 1 pessoa —
+  // destacar a nota deles aqui exporia a resposta individual de alguém.
   let worst: { row: QRow; label: string; value: number } | null = null
   for (const r of rows) {
     for (const { key, label } of cols) {
-      if (key === 'self|') continue
+      if (key === 'self|' || key.startsWith('manager|') || key.startsWith('manager_superior|')) continue
       const v = r.perRel[key]
       if (v != null && (worst == null || v < worst.value)) worst = { row: r, label, value: v }
     }
@@ -1441,12 +1445,12 @@ export function lowSampleCompetencyIds(questionScores: QuestionScoreRow[]): Set<
   return new Set([...byComp.entries()].filter(([, ids]) => ids.size === 1).map(([id]) => id))
 }
 
-function buildQuestionRows(questionScores: QuestionScoreRow[], competencies: CompetencyRow[], excludeClientFromGeral = false): QRow[] {
+function buildQuestionRows(questionScores: QuestionScoreRow[], competencies: CompetencyRow[], scale: ScaleDefinition, excludeClientFromGeral = false): QRow[] {
   const compMap = new Map(competencies.map((c) => [c.id, c.name]))
 
   const byQuestion = new Map<string, {
     prompt: string; competency_id: string | null; order_index: number
-    sums: Record<string, { code: string; sum: number; n: number }>
+    sums: Record<string, { code: string; sum: number; n: number; dist: Record<string, number> | null }>
   }>()
   for (const q of questionScores) {
     if (q.score_avg == null) continue
@@ -1457,6 +1461,7 @@ function buildQuestionRows(questionScores: QuestionScoreRow[], competencies: Com
       code: q.relationship_code,
       sum:  q.score_avg * q.response_count,
       n:    q.response_count,
+      dist: q.score_distribution ?? null,
     }
   }
 
@@ -1470,12 +1475,24 @@ function buildQuestionRows(questionScores: QuestionScoreRow[], competencies: Com
       for (const key of Object.keys(q.sums)) {
         perRel[key] = q.sums[key].sum / q.sums[key].n
       }
+      // Favorabilidade do "Geral" da pergunta — mesmo grupo usado na média,
+      // para ordenar "Perguntas em destaque" por favorabilidade primeiro.
+      const mergedDist: Record<string, number> = {}
+      let hasDist = false
+      for (const e of extEntries) {
+        if (!e.dist) continue
+        hasDist = true
+        for (const [k, v] of Object.entries(e.dist)) mergedDist[k] = (mergedDist[k] ?? 0) + v
+      }
+      const fav = hasDist ? computeFavorability(mergedDist, scale) : null
       return {
         id,
         prompt: q.prompt,
         order_index: q.order_index,
         competencyName: q.competency_id ? compMap.get(q.competency_id) ?? null : null,
         geral: extSum / extN,
+        favoravel: fav ? fav.favoravel : null,
+        desfavoravel: fav ? fav.desfavoravel : null,
         perRel,
       } as QRow
     })
@@ -1497,12 +1514,21 @@ export function Top5QuestionsSection({
   excludeClientFromGeral?: boolean
 }) {
   const scale  = getScale(scaleId)
-  const scored = buildQuestionRows(questionScores, competencies, excludeClientFromGeral)
+  const scored = buildQuestionRows(questionScores, competencies, scale, excludeClientFromGeral)
   const cols   = pickQuestionCols(questionScores, relOverrides)
 
   if (scored.length === 0) return null
 
-  const sorted = [...scored].sort((a, b) => b.geral - a.geral)
+  // Regra do BD: favorabilidade, depois média, depois menor desfavorabilidade,
+  // depois menor número da pergunta (nunca só a média).
+  const sorted = [...scored].sort((a, b) => {
+    const favA = a.favoravel ?? -1, favB = b.favoravel ?? -1
+    if (favB !== favA) return favB - favA
+    if (b.geral !== a.geral) return b.geral - a.geral
+    const desfA = a.desfavoravel ?? 0, desfB = b.desfavoravel ?? 0
+    if (desfA !== desfB) return desfA - desfB
+    return a.order_index - b.order_index
+  })
   // Com poucas perguntas, top e bottom podem se sobrepor — nesse caso
   // mostramos só o ranking geral (top) para não duplicar linhas.
   const overlaps = scored.length <= 5
@@ -1629,7 +1655,7 @@ export function AllQuestionsDetailSection({
   excludeClientFromGeral?: boolean
 }) {
   const scale = getScale(scaleId)
-  const rows  = buildQuestionRows(questionScores, competencies, excludeClientFromGeral)
+  const rows  = buildQuestionRows(questionScores, competencies, scale, excludeClientFromGeral)
     .sort((a, b) => a.order_index - b.order_index)
   const cols  = pickQuestionCols(questionScores, relOverrides)
 
@@ -2323,6 +2349,12 @@ function avgFromDistribution(dist: Record<string, number> | null | undefined): n
   return n > 0 ? sum / n : null
 }
 
+/** Arredonda para 2 casas antes de comparar/subtrair, para que a diferença
+ * exibida sempre feche com os números impressos na página. */
+function round2(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
 // Ordem e nomes seguem exatamente a terminologia que o cliente já usa no
 // modelo caseiro dele (Auto Avaliação / Equipe Direta / Equipe Indireta /
 // Pares Direto / Pares Indireto) — evita traduzir pra self/gestor/pares/
@@ -2925,10 +2957,14 @@ export function ScoreDistributionSection({
   snapshots,
   competencies,
   scaleId = 'likert_5',
+  excludeClientFromGeral = false,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
   scaleId?:     string
+  /** Exclui Clientes internos — ciclos com número único externo, onde o resto
+   * do relatório já chama "avaliadores externos" o grupo sem clientes internos. */
+  excludeClientFromGeral?: boolean
 }) {
   const scale = getScale(scaleId)
   const values = Array.from({ length: scale.max - scale.min + 1 }, (_, i) => scale.min + i)
@@ -2940,6 +2976,7 @@ export function ScoreDistributionSection({
         (s) =>
           s.competency_id === c.id &&
           s.relationship_code !== 'self' &&
+          !(excludeClientFromGeral && s.relationship_code === 'client') &&
           s.score_avg != null &&
           s.score_distribution
       )
@@ -3009,12 +3046,16 @@ export function BenchmarkSection({
   benchmark,
   scaleId = 'likert_5',
   detailedRows,
+  readingThreshold = 0.3,
 }: {
   snapshots:    SnapshotRow[]
   competencies: CompetencyRow[]
   benchmark:    BenchmarkMap
   scaleId?:     string
   detailedRows?: CompetencyRelationshipFavorabilityRow[]
+  /** Diferença mínima (já arredondada) para ler como acima/abaixo do grupo —
+   * vem de participant_report_notes.reading_threshold. */
+  readingThreshold?: number
 }) {
   const scale = getScale(scaleId)
 
@@ -3040,7 +3081,9 @@ export function BenchmarkSection({
 
       if (myAvg == null) return null
 
-      const delta       = myAvg - bmEntry.score_avg
+      // Subtrai os valores já arredondados (2 casas) para a diferença exibida
+      // sempre fechar com a conta feita a partir dos números impressos.
+      const delta       = round2(round2(myAvg) - round2(bmEntry.score_avg))
       const absDelta    = Math.abs(delta)
       const myPct       = (myAvg / scale.max) * 100
       const cyclePct    = (bmEntry.score_avg / scale.max) * 100
@@ -3073,8 +3116,8 @@ export function BenchmarkSection({
 
       <div className="space-y-4">
         {rows.map((r) => {
-          const isAbove = r.delta > 0.15
-          const isBelow = r.delta < -0.15
+          const isAbove = r.delta > readingThreshold
+          const isBelow = r.delta < -readingThreshold
           const deltaCls = isAbove
             ? 'bg-green-100 text-green-700 border-green-200'
             : isBelow
@@ -3237,6 +3280,9 @@ export interface MethodologyInfo {
   /** Ciclo com número único travado externamente (ex.: Flexmetal v2) —
    * muda a explicação de peso/exclusão de categorias na metodologia. */
   externalScores?:    boolean
+  /** participant_report_notes.reading_threshold — diferença mínima para ler
+   * como ponto cego/força oculta ou acima/abaixo do grupo. */
+  readingThreshold?:  number | null
 }
 
 export function MethodologyAppendixSection({
@@ -3250,6 +3296,7 @@ export function MethodologyAppendixSection({
   const hasEvaluatorWeights  = info.evaluatorWeights  != null && Object.values(info.evaluatorWeights).some((w) => w > 0)
   const hasCompetencyWeights = info.competencyWeights != null && info.competencyWeights.length > 0
   const externalScores       = info.externalScores === true
+  const readingThreshold     = info.readingThreshold ?? 0.5
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6 print-page-break">
@@ -3305,11 +3352,12 @@ export function MethodologyAppendixSection({
         <div>
           <p className="text-sm font-semibold text-gray-800 mb-1">Ponto cego / força oculta</p>
           <p className="text-xs text-gray-500">
-            Nas comparações por competência (GAP, Matriz de Johari), quando a autoavaliação supera a
-            média externa em 0,5 ponto ou mais, é classificado como ponto cego; quando a média externa
-            supera a autoavaliação em 0,5 ponto ou mais, como força oculta. O resumo no topo do
-            relatório ("X pontos cegos") usa um critério mais rígido, de 1,0 ponto, para contar só os
-            casos mais claros.
+            No GAP por competência, quando a autoavaliação supera a média externa em{' '}
+            {String(readingThreshold).replace('.', ',')} ponto ou mais, é classificado como ponto cego;
+            quando a média externa supera a autoavaliação em {String(readingThreshold).replace('.', ',')}{' '}
+            ponto ou mais, como força oculta. Diferenças menores que isso não são lidas como diferença
+            real. O resumo no topo do relatório ("X pontos cegos") usa um critério mais rígido, de 1,0
+            ponto, para contar só os casos mais claros.
           </p>
         </div>
 
@@ -3326,11 +3374,18 @@ export function MethodologyAppendixSection({
             <li><strong>Desconhecido</strong> — autoavaliação baixa e externa baixa: nem você nem os avaliadores reconhecem força consolidada.</li>
           </ul>
           <p className="text-xs text-gray-500 mt-1.5">
-            O corte "alta/baixa" em cada eixo é a mediana das próprias competências dessa pessoa (não
-            um valor fixo da escala) — assim a matriz sempre mostra onde ela se destaca ou fica abaixo
-            do seu próprio padrão, mesmo quando as notas em geral são altas ou baixas. É um critério
-            diferente do usado em "Ponto cego / força oculta" acima (que compara ao gap absoluto de
-            1,0 ponto); os dois são complementares, não intercambiáveis.
+            "Alta" = nota {scale.max - 1} ou {scale.max} — o mesmo corte de favorabilidade usado no
+            resto do relatório; "baixa" = abaixo disso.
+          </p>
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold text-gray-800 mb-1">Índice de Autoconhecimento</p>
+          <p className="text-xs text-gray-500">
+            100 × (1 − média das diferenças absolutas entre autoavaliação e avaliadores externos em
+            cada competência ÷ amplitude da escala). Quanto mais perto de 100%, mais a autopercepção
+            converge com a percepção dos avaliadores — não mede o nível da nota, só o alinhamento entre
+            as duas visões.
           </p>
         </div>
 
@@ -3716,7 +3771,7 @@ export function ReportDisplay({
 
       {/* 6. GAP visual bars */}
       {hasCompetencies && (
-        <GapSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} />
+        <GapSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} detailedRows={competencyRelationshipFavorability} readingThreshold={reportNotes?.reading_threshold ?? undefined} />
       )}
 
       {/* 6.5 Matriz de Johari */}
@@ -3742,6 +3797,7 @@ export function ReportDisplay({
           benchmark={benchmark!}
           scaleId={scaleId}
           detailedRows={competencyRelationshipFavorability}
+          readingThreshold={reportNotes?.reading_threshold ?? undefined}
         />
       )}
 
@@ -3750,7 +3806,7 @@ export function ReportDisplay({
 
       {/* 10. Score distribution */}
       {hasCompetencies && (
-        <ScoreDistributionSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} />
+        <ScoreDistributionSection snapshots={snapshots} competencies={competencies} scaleId={scaleId} excludeClientFromGeral={reportNotes != null} />
       )}
 
       {/* 11. Resultado detalhado — todas as perguntas */}

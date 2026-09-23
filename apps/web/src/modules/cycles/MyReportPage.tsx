@@ -315,7 +315,7 @@ export function MyReportPage() {
             <div className="mt-5">
               <MethodologyAppendixSection
                 scaleId={scaleId}
-                info={{ nMinimum, evaluatorWeights, competencyWeights, generatedAt: profile.generated_at, externalScores: reportNotes != null }}
+                info={{ nMinimum, evaluatorWeights, competencyWeights, generatedAt: profile.generated_at, externalScores: reportNotes != null, readingThreshold: reportNotes?.reading_threshold }}
               />
             </div>
           )}

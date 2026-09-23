@@ -107,6 +107,24 @@ export const SCALES: Record<string, ScaleDefinition> = {
     ],
   },
 
+  frequency_5_strict: {
+    id:          'frequency_5_strict',
+    name:        'Frequência (1–5, sem N/A)',
+    description: 'Com que frequência o comportamento é observado — toda pergunta precisa de resposta',
+    min:         1,
+    max:         5,
+    allowNa:     false,
+    naLabel:     '',
+    color:       'sky',
+    labels: [
+      { value: 1, label: 'Nunca',            short: 'N'  },
+      { value: 2, label: 'Raramente',        short: 'R'  },
+      { value: 3, label: 'Ocasionalmente',   short: 'O'  },
+      { value: 4, label: 'Frequente',        short: 'F'  },
+      { value: 5, label: 'Muito Frequente',  short: 'MF' },
+    ],
+  },
+
   impact_4: {
     id:          'impact_4',
     name:        'Impacto (1–4)',
@@ -132,6 +150,7 @@ export const DEFAULT_SCALE_ID = 'likert_5'
 export const SCALE_OPTIONS: ScaleDefinition[] = [
   SCALES.likert_5,
   SCALES.frequency_5,
+  SCALES.frequency_5_strict,
   SCALES.bars_5,
   SCALES.proficiency_5,
   SCALES.impact_4,
