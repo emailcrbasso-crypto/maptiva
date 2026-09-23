@@ -31,6 +31,7 @@ import {
   tenantRelOverrides,
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
+import { ReportExecutivePDFDocument, type ReliabilityInfo } from './ReportExecutivePDF'
 
 // ─── Corte demográfico (Opção A — lê metadata_json do avaliador quando existir) ─
 
@@ -133,9 +134,13 @@ export function ParticipantReportPage() {
   const [compRelFav, setCompRelFav] = useState<CompetencyRelationshipFavorabilityRow[] | undefined>(undefined)
   const [reportNotes, setReportNotes] = useState<ReportNotesRow | null>(null)
   const [divergence, setDivergence] = useState<DivergenceRow[] | undefined>(undefined)
+  const [personRole,     setPersonRole]     = useState<string | null>(null)
+  const [questionValueNames, setQuestionValueNames] = useState<Record<number, string>>({})
+  const [reliability,    setReliability]    = useState<ReliabilityInfo | null>(null)
   const [loading,          setLoading]          = useState(true)
   const [error,          setError]          = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
+  const [execPdfLoading, setExecPdfLoading] = useState(false)
 
   useEffect(() => {
     if (!id || !cpId) return
@@ -208,7 +213,40 @@ export function ParticipantReportPage() {
           .single()
         if (tmplRow?.scale_id) setScaleId(tmplRow.scale_id)
         if (tmplRow?.n_minimum_default != null) setNMinimum(tmplRow.n_minimum_default)
+
+        // Valores organizacionais (best-effort — só existe quando a migration
+        // 0102 populou questions.value_name pro template deste ciclo)
+        const { data: valueRows } = await supabase
+          .from('questions')
+          .select('order_index, value_name')
+          .eq('template_id', cycleRow.template_id)
+          .not('value_name', 'is', null)
+        if (Array.isArray(valueRows)) {
+          const map: Record<number, string> = {}
+          for (const r of valueRows as { order_index: number; value_name: string }[]) map[r.order_index] = r.value_name
+          setQuestionValueNames(map)
+        }
       }
+
+      // Cargo/área (best-effort — pro cabeçalho do relatório executivo)
+      if (d.person?.id) {
+        const { data: personRow } = await supabase
+          .from('people')
+          .select('job_title, department')
+          .eq('id', d.person.id)
+          .maybeSingle()
+        if (personRow) {
+          const parts = [personRow.job_title, personRow.department].filter(Boolean)
+          setPersonRole(parts.length > 0 ? parts.join(' · ') : null)
+        }
+      }
+
+      // Confiabilidade do resultado ao vivo (best-effort — migration 0103/0104)
+      const { data: relData } = await supabase.rpc('get_participant_reliability', {
+        p_cycle_id: id,
+        p_cp_id:    cpId,
+      })
+      if (relData) setReliability(relData as ReliabilityInfo)
 
       // Load cycle benchmark (best-effort)
       const { data: bmData } = await supabase.rpc('get_cycle_benchmark', { p_cycle_id: id })
@@ -354,6 +392,39 @@ export function ParticipantReportPage() {
     }
   }
 
+  async function handleDownloadExecutivePDF() {
+    setExecPdfLoading(true)
+    try {
+      const blob = await pdf(
+        <ReportExecutivePDFDocument
+          personName={personName}
+          personRole={personRole}
+          tenantName={branding.name}
+          cycleLabel={cycleName}
+          issuedAt={new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+          scaleId={scaleId}
+          competencies={competencies}
+          questionScores={questionScores}
+          questionValueNames={questionValueNames}
+          relDetailFav={relDetailFav ?? []}
+          divergence={divergence ?? []}
+          demographics={demographics}
+          benchmark={benchmark}
+          reliability={reliability}
+          nMinimum={nMinimum ?? 3}
+        />
+      ).toBlob()
+      const url = URL.createObjectURL(blob)
+      const a   = document.createElement('a')
+      a.href     = url
+      a.download = `relatorio-executivo-${personName.replace(/\s+/g, '-')}-${cycleName.replace(/\s+/g, '-')}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExecPdfLoading(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto">
@@ -419,6 +490,13 @@ export function ParticipantReportPage() {
               className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors disabled:opacity-50"
             >
               {pdfLoading ? '⏳ Gerando...' : '⬇️ Exportar PDF'}
+            </button>
+            <button
+              onClick={handleDownloadExecutivePDF}
+              disabled={execPdfLoading || !profile}
+              className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-sky-300 text-sky-700 bg-sky-50 hover:bg-sky-100 transition-colors disabled:opacity-50"
+            >
+              {execPdfLoading ? '⏳ Gerando...' : '📘 Relatório Executivo (PDF)'}
             </button>
             <button
               onClick={() => window.print()}
