@@ -784,10 +784,10 @@ function computeDimensionFavorabilityGridPDF(
   snapshots: SnapshotRow[],
   detailedRows?: CompetencyRelationshipFavorabilityRow[],
   relOverrides?: Record<string, string>,
-): { columns: { key: string; label: string }[]; rows: { name: string; cells: (number | null)[] }[] } {
+): { columns: { key: string; label: string; n: number | null }[]; rows: { name: string; cells: (number | null)[] }[] } {
   const hasDetail = detailedRows != null && detailedRows.length > 0 && detailedRows.some((r) => r.relationship_detail)
 
-  let columns: { key: string; label: string }[]
+  let columns: { key: string; label: string; n: number | null }[]
   let rows: { name: string; cells: (number | null)[] }[]
 
   if (hasDetail && detailedRows) {
@@ -796,10 +796,18 @@ function computeDimensionFavorabilityGridPDF(
       .map(({ code, detail }) => qrowKey(code, detail))
       .filter((key) => detailedRows.some((r) => qrowKey(r.relationship_code, r.relationship_detail) === key))
 
+    // rater_count é o mesmo em toda competência pro mesmo grupo (mesmos
+    // avaliadores respondem todas as perguntas) — pega de qualquer linha.
+    const raterCountByKey = (key: string): number | null => {
+      if (key === '__geral__') return detailedRows.find((r) => r.relationship_code === '__external__')?.rater_count ?? null
+      if (key === 'self') return detailedRows.find((r) => r.relationship_code === 'self')?.rater_count ?? null
+      return detailedRows.find((r) => qrowKey(r.relationship_code, r.relationship_detail) === key)?.rater_count ?? null
+    }
+
     columns = [
-      { key: 'self', label: 'Auto' },
-      { key: '__geral__', label: 'Geral' },
-      ...detailKeys.map((key) => ({ key, label: relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key })),
+      { key: 'self', label: 'Auto', n: raterCountByKey('self') },
+      { key: '__geral__', label: 'Geral', n: raterCountByKey('__geral__') },
+      ...detailKeys.map((key) => ({ key, label: relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key, n: raterCountByKey(key) })),
     ]
 
     rows = competencies
@@ -829,10 +837,20 @@ function computeDimensionFavorabilityGridPDF(
       snapshots.filter((s) => s.relationship_code !== 'self' && s.score_distribution).map((s) => s.relationship_code)
     )].sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
 
+    // n por grupo vem da linha agregada (sem competency_id) — mesmos
+    // avaliadores respondem todas as perguntas, então é constante.
+    const nByRel = (rel: string): number | null =>
+      snapshots.find((s) => !s.competency_id && s.relationship_code === rel)?.response_count ?? null
+    const selfN = nByRel('self')
+    const geralN = relsPresent.reduce<number | null>((sum, rel) => {
+      const n = nByRel(rel)
+      return n == null ? sum : (sum ?? 0) + n
+    }, null)
+
     columns = [
-      { key: 'self', label: 'Auto' },
-      { key: '__geral__', label: 'Geral' },
-      ...relsPresent.map((rel) => ({ key: rel, label: relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel })),
+      { key: 'self', label: 'Auto', n: selfN },
+      { key: '__geral__', label: 'Geral', n: geralN },
+      ...relsPresent.map((rel) => ({ key: rel, label: relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel, n: nByRel(rel) })),
     ]
 
     rows = competencies
@@ -888,7 +906,9 @@ function DimensionFavorabilityHeatmapPDF({
       <View style={{ display: 'flex', flexDirection: 'row', marginBottom: 3 }}>
         <Text style={{ fontSize: 7, color: C.light, width: '28%' }}>Dimensão</Text>
         {columns.map((c) => (
-          <Text key={c.key} style={{ fontSize: 7, color: C.light, width: colWidth, textAlign: 'center' }}>{c.label}</Text>
+          <Text key={c.key} style={{ fontSize: 7, color: C.light, width: colWidth, textAlign: 'center' }}>
+            {c.label}{c.n != null ? ` (${c.n})` : ''}
+          </Text>
         ))}
       </View>
 
@@ -937,7 +957,9 @@ function DimensionFavorabilityTablePDF({
       <View style={{ display: 'flex', flexDirection: 'row', backgroundColor: '#1e293b', borderRadius: 3, paddingVertical: 4, marginBottom: 3 }}>
         <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#ffffff', width: '30%', paddingLeft: 4 }}>Dimensão</Text>
         {columns.map((c) => (
-          <Text key={c.key} style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#ffffff', width: colWidth, textAlign: 'center' }}>{c.label}</Text>
+          <Text key={c.key} style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#ffffff', width: colWidth, textAlign: 'center' }}>
+            {c.label}{c.n != null ? ` (${c.n})` : ''}
+          </Text>
         ))}
       </View>
 
@@ -1980,13 +2002,13 @@ function ScoreDistributionSectionPDF({
 function FavorabilityByDemographicSectionPDF({ groups, scaleId }: { groups: DemographicGroupPDF[]; scaleId: string }) {
   const scale = getScale(scaleId)
 
-  const byDimension = new Map<string, { value: string; fav: ReturnType<typeof computeFavorability> }[]>()
+  const byDimension = new Map<string, { value: string; fav: ReturnType<typeof computeFavorability>; n: number }[]>()
   for (const g of groups) {
     if (!g.distribution) continue
     const fav = computeFavorability(g.distribution, scale)
     if (fav.total === 0) continue
     if (!byDimension.has(g.dimension)) byDimension.set(g.dimension, [])
-    byDimension.get(g.dimension)!.push({ value: g.value, fav })
+    byDimension.get(g.dimension)!.push({ value: g.value, fav, n: g.respondent_count })
   }
 
   const dimensions = [...byDimension.entries()]
@@ -2011,7 +2033,7 @@ function FavorabilityByDemographicSectionPDF({ groups, scaleId }: { groups: Demo
               <View key={r.value} style={{ marginBottom: 6 }} wrap={false}>
                 <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
                   <Text style={{ fontSize: 7, color: C.text }}>{r.value}</Text>
-                  <Text style={{ fontSize: 6.5, color: C.light }}>{r.fav.favoravel.toFixed(0)}%</Text>
+                  <Text style={{ fontSize: 6.5, color: C.light }}>{r.fav.favoravel.toFixed(0)}% · {r.n}</Text>
                 </View>
                 <FavorabilityBarPDF fav={r.fav} />
               </View>

@@ -550,10 +550,10 @@ function computeDimensionFavorabilityGrid(
   snapshots: SnapshotRow[],
   detailedRows?: CompetencyRelationshipFavorabilityRow[],
   relOverrides?: Record<string, string>,
-): { columns: { key: string; label: string }[]; rows: { id: string; name: string; cells: (number | null)[] }[] } {
+): { columns: { key: string; label: string; n: number | null }[]; rows: { id: string; name: string; cells: (number | null)[] }[] } {
   const hasDetail = detailedRows != null && detailedRows.length > 0 && detailedRows.some((r) => r.relationship_detail)
 
-  let columns: { key: string; label: string }[]
+  let columns: { key: string; label: string; n: number | null }[]
   let rows: { id: string; name: string; cells: (number | null)[] }[]
 
   if (hasDetail && detailedRows) {
@@ -562,10 +562,18 @@ function computeDimensionFavorabilityGrid(
       .map(({ code, detail }) => qrowKey(code, detail))
       .filter((key) => detailedRows.some((r) => qrowKey(r.relationship_code, r.relationship_detail) === key))
 
+    // rater_count é o mesmo em toda competência pro mesmo grupo (mesmos
+    // avaliadores respondem todas as perguntas) — pega de qualquer linha.
+    const raterCountByKey = (key: string): number | null => {
+      if (key === '__geral__') return detailedRows.find((r) => r.relationship_code === '__external__')?.rater_count ?? null
+      if (key === 'self') return detailedRows.find((r) => r.relationship_code === 'self')?.rater_count ?? null
+      return detailedRows.find((r) => qrowKey(r.relationship_code, r.relationship_detail) === key)?.rater_count ?? null
+    }
+
     columns = [
-      { key: 'self', label: 'Auto' },
-      { key: '__geral__', label: 'Geral' },
-      ...detailKeys.map((key) => ({ key, label: relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key })),
+      { key: 'self', label: 'Auto', n: raterCountByKey('self') },
+      { key: '__geral__', label: 'Geral', n: raterCountByKey('__geral__') },
+      ...detailKeys.map((key) => ({ key, label: relOverrides?.[key] ?? REL_DETAIL_LABEL[key] ?? key, n: raterCountByKey(key) })),
     ]
 
     rows = competencies
@@ -597,10 +605,20 @@ function computeDimensionFavorabilityGrid(
       snapshots.filter((s) => s.relationship_code !== 'self' && s.score_distribution).map((s) => s.relationship_code)
     )].sort((a, b) => REL_ORDER.indexOf(a) - REL_ORDER.indexOf(b))
 
+    // n por grupo vem da linha agregada (sem competency_id) — mesmos
+    // avaliadores respondem todas as perguntas, então é constante.
+    const nByRel = (rel: string): number | null =>
+      snapshots.find((s) => !s.competency_id && s.relationship_code === rel)?.response_count ?? null
+    const selfN = nByRel('self')
+    const geralN = relsPresent.reduce<number | null>((sum, rel) => {
+      const n = nByRel(rel)
+      return n == null ? sum : (sum ?? 0) + n
+    }, null)
+
     columns = [
-      { key: 'self', label: 'Auto' },
-      { key: '__geral__', label: 'Geral' },
-      ...relsPresent.map((rel) => ({ key: rel, label: relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel })),
+      { key: 'self', label: 'Auto', n: selfN },
+      { key: '__geral__', label: 'Geral', n: geralN },
+      ...relsPresent.map((rel) => ({ key: rel, label: relOverrides?.[rel] ?? REL_LABEL[rel] ?? rel, n: nByRel(rel) })),
     ]
 
     rows = competencies
@@ -667,7 +685,9 @@ export function DimensionFavorabilityHeatmap({
             <tr>
               <th className="text-left text-gray-400 font-medium pb-1 pl-1">Dimensão</th>
               {columns.map((c) => (
-                <th key={c.key} className="text-center text-gray-400 font-medium pb-1 min-w-[64px]">{c.label}</th>
+                <th key={c.key} className="text-center text-gray-400 font-medium pb-1 min-w-[64px]">
+                  {c.label}{c.n != null ? ` (${c.n})` : ''}
+                </th>
               ))}
             </tr>
           </thead>
@@ -734,7 +754,7 @@ export function DimensionFavorabilityTable({
                   key={c.key}
                   className={`text-center text-white font-semibold px-3 py-2 ${i === columns.length - 1 ? 'rounded-r-md' : ''}`}
                 >
-                  {c.label}
+                  {c.label}{c.n != null ? ` (${c.n})` : ''}
                 </th>
               ))}
             </tr>
@@ -2565,13 +2585,13 @@ export function FavorabilityByDemographicSection({
 }) {
   const scale = getScale(scaleId)
 
-  const byDimension = new Map<string, { value: string; fav: Favorability }[]>()
+  const byDimension = new Map<string, { value: string; fav: Favorability; n: number }[]>()
   for (const g of groups) {
     if (!g.distribution) continue
     const fav = computeFavorability(g.distribution, scale)
     if (fav.total === 0) continue
     if (!byDimension.has(g.dimension)) byDimension.set(g.dimension, [])
-    byDimension.get(g.dimension)!.push({ value: g.value, fav })
+    byDimension.get(g.dimension)!.push({ value: g.value, fav, n: g.response_count })
   }
 
   // Só faz sentido comparar dimensões com pelo menos 2 grupos.
@@ -2605,8 +2625,8 @@ export function FavorabilityByDemographicSection({
                   <div key={r.value} className="flex items-center gap-3">
                     <p className="text-sm text-gray-700 w-36 shrink-0 truncate">{r.value}</p>
                     <div className="flex-1"><FavorabilityBar fav={r.fav} /></div>
-                    <span className="text-xs font-semibold text-gray-600 w-12 text-right shrink-0">
-                      {r.fav.favoravel.toFixed(0)}%
+                    <span className="text-xs font-semibold text-gray-600 w-20 text-right shrink-0">
+                      {r.fav.favoravel.toFixed(0)}% <span className="font-normal text-gray-400">· {r.n}</span>
                     </span>
                   </div>
                 ))}
