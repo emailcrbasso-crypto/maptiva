@@ -159,6 +159,19 @@ function aggregateCompetencies(
   }).filter((c) => c.fav.total > 0)
 }
 
+/** get_cycle_benchmark só devolve linhas por competência (nunca um "geral"
+ * agregado) — a posição geral em relação ao grupo é a média simples dessas
+ * médias por competência, consistente com como o resto do relatório trata
+ * "Média Geral" como não-ponderada entre competências. */
+function benchmarkOverall(benchmark: BenchmarkMap | undefined): { score_avg: number; participant_count: number } | null {
+  if (!benchmark) return null
+  const rows = Object.values(benchmark)
+  if (rows.length === 0) return null
+  const score_avg = rows.reduce((s2, b) => s2 + b.score_avg, 0) / rows.length
+  const participant_count = Math.max(...rows.map((b) => b.participant_count))
+  return { score_avg, participant_count }
+}
+
 function faixa(pct: number): { label: string; color: string; bg: string } {
   if (pct >= 80) return { label: 'Ponto forte', color: C.green, bg: C.greenBg }
   if (pct >= 60) return { label: 'Adequado com atenção', color: C.blueTag, bg: C.blueTagBg }
@@ -338,8 +351,9 @@ function TOCPage(props: { personName: string; tenantName: string; cycleLabel: st
 function HowToReadPage(props: {
   personName: string; tenantName: string; cycleLabel: string
   scale: ScaleDefinition; groups: GroupAgg[]; nFormularios: number; limiar: number; margem: number
+  nQuestions: number; nComp: number
 }) {
-  const { scale, groups, nFormularios, limiar, margem } = props
+  const { scale, groups, nFormularios, limiar, margem, nQuestions, nComp } = props
   const groupByCode = Object.fromEntries(groups.map((g) => [g.code, g]))
   const geral = groups.filter((g) => GERAL_ENTRA[g.code]).reduce((s2, g) => s2 + g.n, 0)
   const cliInt = groupByCode['client']?.n ?? 0
@@ -348,13 +362,16 @@ function HowToReadPage(props: {
     <PageChrome label="Como ler" {...props}>
       <Text style={s.h1}>Como ler este relatório</Text>
       <Text style={s.intro}>
-        Este relatório reúne o que as pessoas que trabalham com você observam no dia a dia, organizado
-        pelas competências avaliadas. Não é uma nota de desempenho. É um retrato de percepções, feito
-        para orientar uma conversa de desenvolvimento.
+        Este relatório reúne o que as pessoas que trabalham com você observam no dia a dia, em {nQuestions}{' '}
+        comportamentos organizados em {nComp} competências. Não é uma nota de desempenho. É um retrato de
+        percepções, feito para orientar uma conversa de desenvolvimento.
       </Text>
       <View style={{ display: 'flex', flexDirection: 'row', gap: 16 }}>
         <View style={{ flex: 1, backgroundColor: C.cream, borderRadius: 4, padding: 10 }}>
           <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 6 }}>A escala usada nas respostas</Text>
+          <Text style={{ fontSize: 8, color: C.muted, marginBottom: 6, lineHeight: 1.4 }}>
+            Cada pessoa indicou com que frequência observa cada comportamento.{scale.allowNa ? '' : ' Não havia opção de não observado.'}
+          </Text>
           {[...scale.labels].reverse().map((l) => (
             <View key={l.value} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 3 }}>
               <Text style={{ width: 14, fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy }}>{l.value}</Text>
@@ -390,9 +407,9 @@ function HowToReadPage(props: {
 
       <Text style={s.sectionLabel}>Quem avaliou você</Text>
       <View style={s.tableHeader}>
-        <Text style={[s.th, { width: 130 }]}>Grupo de avaliadores</Text>
-        <Text style={[s.th, { width: 55, textAlign: 'right' }]}>Pessoas</Text>
-        <Text style={[s.th, { width: 70 }]}>No resultado geral</Text>
+        <Text style={[s.th, { width: 120 }]}>Grupo de avaliadores</Text>
+        <Text style={[s.th, { width: 44, textAlign: 'right', marginRight: 12 }]}>Pessoas</Text>
+        <Text style={[s.th, { width: 76, marginRight: 8 }]}>No resultado{'\n'}geral</Text>
         <Text style={[s.th, { flex: 1 }]}>Quem são</Text>
       </View>
       {GROUP_ORDER.map((code) => {
@@ -401,10 +418,10 @@ function HowToReadPage(props: {
         const entra = GERAL_ENTRA[code]
         return (
           <View key={code} style={s.tableRow}>
-            <Text style={[s.td, { width: 130, fontFamily: 'Helvetica-Bold' }]}>{GROUP_LABEL[code]}</Text>
-            <Text style={[s.td, { width: 55, textAlign: 'right' }]}>{g.n}</Text>
-            <View style={{ width: 70 }}>
-              <Text style={[s.badge, entra ? { backgroundColor: C.blueTagBg, color: C.blueTag } : { backgroundColor: C.cream, color: C.muted }]}>
+            <Text style={[s.td, { width: 120, fontFamily: 'Helvetica-Bold' }]}>{GROUP_LABEL[code]}</Text>
+            <Text style={[s.td, { width: 44, textAlign: 'right', marginRight: 12 }]}>{g.n}</Text>
+            <View style={{ width: 76, marginRight: 8 }}>
+              <Text style={[s.badge, entra ? { backgroundColor: C.blueTagBg, color: C.blueTag } : { backgroundColor: C.cream, color: C.muted }, { alignSelf: 'flex-start' }]}>
                 {entra ? 'Entra' : 'Não entra'}
               </Text>
             </View>
@@ -418,9 +435,9 @@ function HowToReadPage(props: {
       <View style={s.callout}>
         <Text style={s.calloutTitle}>Como ler as diferenças</Text>
         <Text style={s.calloutText}>
-          Diferenças de média menores que {String(limiar).replace('.', ',')} ponto na escala de {scale.min} a {scale.max} não devem ser lidas
+          Diferenças de média menores que {fmt(limiar, 1)} ponto na escala de {scale.min} a {scale.max} não devem ser lidas
           como diferença real. Esse valor se chama limiar de leitura e é explicado na metodologia. Só na
-          posição geral em relação ao grupo de gestores a referência é a margem exata, de {String(margem).replace('.', ',')}.
+          posição geral em relação ao grupo de gestores a referência é a margem exata, de {fmt(margem, 2)}.
           Grupos de uma pessoa refletem uma única visão, e nesses grupos cada resposta muda o percentual
           em saltos grandes.
         </Text>
@@ -454,7 +471,7 @@ function OverviewPage(props: {
   const geralMean = meanFromDist(geralDist)
   const selfFav = groups.find((g) => g.code === 'self')?.fav.favoravel ?? null
 
-  const bm = benchmark?.['__overall__']
+  const bm = benchmarkOverall(benchmark)
   const groupMean = bm?.score_avg ?? null
   const margem = reliability?.margem ?? 0.26
   const diff = groupMean != null && geralMean != null ? round2(geralMean) - round2(groupMean) : null
@@ -509,7 +526,7 @@ function OverviewPage(props: {
               </Text>
               <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 4, lineHeight: 1.4 }}>
                 {diff! >= 0 ? '+' : ''}{fmt(diff, 2)} sobre a média do grupo, de {fmt(groupMean, 2)}. Para ficar acima ou abaixo, a diferença
-                precisaria passar de {String(margem).replace('.', ',')}.
+                precisaria passar de {fmt(margem, 2)}.
               </Text>
             </>
           )}
@@ -531,15 +548,15 @@ function OverviewPage(props: {
           <Text style={s.calloutText}>
             Com {reliability.n_avaliadores} avaliadores no resultado geral, diferenças pequenas podem ser efeito
             do acaso. Por isso o relatório só trata como diferença real o que passa do limiar de leitura de{' '}
-            {String(reliability.limiar_leitura).replace('.', ',')} ponto.
+            {fmt(reliability.limiar_leitura, 1)} ponto.
           </Text>
         </View>
       )}
 
       <Text style={s.sectionLabel}>Resultado por grupo de avaliadores</Text>
       <View style={s.tableHeader}>
-        <Text style={[s.th, { width: 110 }]}>Grupo</Text>
-        <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Pessoas</Text>
+        <Text style={[s.th, { width: 100 }]}>Grupo</Text>
+        <Text style={[s.th, { width: 44, textAlign: 'right', marginRight: 8 }]}>Pessoas</Text>
         <Text style={[s.th, { flex: 1 }]}>Favorabilidade</Text>
         <Text style={[s.th, { width: 46, textAlign: 'right' }]}>Favor.</Text>
         <Text style={[s.th, { width: 40, textAlign: 'right' }]}>Neutro</Text>
@@ -551,11 +568,11 @@ function OverviewPage(props: {
         if (!g || g.n === 0) return null
         return (
           <View key={code} style={s.tableRow}>
-            <View style={{ width: 110 }}>
+            <View style={{ width: 100 }}>
               <Text style={[s.td, { fontFamily: 'Helvetica-Bold' }]}>{GROUP_LABEL[code]}</Text>
               {!GERAL_ENTRA[code] && <Text style={{ fontSize: 6, color: C.muted }}>não entra</Text>}
             </View>
-            <Text style={[s.td, { width: 34, textAlign: 'right' }]}>{g.n}</Text>
+            <Text style={[s.td, { width: 44, textAlign: 'right', marginRight: 8 }]}>{g.n}</Text>
             <View style={{ flex: 1, height: 7, backgroundColor: C.cream, borderRadius: 3, flexDirection: 'row', overflow: 'hidden', marginRight: 4 }}>
               <View style={{ width: `${g.fav.favoravel}%`, backgroundColor: GERAL_ENTRA[code] ? C.blue : '#b9c3cf' }} />
               <View style={{ width: `${g.fav.neutro}%`, backgroundColor: '#d1d5db' }} />
@@ -568,6 +585,15 @@ function OverviewPage(props: {
           </View>
         )
       })}
+      <View style={s.howToRead}>
+        <Text style={s.howToReadTitle}>Como ler</Text>
+        <Text style={s.howToReadText}>
+          A barra mostra a favorabilidade de cada grupo. Barras cinza são de grupos fora do resultado
+          geral. Neutro e desfavorável completam as respostas do grupo e separam comportamento visto só
+          às vezes, resposta intermediária, de comportamento raro. Por isso vale ler o resultado geral
+          junto com o resultado de cada grupo.
+        </Text>
+      </View>
     </PageChrome>
   )
 }
@@ -604,7 +630,7 @@ function buildSynthesisBullets(
   const geralFav = computeFavorability(geralDist, scale)
   const geralMean = meanFromDist(geralDist)
   const faixaInfo = faixa(geralFav.favoravel)
-  const bm = benchmark?.['__overall__']
+  const bm = benchmarkOverall(benchmark)
   const margem = reliability?.margem ?? 0.26
   const diff = bm?.score_avg != null && geralMean != null ? round2(geralMean) - round2(bm.score_avg) : null
 
@@ -801,16 +827,21 @@ function heatColor(pct: number): string {
   return `rgb(${r},${g},${b})`
 }
 
+const PERSPECTIVE_COL_ORDER = ['geral', 'manager', 'manager_superior', 'peer', 'subordinate', 'self', 'client']
+const PERSPECTIVE_COL_LABEL: Record<string, string> = { geral: 'Geral', ...GROUP_SHORT }
+
 function PerspectivePage(props: {
   personName: string; tenantName: string; cycleLabel: string
   comps: CompAgg[]; questionScores: QuestionScoreRow[]; groups: GroupAgg[]
 }) {
   const { comps, questionScores, groups } = props
   const ranked = [...comps].sort((a, b) => b.fav.favoravel - a.fav.favoravel)
-  const cols = GROUP_ORDER.filter((c) => (groups.find((g) => g.code === c)?.n ?? 0) > 0)
+  const geralN = groups.filter((g) => GERAL_ENTRA[g.code]).reduce((s2, g) => s2 + g.n, 0)
+  const cols = PERSPECTIVE_COL_ORDER.filter((c) => c === 'geral' ? geralN > 0 : (groups.find((g) => g.code === c)?.n ?? 0) > 0)
 
-  function cell(compId: string, code: string): { pct: number | null; mean: number | null } {
-    const rows = questionScores.filter((r) => r.competency_id === compId && r.relationship_code === code)
+  function cell(comp: CompAgg, code: string): { pct: number | null; mean: number | null } {
+    if (code === 'geral') return { pct: comp.fav.total > 0 ? comp.fav.favoravel : null, mean: comp.mean }
+    const rows = questionScores.filter((r) => r.competency_id === comp.id && r.relationship_code === code)
     const dist = mergeDistributions(rows.map((r) => r.score_distribution))
     const scale = getScale('frequency_5_strict')
     const fav = computeFavorability(dist, scale)
@@ -824,20 +855,22 @@ function PerspectivePage(props: {
       <View style={s.tableHeader}>
         <Text style={[s.th, { width: 100 }]}>Competência</Text>
         {cols.map((c) => (
-          <Text key={c} style={[s.th, { flex: 1, textAlign: 'right' }]}>{GROUP_SHORT[c] ?? c}{'\n'}n={groups.find((g) => g.code === c)?.n}</Text>
+          <Text key={c} style={[s.th, { flex: 1, textAlign: 'right' }]}>{PERSPECTIVE_COL_LABEL[c] ?? c}{'\n'}n={c === 'geral' ? geralN : groups.find((g) => g.code === c)?.n}</Text>
         ))}
       </View>
       {ranked.map((c) => (
         <View key={c.id} style={s.tableRow}>
           <Text style={[s.td, { width: 100, fontFamily: 'Helvetica-Bold' }]}>{c.name}</Text>
           {cols.map((code) => {
-            const v = code === 'manager' || code === 'manager_superior' || code === 'peer' || code === 'subordinate' || code === 'self' || code === 'client'
-              ? cell(c.id, code) : { pct: null, mean: null }
+            const v = cell(c, code)
+            const outOfGeral = code === 'self' || code === 'client'
             return (
               <View key={code} style={{ flex: 1, alignItems: 'flex-end', paddingRight: 2 }}>
                 <Text style={{
-                  fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: v.pct != null && v.pct >= 60 ? C.white : C.text,
-                  backgroundColor: v.pct != null ? heatColor(v.pct) : C.cream, paddingVertical: 2, paddingHorizontal: 4, borderRadius: 2,
+                  fontSize: 7.5, fontFamily: outOfGeral ? 'Helvetica' : 'Helvetica-Bold',
+                  color: outOfGeral ? C.muted : (v.pct != null && v.pct >= 60 ? C.white : C.text),
+                  backgroundColor: outOfGeral ? C.cream : (v.pct != null ? heatColor(v.pct) : C.cream),
+                  paddingVertical: 2, paddingHorizontal: 4, borderRadius: 2,
                 }}>
                   {v.pct != null ? fmt(v.pct, 1) : '—'}
                 </Text>
@@ -850,8 +883,10 @@ function PerspectivePage(props: {
         <Text style={s.howToReadTitle}>Como ler</Text>
         <Text style={s.howToReadText}>
           Cada linha é uma competência e cada coluna um grupo de avaliadores. Quanto mais escuro o azul,
-          maior a favorabilidade. Em grupos de uma pessoa, o percentual só pode assumir poucos valores
-          (0%, 33,3%, 50%...), e 0% não significa nota zero — vale ler esses grupos junto com a média.
+          maior a favorabilidade. A coluna Geral reúne os avaliadores do resultado geral. As colunas em
+          cinza, Auto e Cli. int., aparecem só para comparação. Em grupos de uma pessoa, o percentual só
+          pode assumir poucos valores (0%, 33,3%, 50%...), e 0% não significa nota zero — vale ler esses
+          grupos junto com a média.
         </Text>
       </View>
     </PageChrome>
@@ -937,7 +972,7 @@ function SelfPerceptionPage(props: {
         <Text style={s.howToReadText}>
           O losango laranja é a sua autoavaliação e o círculo azul é a média dos avaliadores. A diferença
           é a sua média menos a dos avaliadores; quando positiva, você se vê melhor do que os outros veem.
-          A leitura usa o limiar de {String(readingThreshold).replace('.', ',')} ponto. Uma autoavaliação acima não é um erro — é um convite
+          A leitura usa o limiar de {fmt(readingThreshold, 1)} ponto. Uma autoavaliação acima não é um erro — é um convite
           para entender o que os outros ainda não enxergam, ou o que você ainda não percebeu.
         </Text>
       </View>
@@ -959,7 +994,7 @@ function buildQRows(questionScores: QuestionScoreRow[], competencies: Competency
     const dist = mergeDistributions(geralRows.map((r) => r.score_distribution))
     const fav = computeFavorability(dist, scale)
     if (fav.total === 0) continue
-    const groupMeans = ['manager', 'manager_superior', 'peer', 'subordinate'].map((code) => ({
+    const groupMeans = ['manager', 'manager_superior', 'peer', 'subordinate', 'self', 'client'].map((code) => ({
       code, mean: meanFromDist(mergeDistributions(rows.filter((r) => r.relationship_code === code).map((r) => r.score_distribution))),
     }))
     out.push({
@@ -1116,12 +1151,11 @@ function QuestionsPages(props: {
   personName: string; tenantName: string; cycleLabel: string
   qRows: QRow[]; nMinimum: number; groups: GroupAgg[]
 }) {
-  const { qRows } = props
+  const { qRows, groups } = props
   const perPage = 10
   const chunks: QRow[][] = []
   for (let i = 0; i < qRows.length; i += perPage) chunks.push(qRows.slice(i, i + perPage))
-  const selfByNumber = new Map<number, number | null>()
-  const cliByNumber = new Map<number, number | null>()
+  const hasClient = (groups.find((g) => g.code === 'client')?.n ?? 0) > 0
 
   return (
     <>
@@ -1136,17 +1170,18 @@ function QuestionsPages(props: {
           <View style={s.tableHeader}>
             <Text style={[s.th, { width: 16 }]}>Nº</Text>
             <Text style={[s.th, { flex: 1 }]}>Pergunta</Text>
-            <Text style={[s.th, { width: 44, textAlign: 'right' }]}>Favor.</Text>
-            <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Média</Text>
-            <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Chefe</Text>
-            <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Lid.sup.</Text>
-            <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Pares</Text>
-            <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Equipe</Text>
+            <Text style={[s.th, { width: 40, textAlign: 'right' }]}>Favor.</Text>
+            <Text style={[s.th, { width: 30, textAlign: 'right' }]}>Média</Text>
+            <Text style={[s.th, { width: 30, textAlign: 'right' }]}>Chefe</Text>
+            <Text style={[s.th, { width: 32, textAlign: 'right' }]}>Lid.sup.</Text>
+            <Text style={[s.th, { width: 30, textAlign: 'right' }]}>Pares</Text>
+            <Text style={[s.th, { width: 32, textAlign: 'right', marginRight: 8 }]}>Equipe</Text>
+            <Text style={[s.th, { width: 26, textAlign: 'right', color: C.light }]}>Auto</Text>
+            {hasClient && <Text style={[s.th, { width: 30, textAlign: 'right', color: C.light }]}>Cli.int.</Text>}
           </View>
           {chunk.map((r) => {
             const f = faixa(r.fav)
             const byCode = Object.fromEntries(r.groupMeans.map((g) => [g.code, g.mean]))
-            void selfByNumber; void cliByNumber
             return (
               <View key={r.number} style={s.tableRow}>
                 <Text style={{ width: 16, fontSize: 7.5, color: C.muted }}>{r.number}</Text>
@@ -1154,15 +1189,17 @@ function QuestionsPages(props: {
                   <Text style={{ fontSize: 7.8, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
                   <Text style={{ fontSize: 6.3, color: C.light }}>{r.compName}</Text>
                 </View>
-                <View style={{ width: 44, alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end', alignSelf: 'center' }}>
+                <View style={{ width: 40, alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end', alignSelf: 'center' }}>
                   <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: f.color, marginRight: 3 }} />
                   <Text style={{ fontSize: 7.8, fontFamily: 'Helvetica-Bold' }}>{fmtPct(r.fav, 1)}</Text>
                 </View>
-                <Text style={{ width: 34, textAlign: 'right', fontSize: 7.8 }}>{fmt(r.mean)}</Text>
-                <Text style={{ width: 34, textAlign: 'right', fontSize: 7.8, color: C.muted }}>{fmt(byCode['manager'] ?? null)}</Text>
-                <Text style={{ width: 34, textAlign: 'right', fontSize: 7.8, color: C.muted }}>{fmt(byCode['manager_superior'] ?? null)}</Text>
-                <Text style={{ width: 34, textAlign: 'right', fontSize: 7.8, color: C.muted }}>{fmt(byCode['peer'] ?? null)}</Text>
-                <Text style={{ width: 34, textAlign: 'right', fontSize: 7.8, color: C.muted }}>{fmt(byCode['subordinate'] ?? null)}</Text>
+                <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8 }}>{fmt(r.mean)}</Text>
+                <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8, color: C.muted }}>{fmt(byCode['manager'] ?? null)}</Text>
+                <Text style={{ width: 32, textAlign: 'right', fontSize: 7.8, color: C.muted }}>{fmt(byCode['manager_superior'] ?? null)}</Text>
+                <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8, color: C.muted }}>{fmt(byCode['peer'] ?? null)}</Text>
+                <Text style={{ width: 32, textAlign: 'right', fontSize: 7.8, color: C.muted, marginRight: 8 }}>{fmt(byCode['subordinate'] ?? null)}</Text>
+                <Text style={{ width: 26, textAlign: 'right', fontSize: 7.8, color: C.light }}>{fmt(byCode['self'] ?? null)}</Text>
+                {hasClient && <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8, color: C.light }}>{fmt(byCode['client'] ?? null)}</Text>}
               </View>
             )
           })}
@@ -1311,7 +1348,7 @@ function BenchmarkPage(props: {
         <Text style={s.howToReadText}>
           A coluna Você mostra a sua média com os avaliadores do resultado geral. A coluna Grupo mostra a
           média simples das médias gerais de todo o grupo comparativo do ciclo. A diferença é Você menos
-          Grupo, e a leitura usa o limiar de {String(margem).replace('.', ',')}. Esta página dá contexto e não serve para
+          Grupo, e a leitura usa o limiar de {fmt(margem, 2)}. Esta página dá contexto e não serve para
           ranquear pessoas.
         </Text>
       </View>
@@ -1506,7 +1543,7 @@ function MethodologyPage(props: {
       </Block>
       <Block title="Margem e limiar de leitura">
         {r ? (
-          <>A margem é de 95% e vale 1,96 vezes o desvio-padrão das médias individuais dos avaliadores ({fmt(r.desvio_padrao, 2)}) dividido pela raiz do número de avaliadores ({r.n_avaliadores}). Neste relatório a margem é {fmt(r.margem, 2)}. O limiar de leitura é a margem arredondada para cima na primeira casa decimal, {String(r.limiar_leitura).replace('.', ',')}, e é usado nas comparações por competência. Diferenças menores estão dentro da variação esperada.</>
+          <>A margem é de 95% e vale 1,96 vezes o desvio-padrão das médias individuais dos avaliadores ({fmt(r.desvio_padrao, 2)}) dividido pela raiz do número de avaliadores ({r.n_avaliadores}). Neste relatório a margem é {fmt(r.margem, 2)}. O limiar de leitura é a margem arredondada para cima na primeira casa decimal, {fmt(r.limiar_leitura, 1)}, e é usado nas comparações por competência. Diferenças menores estão dentro da variação esperada.</>
         ) : 'Calculados a partir do desvio-padrão das médias individuais dos avaliadores do resultado geral.'}
       </Block>
       <Block title="Posição em relação ao grupo">
@@ -1574,7 +1611,7 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
     <Document title={`Relatório Executivo — ${personName}`} author="CR BASSO Educação Corporativa" subject={cycleLabel} creator="Maptiva">
       <CoverPage personName={personName} personRole={personRole} tenantName={tenantName} cycleLabel={cycleLabel} issuedAt={issuedAt} nAvaliadores={nAvaliadores} nFormularios={nFormularios} />
       <TOCPage {...chrome} hasValues={hasValues} />
-      <HowToReadPage {...chrome} scale={scale} groups={groupList} nFormularios={nFormularios} limiar={readingThreshold} margem={margem} />
+      <HowToReadPage {...chrome} scale={scale} groups={groupList} nFormularios={nFormularios} limiar={readingThreshold} margem={margem} nQuestions={qRows.length} nComp={competencies.length} />
       <OverviewPage {...chrome} groups={groupList} benchmark={benchmark} reliability={reliability} />
       <SynthesisPage {...chrome} groups={groupList} comps={comps} divergence={divergence} reliability={reliability} benchmark={benchmark} scale={scale} readingThreshold={readingThreshold} />
       <CompetencyResultsPage {...chrome} comps={comps} scale={scale} n={nAvaliadores} />
