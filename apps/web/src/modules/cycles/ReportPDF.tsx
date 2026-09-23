@@ -717,7 +717,7 @@ function CombinedFavorabilityRadarPDF({
   const axisLabels = compRows.map((c) => c.name)
 
   return (
-    <View style={s.section} break>
+    <View style={s.section} wrap={false}>
       <SectionTitle>Favorabilidade por dimensão</SectionTitle>
       <Text style={s.sectionSubtitle}>
         Autoavaliação × avaliadores externos, em % de favorabilidade (notas {scale.max - 1} e {scale.max}).
@@ -873,7 +873,7 @@ function DimensionFavorabilityHeatmapPDF({
   const colWidth = columns.length > 0 ? `${(72 / columns.length).toFixed(1)}%` : '0%'
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>Heatmap de favorabilidade por dimensão</SectionTitle>
       <Text style={s.sectionSubtitle}>
         Visão consolidada por dimensão e nível de avaliador. Verde ≥ 80% · Azul ≥ 60% · Laranja ≥ 40% · Vermelho &lt; 40%.
@@ -922,7 +922,7 @@ function DimensionFavorabilityTablePDF({
   const colWidth = columns.length > 0 ? `${(70 / columns.length).toFixed(1)}%` : '0%'
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>Favorabilidade por dimensão — tabela</SectionTitle>
       <Text style={s.sectionSubtitle}>
         % de respostas favoráveis (notas {scale.max - 1} e {scale.max}) por dimensão e nível de avaliador.
@@ -1135,7 +1135,7 @@ function DualRadarSectionPDF({
   const CHART_SIZE = 250
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>Roda da liderança</SectionTitle>
       <Text style={s.sectionSubtitle}>
         Escala de 0 a {scale.max}. Os nomes nos eixos correspondem às competências avaliadas.
@@ -1206,7 +1206,7 @@ function DivergenceSectionPDF({ rows }: { rows: DivergenceRow[] | undefined }) {
   const sorted = [...rows].sort((a, b) => b.amplitude_points - a.amplitude_points)
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>Divergência entre perspectivas</SectionTitle>
       <Text style={s.sectionSubtitle}>
         Diferença entre o grupo de avaliador mais favorável e o menos favorável, por pergunta.
@@ -1270,7 +1270,7 @@ function GAPSection({
   if (rows.length === 0) return null
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>GAP — Autoavaliação × Avaliadores</SectionTitle>
       <Text style={s.sectionSubtitle}>Diferença por competência, ordenada pela maior divergência.</Text>
 
@@ -1377,7 +1377,7 @@ function JohariMatrixSectionPDF({
   }
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>Matriz de Johari</SectionTitle>
       <Text style={s.sectionSubtitle}>
         Cada competência é "alta" ou "baixa" em relação à mediana das próprias competências desta
@@ -1511,7 +1511,7 @@ function TopBottomSection({
   }
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>Pontos fortes e oportunidades de melhoria</SectionTitle>
       <Text style={s.sectionSubtitle}>Ranking baseado na média das avaliações externas.</Text>
       <View style={{ display: 'flex', flexDirection: 'row' }}>
@@ -1686,7 +1686,7 @@ function TopBottomQuestionsSectionPDF({
   const bottom   = overlaps ? [] : sorted.slice(-5).reverse()
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>Perguntas com maiores e menores notas</SectionTitle>
       <Text style={s.sectionSubtitle}>
         Granularidade por pergunta, com a nota de cada grupo de avaliador.
@@ -1725,7 +1725,7 @@ function AllQuestionsDetailSectionPDF({
   if (rows.length === 0) return null
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>Resultado detalhado — todas as perguntas</SectionTitle>
       <Text style={s.sectionSubtitle}>
         Ordenado pela ordem do questionário. Verde ≥ {(0.8 * scale.max).toFixed(1)} · Amarelo{' '}
@@ -1799,7 +1799,7 @@ function BenchmarkSectionPDF({
   if (rows.length === 0) return null
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>Comparativo com a média do ciclo</SectionTitle>
       <Text style={s.sectionSubtitle}>
         Sua média (avaliadores externos) vs. a média geral do ciclo. Ordenado pela maior diferença.
@@ -1875,7 +1875,7 @@ function ScoreDistributionSectionPDF({
   if (rows.length === 0) return null
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>Distribuição das respostas por competência</SectionTitle>
       <Text style={s.sectionSubtitle}>
         Como avaliadores externos distribuíram suas notas — revela consenso ou divergência.
@@ -1932,7 +1932,7 @@ function FavorabilityByDemographicSectionPDF({ groups, scaleId }: { groups: Demo
   if (dimensions.length === 0) return null
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>Favorabilidade por perfil do avaliador</SectionTitle>
       <Text style={s.sectionSubtitle}>
         Como a favorabilidade varia entre diferentes grupos de avaliadores.
@@ -1971,7 +1971,7 @@ function DemographicBreakdownSectionPDF({ groups }: { groups: DemographicGroupPD
   const maxScore = Math.max(...groups.map((g) => g.avg_score), 1)
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>Análise demográfica</SectionTitle>
       <Text style={s.sectionSubtitle}>
         Média geral (excluindo autoavaliação) por perfil do avaliador. Grupos com poucos
@@ -1986,12 +1986,10 @@ function DemographicBreakdownSectionPDF({ groups }: { groups: DemographicGroupPD
             </Text>
             {byDimension[dim].map((g) => (
               <View key={g.value} style={{ marginBottom: 6 }} wrap={false}>
-                <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
-                  <Text style={{ fontSize: 7, color: C.text }}>{dim === 'nivel_detalhe' ? (NIVEL_DETALHE_VALUE_LABEL_PDF[g.value] ?? g.value) : g.value}</Text>
-                  <Text style={{ fontSize: 6.5, color: C.light }}>
-                    {g.avg_score.toFixed(2)} · {g.respondent_count} resp.
-                  </Text>
-                </View>
+                <Text style={{ fontSize: 7, color: C.text, marginBottom: 1 }}>{dim === 'nivel_detalhe' ? (NIVEL_DETALHE_VALUE_LABEL_PDF[g.value] ?? g.value) : g.value}</Text>
+                <Text style={{ fontSize: 6.5, color: C.light, marginBottom: 2 }}>
+                  {g.avg_score.toFixed(2)} · {g.respondent_count} resp.
+                </Text>
                 <View style={{ height: 4, backgroundColor: '#f3f4f6', borderRadius: 2, overflow: 'hidden' }}>
                   <View style={{ width: `${(g.avg_score / maxScore) * 100}%`, height: 4, backgroundColor: C.primary, borderRadius: 2 }} />
                 </View>
@@ -2060,7 +2058,7 @@ function CompetencyDetailSection({
   const lowSampleIds = lowSampleCompetencyIds(questionScores)
 
   return (
-    <View style={s.section} break>
+    <View style={s.section}>
       <SectionTitle>Avaliação por competência</SectionTitle>
       {lowSampleIds.size > 0 && (
         <Text style={{ fontSize: 6.5, color: '#b45309', marginBottom: 4 }}>
