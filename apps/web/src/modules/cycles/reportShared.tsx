@@ -113,7 +113,7 @@ export const REL_SHORT: Record<string, string> = {
 export const RADAR_PALETTE: Record<string, string> = {
   self:              '#6366f1',
   manager:           '#10b981',
-  manager_superior:  '#0d9488',
+  manager_superior:  '#7c3aed',
   peer:              '#f59e0b',
   subordinate:       '#3b82f6',
   client:            '#ec4899',
@@ -237,7 +237,7 @@ export function ParticipationPanel({ snapshots, relOverrides }: { snapshots: Sna
 
 const RADAR_DETAIL_PALETTE: Record<string, string> = {
   'manager|':             '#10b981',
-  'manager_superior|':    '#0d9488',
+  'manager_superior|':    '#7c3aed',
   'peer|':                '#f59e0b',
   'peer|Direto':          '#f59e0b',
   'peer|Indireto':        '#fb923c',

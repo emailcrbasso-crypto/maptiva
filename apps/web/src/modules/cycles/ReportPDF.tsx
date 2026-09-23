@@ -1056,7 +1056,7 @@ function FavorabilitySectionPDF({
 
 const RADAR_DETAIL_PALETTE_PDF: Record<string, string> = {
   'manager|':             '#10b981',
-  'manager_superior|':    '#0d9488',
+  'manager_superior|':    '#7c3aed',
   'peer|':                '#f59e0b',
   'peer|Direto':          '#f59e0b',
   'peer|Indireto':        '#fb923c',
