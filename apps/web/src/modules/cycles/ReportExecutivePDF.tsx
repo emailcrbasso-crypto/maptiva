@@ -333,12 +333,12 @@ function PageChrome({
   const cycleYear = cycleLabel.match(/\d{4}/)?.[0] ?? ''
   return (
     <Page size="A4" style={s.page}>
-      <View style={s.header}>
+      <View style={s.header} fixed>
         <Text style={s.headerLabel}>{label}</Text>
         <Text style={s.headerName}>{personName}</Text>
       </View>
       {children}
-      <View style={s.footer}>
+      <View style={s.footer} fixed>
         <Text style={s.footerText}>{personName} · Avaliação 360° {tenantName}{cycleYear ? ` ${cycleYear}` : ''}</Text>
         {variant === 'executive' ? (
           <Text style={s.footerText} render={({ pageNumber, totalPages }) => `CR BASSO Educação Corporativa · Confidencial · ${pageNumber} / ${totalPages}`} />
@@ -1160,14 +1160,14 @@ function Dumbbell({ width, aFrac, bFrac, diffColor }: { width: number; aFrac: nu
 
 // ─── 8. Autopercepção ───────────────────────────────────────────────────────
 
-function SelfPerceptionRadar({ ranked, domainMin, domainMax, size = 150 }: {
+function SelfPerceptionRadar({ ranked, domainMin, domainMax, size = 122 }: {
   ranked: { id: string; name: string; selfMean: number; mean: number }[]
   domainMin: number; domainMax: number; size?: number
 }) {
   const N = ranked.length
   if (N < 3) return null
 
-  const canvasPad = 46
+  const canvasPad = 36
   const canvas = size + canvasPad * 2
   const cx = canvas / 2, cy = canvas / 2
   const r = size * 0.32
@@ -1296,7 +1296,7 @@ function SelfPerceptionPage(props: {
         const color = !rel ? C.muted : diff > 0 ? C.orangeTag : C.blueTag
         const bg = !rel ? C.cream : diff > 0 ? C.orangeTagBg : C.blueTagBg
         return (
-          <View key={c.id} style={s.tableRow}>
+          <View key={c.id} style={[s.tableRow, { paddingTop: 3.5, paddingBottom: 3.5 }]}>
             <Text style={[s.td, { width: 90, fontFamily: 'Helvetica-Bold' }]}>{c.name}</Text>
             <Text style={[s.td, { width: 32, textAlign: 'right' }]}>{fmt(c.selfMean)}</Text>
             <Text style={[s.td, { width: 60, textAlign: 'right' }]}>{fmt(c.mean)}</Text>
