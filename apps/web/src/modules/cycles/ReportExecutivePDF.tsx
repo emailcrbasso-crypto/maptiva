@@ -406,10 +406,10 @@ const TOC_ITEMS = [
 
 function TOCPage(props: { personName: string; tenantName: string; cycleLabel: string; hasValues: boolean; questionsPages: number }) {
   const items = props.hasValues ? TOC_ITEMS : TOC_ITEMS.filter((i) => i[0] !== 'Valores organizacionais')
-  // Numeração fixa: capa(1) + sumário(2) + como ler(3) = 3 páginas antes
-  // daqui. Cada item de TOC_ITEMS mapeia pra um número de páginas físicas
-  // no documento — só "Resultado por pergunta" varia (uma página por bloco
-  // de 9 perguntas).
+  // Numeração fixa: capa(1) + sumário(2) = 2 páginas antes do primeiro
+  // item de TOC_ITEMS ("Como ler este relatório", que é a própria página 3).
+  // Cada item mapeia pra um número de páginas físicas no documento — só
+  // "Resultado por pergunta" varia (um bloco por página, ver QUESTIONS_PER_PAGE).
   const PAGE_COUNTS: Record<string, number> = {
     'Como ler este relatório': 1, 'Visão geral': 1, 'Síntese dos dados': 1,
     'Resultado por competência': 1, 'Competências por perspectiva': 2, 'Autopercepção': 1,
@@ -417,7 +417,7 @@ function TOCPage(props: { personName: string; tenantName: string; cycleLabel: st
     'Valores organizacionais': 1, 'Comparação com o grupo de gestores': 1, 'Perfil dos avaliadores': 1,
     'Guia para a devolutiva': 1, 'Plano de desenvolvimento': 1, 'Metodologia e glossário': 1,
   }
-  let page = 3
+  let page = 2
   const pageNumbers = items.map(([title]) => { const start = page + 1; page += PAGE_COUNTS[title] ?? 1; return start })
   return (
     <PageChrome label="Sumário" {...props}>
