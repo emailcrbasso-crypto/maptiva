@@ -23,6 +23,20 @@ import { Document, Page, Text, View, StyleSheet, Svg, Line, Circle, Polygon, Fon
 // o que deixa a margem direita um pouco mais irregular, mas sem palavras
 // cortadas de forma incorreta.
 Font.registerHyphenationCallback((word) => [word])
+
+// Helvetica (a fonte padrão do PDF, sem arquivo embutido — cada leitor
+// substitui por uma fonte parecida, normalmente Arial) fica mais pesada e
+// genérica que uma fonte desenhada pra tela. Inter é incorporada de verdade
+// no PDF e dá o acabamento mais delicado/legível do modelo de referência.
+Font.register({
+  family: 'Inter',
+  fonts: [{ src: '/fonts/inter/Inter-Regular.woff' }],
+})
+Font.register({
+  family: 'Inter-Bold',
+  fonts: [{ src: '/fonts/inter/Inter-Bold.woff' }],
+})
+
 import {
   type CompetencyRow,
   type QuestionScoreRow,
@@ -277,14 +291,14 @@ function faixa(pct: number): { label: string; color: string; bg: string } {
 
 const s = StyleSheet.create({
   page: {
-    fontFamily: 'Helvetica', fontSize: 9, color: C.text,
+    fontFamily: 'Inter', fontSize: 9, color: C.text,
     paddingTop: 40, paddingBottom: 46, paddingLeft: 46, paddingRight: 46, backgroundColor: C.white,
   },
   header: {
     display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     borderBottom: `0.75pt solid ${C.border}`, paddingBottom: 8, marginBottom: 16,
   },
-  headerLabel: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.navy, letterSpacing: 1.2, textTransform: 'uppercase' },
+  headerLabel: { fontSize: 7.5, fontFamily: 'Inter-Bold', color: C.navy, letterSpacing: 1.2, textTransform: 'uppercase' },
   headerName:  { fontSize: 7.5, color: C.light, letterSpacing: 0.5, textTransform: 'uppercase' },
   footer: {
     position: 'absolute', bottom: 18, left: 46, right: 46,
@@ -292,9 +306,9 @@ const s = StyleSheet.create({
     borderTop: `0.5pt solid ${C.border}`, paddingTop: 6,
   },
   footerText: { fontSize: 7, color: C.light },
-  h1: { fontSize: 19, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 10 },
+  h1: { fontSize: 19, fontFamily: 'Inter-Bold', color: C.navy, marginBottom: 10 },
   intro: { fontSize: 9, color: C.text, lineHeight: 1.5, marginBottom: 14 },
-  sectionLabel: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.text, marginBottom: 8, marginTop: 4 },
+  sectionLabel: { fontSize: 8.5, fontFamily: 'Inter-Bold', color: C.text, marginBottom: 8, marginTop: 4 },
   callout: {
     backgroundColor: C.blueCallout, borderLeft: `2.5pt solid ${C.blue}`, borderRadius: 3,
     padding: 10, marginTop: 10, marginBottom: 10,
@@ -303,22 +317,22 @@ const s = StyleSheet.create({
     backgroundColor: C.orangeBg, borderLeft: `2.5pt solid ${C.orange}`, borderRadius: 3,
     padding: 10, marginTop: 10, marginBottom: 10,
   },
-  calloutTitle: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 3 },
+  calloutTitle: { fontSize: 8, fontFamily: 'Inter-Bold', color: C.navy, marginBottom: 3 },
   calloutText: { fontSize: 8, color: C.text, lineHeight: 1.5 },
   howToRead: {
     backgroundColor: C.cream, borderRadius: 4, padding: 10, marginTop: 12,
   },
-  howToReadTitle: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.muted, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 5 },
+  howToReadTitle: { fontSize: 7.5, fontFamily: 'Inter-Bold', color: C.muted, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 5 },
   howToReadText: { fontSize: 7.8, color: C.muted, lineHeight: 1.5 },
   card: { backgroundColor: C.cream, borderRadius: 4, padding: 12 },
-  cardLabel: { fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.muted, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 },
-  cardBig: { fontSize: 22, fontFamily: 'Helvetica-Bold', color: C.navy },
-  cardMid: { fontSize: 15, fontFamily: 'Helvetica-Bold', color: C.navy },
+  cardLabel: { fontSize: 7, fontFamily: 'Inter-Bold', color: C.muted, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 },
+  cardBig: { fontSize: 22, fontFamily: 'Inter-Bold', color: C.navy },
+  cardMid: { fontSize: 15, fontFamily: 'Inter-Bold', color: C.navy },
   tableHeader: { display: 'flex', flexDirection: 'row', borderBottom: `1pt solid ${C.border}`, paddingBottom: 4, marginBottom: 3 },
   tableRow: { display: 'flex', flexDirection: 'row', paddingTop: 5, paddingBottom: 5, borderBottom: `0.5pt solid ${C.border}`, alignItems: 'center' },
-  th: { fontSize: 6.8, fontFamily: 'Helvetica-Bold', color: C.muted, textTransform: 'uppercase', letterSpacing: 0.4 },
+  th: { fontSize: 6.8, fontFamily: 'Inter-Bold', color: C.muted, textTransform: 'uppercase', letterSpacing: 0.4 },
   td: { fontSize: 8, color: C.text },
-  badge: { borderRadius: 3, paddingLeft: 5, paddingRight: 5, paddingTop: 2, paddingBottom: 2, fontSize: 6.8, fontFamily: 'Helvetica-Bold' },
+  badge: { borderRadius: 3, paddingLeft: 5, paddingRight: 5, paddingTop: 2, paddingBottom: 2, fontSize: 6.8, fontFamily: 'Inter-Bold' },
 })
 
 // ─── Header / footer ────────────────────────────────────────────────────────
@@ -356,16 +370,16 @@ const cs = StyleSheet.create({
   page:       { backgroundColor: C.navy, padding: 0, display: 'flex', flexDirection: 'column' },
   body:       { flex: 1, paddingTop: 70, paddingBottom: 50, paddingLeft: 54, paddingRight: 54, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
   brand:      { fontSize: 11, color: C.white, marginBottom: 90 },
-  brandBold:  { fontFamily: 'Helvetica-Bold', letterSpacing: 1.5 },
+  brandBold:  { fontFamily: 'Inter-Bold', letterSpacing: 1.5 },
   kicker:     { fontSize: 9, color: '#bcd2e6', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10 },
-  title:      { fontSize: 26, fontFamily: 'Helvetica-Bold', color: C.white, lineHeight: 1.25, marginBottom: 14 },
+  title:      { fontSize: 26, fontFamily: 'Inter-Bold', color: C.white, lineHeight: 1.25, marginBottom: 14 },
   rule:       { width: 40, height: 1.5, backgroundColor: '#7ea3c4', marginBottom: 14 },
-  name:       { fontSize: 20, fontFamily: 'Helvetica-Bold', color: C.white, marginBottom: 4 },
+  name:       { fontSize: 20, fontFamily: 'Inter-Bold', color: C.white, marginBottom: 4 },
   role:       { fontSize: 10, color: '#bcd2e6' },
   accentBar:  { height: 5, width: 130, backgroundColor: C.orange, marginTop: 40 },
   metaRow:    { display: 'flex', flexDirection: 'row', justifyContent: 'space-between', paddingTop: 18, marginTop: 18 },
   metaLabel:  { fontSize: 7, color: '#8fadc6', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 3 },
-  metaValue:  { fontSize: 10, color: C.white, fontFamily: 'Helvetica-Bold' },
+  metaValue:  { fontSize: 10, color: C.white, fontFamily: 'Inter-Bold' },
   disclaimer: { fontSize: 7.3, color: '#8fadc6', lineHeight: 1.5, marginTop: 20, borderTop: '0.5pt solid #3a5f80', paddingTop: 14 },
 })
 
@@ -463,9 +477,9 @@ function TOCPage(props: { personName: string; tenantName: string; cycleLabel: st
       <Text style={s.h1}>Sumário</Text>
       {items.map(([title, desc], i) => (
         <View key={title} style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', paddingTop: 8, paddingBottom: 8, borderBottom: `0.5pt solid ${C.border}` }}>
-          <Text style={{ width: 160, fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.text }}>{title}</Text>
+          <Text style={{ width: 160, fontSize: 9, fontFamily: 'Inter-Bold', color: C.text }}>{title}</Text>
           <Text style={{ flex: 1, fontSize: 8.5, color: C.muted }}>{desc}</Text>
-          <Text style={{ width: 20, fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.text, textAlign: 'right' }}>{pageNumbers[i]}</Text>
+          <Text style={{ width: 20, fontSize: 9, fontFamily: 'Inter-Bold', color: C.text, textAlign: 'right' }}>{pageNumbers[i]}</Text>
         </View>
       ))}
       {isParticipant ? (
@@ -517,13 +531,13 @@ function HowToReadPage(props: {
       </Text>
       <View style={{ display: 'flex', flexDirection: 'row', gap: 16 }}>
         <View style={{ flex: 1, backgroundColor: C.cream, borderRadius: 4, padding: 10 }}>
-          <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 6 }}>A escala usada nas respostas</Text>
+          <Text style={{ fontSize: 9, fontFamily: 'Inter-Bold', color: C.navy, marginBottom: 6 }}>A escala usada nas respostas</Text>
           <Text style={{ fontSize: 8, color: C.muted, marginBottom: 6, lineHeight: 1.4 }}>
             Cada pessoa indicou com que frequência observa cada comportamento.{scale.allowNa ? '' : ' Não havia opção de não observado.'}
           </Text>
           {[...scale.labels].reverse().map((l) => (
             <View key={l.value} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 3 }}>
-              <Text style={{ width: 14, fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy }}>{l.value}</Text>
+              <Text style={{ width: 14, fontSize: 8, fontFamily: 'Inter-Bold', color: C.navy }}>{l.value}</Text>
               <Text style={{ flex: 1, fontSize: 8, color: C.text }}>{l.label}</Text>
               {l.value >= scale.max - 1 && (
                 <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 3 }}>
@@ -547,23 +561,23 @@ function HowToReadPage(props: {
           ))}
         </View>
         <View style={{ flex: 1, backgroundColor: C.cream, borderRadius: 4, padding: 10 }}>
-          <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 6 }}>Os números do relatório</Text>
+          <Text style={{ fontSize: 9, fontFamily: 'Inter-Bold', color: C.navy, marginBottom: 6 }}>Os números do relatório</Text>
           <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 4 }}>
-            <Text style={{ fontFamily: 'Helvetica-Bold' }}>Favorabilidade</Text> é a porcentagem de respostas {scale.max - 1} ou {scale.max}. É o número principal. Com 80%, 8 em cada 10 respostas
+            <Text style={{ fontFamily: 'Inter-Bold' }}>Favorabilidade</Text> é a porcentagem de respostas {scale.max - 1} ou {scale.max}. É o número principal. Com 80%, 8 em cada 10 respostas
             disseram que o comportamento aparece com frequência.
           </Text>
           <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 4 }}>
-            <Text style={{ fontFamily: 'Helvetica-Bold' }}>Média</Text> vai de {scale.min} a {scale.max} e ajuda a diferenciar resultados com favorabilidade parecida.
+            <Text style={{ fontFamily: 'Inter-Bold' }}>Média</Text> vai de {scale.min} a {scale.max} e ajuda a diferenciar resultados com favorabilidade parecida.
           </Text>
           <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 4 }}>
-            <Text style={{ fontFamily: 'Helvetica-Bold' }}>Resultado geral</Text> é a leitura principal deste relatório. Ele junta as respostas das pessoas
+            <Text style={{ fontFamily: 'Inter-Bold' }}>Resultado geral</Text> é a leitura principal deste relatório. Ele junta as respostas das pessoas
             da sua linha de comando e do seu nível, que são chefe direto, a liderança superior, os pares e a
             equipe, e cada uma tem o mesmo peso. Dele saem a favorabilidade geral de {fmtPct(geralFav.favoravel, 1)} e a
             média geral de {fmt(geralMean)}, e ele é a base das páginas de competências, destaques e perguntas. A
             autoavaliação e os clientes internos aparecem à parte, para comparação.
           </Text>
           <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5 }}>
-            <Text style={{ fontFamily: 'Helvetica-Bold' }}>Faixas de cor</Text> classificam a favorabilidade, de ponto forte a prioridade. São uma referência
+            <Text style={{ fontFamily: 'Inter-Bold' }}>Faixas de cor</Text> classificam a favorabilidade, de ponto forte a prioridade. São uma referência
             para a leitura, e não uma meta.
           </Text>
         </View>
@@ -582,7 +596,7 @@ function HowToReadPage(props: {
         const entra = GERAL_ENTRA[code]
         return (
           <View key={code} style={s.tableRow}>
-            <Text style={[s.td, { width: 120, fontFamily: 'Helvetica-Bold' }]}>{GROUP_LABEL[code]}</Text>
+            <Text style={[s.td, { width: 120, fontFamily: 'Inter-Bold' }]}>{GROUP_LABEL[code]}</Text>
             <Text style={[s.td, { width: 44, textAlign: 'right', marginRight: 12 }]}>{g.n}</Text>
             <View style={{ width: 76, marginRight: 8 }}>
               <Text style={[s.badge, entra ? { backgroundColor: C.blueTagBg, color: C.blueTag } : { backgroundColor: C.cream, color: C.muted }, { alignSelf: 'flex-start' }]}>
@@ -710,10 +724,10 @@ function OverviewPage(props: {
         <View style={[s.card, { flex: 1 }]}>
           <Text style={s.cardLabel}>Em relação ao grupo comparativo</Text>
           {groupMean == null ? (
-            <Text style={{ fontSize: 11, fontFamily: 'Helvetica-Bold', color: C.muted }}>Sem dado de comparação</Text>
+            <Text style={{ fontSize: 11, fontFamily: 'Inter-Bold', color: C.muted }}>Sem dado de comparação</Text>
           ) : (
             <>
-              <Text style={{ fontSize: 13, fontFamily: 'Helvetica-Bold', color: diffRelevant ? (diff! > 0 ? C.green : C.red) : C.navy }}>
+              <Text style={{ fontSize: 13, fontFamily: 'Inter-Bold', color: diffRelevant ? (diff! > 0 ? C.green : C.red) : C.navy }}>
                 {diffRelevant ? (diff! > 0 ? 'Acima do grupo' : 'Abaixo do grupo') : 'Sem diferença relevante'}
               </Text>
               <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 4, lineHeight: 1.4 }}>
@@ -727,7 +741,7 @@ function OverviewPage(props: {
           <Text style={s.cardLabel}>Confiabilidade do resultado</Text>
           {reliability ? (
             <>
-              <Text style={{ fontSize: 13, fontFamily: 'Helvetica-Bold', color: tierColor(reliability.tier) }}>{tierLabel(reliability.tier)}</Text>
+              <Text style={{ fontSize: 13, fontFamily: 'Inter-Bold', color: tierColor(reliability.tier) }}>{tierLabel(reliability.tier)}</Text>
               <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 4, lineHeight: 1.4 }}>{reliabilityReason(reliability)}</Text>
             </>
           ) : <Text style={{ fontSize: 9, color: C.muted }}>—</Text>}
@@ -761,7 +775,7 @@ function OverviewPage(props: {
         return (
           <View key={code} style={s.tableRow}>
             <View style={{ width: 100 }}>
-              <Text style={[s.td, { fontFamily: 'Helvetica-Bold' }]}>{GROUP_LABEL[code]}</Text>
+              <Text style={[s.td, { fontFamily: 'Inter-Bold' }]}>{GROUP_LABEL[code]}</Text>
               {!GERAL_ENTRA[code] && <Text style={{ fontSize: 6, color: C.muted }}>não entra</Text>}
             </View>
             <Text style={[s.td, { width: 44, textAlign: 'right', marginRight: 8 }]}>{g.n}</Text>
@@ -770,7 +784,7 @@ function OverviewPage(props: {
               <View style={{ width: `${g.fav.neutro}%`, backgroundColor: '#d1d5db' }} />
               <View style={{ width: `${g.fav.desfavoravel}%`, backgroundColor: C.red }} />
             </View>
-            <Text style={[s.td, { width: 46, textAlign: 'right', fontFamily: 'Helvetica-Bold' }]}>{fmtPct(g.fav.favoravel, 1)}</Text>
+            <Text style={[s.td, { width: 46, textAlign: 'right', fontFamily: 'Inter-Bold' }]}>{fmtPct(g.fav.favoravel, 1)}</Text>
             <Text style={[s.td, { width: 40, textAlign: 'right', color: C.muted }]}>{fmtPct(g.fav.neutro, 1)}</Text>
             <Text style={[s.td, { width: 52, textAlign: 'right', color: C.muted }]}>{fmtPct(g.fav.desfavoravel, 1)}</Text>
             <Text style={[s.td, { width: 34, textAlign: 'right' }]}>{fmt(g.mean)}</Text>
@@ -982,7 +996,7 @@ function CompetencyResultsPage(props: { personName: string; tenantName: string; 
         return (
           <View key={c.id} style={s.tableRow}>
             <View style={{ width: 120 }}>
-              <Text style={[s.td, { fontFamily: 'Helvetica-Bold' }]}>{c.name}</Text>
+              <Text style={[s.td, { fontFamily: 'Inter-Bold' }]}>{c.name}</Text>
               <Text style={{ fontSize: 6, color: C.light }}>perguntas {c.questionNumbers.join(', ')}</Text>
             </View>
             <View style={{ flex: 1, position: 'relative', marginRight: 4 }}>
@@ -995,7 +1009,7 @@ function CompetencyResultsPage(props: { personName: string; tenantName: string; 
                 <View style={{ position: 'absolute', left: `${benchFav}%`, top: -1, width: 1.2, height: 9, backgroundColor: C.navy }} />
               )}
             </View>
-            <Text style={[s.td, { width: 44, textAlign: 'right', fontFamily: 'Helvetica-Bold' }]}>{fmtPct(c.fav.favoravel, 1)}</Text>
+            <Text style={[s.td, { width: 44, textAlign: 'right', fontFamily: 'Inter-Bold' }]}>{fmtPct(c.fav.favoravel, 1)}</Text>
             <Text style={[s.td, { width: 40, textAlign: 'right', color: C.muted }]}>{fmtPct(c.fav.neutro, 1)}</Text>
             <Text style={[s.td, { width: 44, textAlign: 'right', color: C.muted }]}>{fmtPct(c.fav.desfavoravel, 1)}</Text>
             <Text style={[s.td, { width: 34, textAlign: 'right', marginRight: 8 }]}>{fmt(c.mean)}</Text>
@@ -1080,14 +1094,14 @@ function PerspectivePage(props: {
         <HeaderRow />
         {ranked.map((c) => (
           <View key={c.id} style={s.tableRow} wrap={false}>
-            <Text style={[s.td, { width: 100, fontFamily: 'Helvetica-Bold' }]}>{c.name}</Text>
+            <Text style={[s.td, { width: 100, fontFamily: 'Inter-Bold' }]}>{c.name}</Text>
             {cols.map((code) => {
               const v = cell(c, code)
               const outOfGeral = code === 'self' || code === 'client'
               return (
                 <View key={code} style={{ flex: 1, alignItems: 'flex-end', paddingRight: 2 }}>
                   <Text style={{
-                    fontSize: 7.5, fontFamily: outOfGeral ? 'Helvetica' : 'Helvetica-Bold',
+                    fontSize: 7.5, fontFamily: outOfGeral ? 'Inter' : 'Inter-Bold',
                     color: outOfGeral ? C.muted : (v.pct != null && v.pct >= 60 ? C.white : C.text),
                     backgroundColor: outOfGeral ? C.cream : (v.pct != null ? heatColor(v.pct) : C.cream),
                     paddingVertical: 2, paddingHorizontal: 4, borderRadius: 2,
@@ -1117,7 +1131,7 @@ function PerspectivePage(props: {
         <HeaderRow />
         {ranked.map((c) => (
           <View key={c.id} style={s.tableRow} wrap={false}>
-            <Text style={[s.td, { width: 100, fontFamily: 'Helvetica-Bold' }]}>{c.name}</Text>
+            <Text style={[s.td, { width: 100, fontFamily: 'Inter-Bold' }]}>{c.name}</Text>
             {cols.map((code) => {
               const v = cell(c, code)
               const outOfGeral = code === 'self' || code === 'client'
@@ -1224,7 +1238,7 @@ function SelfPerceptionRadar({ ranked, domainMin, domainMax, size = 122 }: {
         const label = ranked[i].name
         const truncated = label.length > 18 ? label.slice(0, 17) + '…' : label
         return (
-          <Text key={`l${i}`} x={tp.x} y={tp.y + 2} textAnchor={tp.anchor} style={{ fontSize: 5.5, fill: '#6b7280', fontFamily: 'Helvetica-Bold' } as object}>
+          <Text key={`l${i}`} x={tp.x} y={tp.y + 2} textAnchor={tp.anchor} style={{ fontSize: 5.5, fill: '#6b7280', fontFamily: 'Inter-Bold' } as object}>
             {truncated}
           </Text>
         )
@@ -1297,13 +1311,13 @@ function SelfPerceptionPage(props: {
         const bg = !rel ? C.cream : diff > 0 ? C.orangeTagBg : C.blueTagBg
         return (
           <View key={c.id} style={[s.tableRow, { paddingTop: 3.5, paddingBottom: 3.5 }]}>
-            <Text style={[s.td, { width: 90, fontFamily: 'Helvetica-Bold' }]}>{c.name}</Text>
+            <Text style={[s.td, { width: 90, fontFamily: 'Inter-Bold' }]}>{c.name}</Text>
             <Text style={[s.td, { width: 32, textAlign: 'right' }]}>{fmt(c.selfMean)}</Text>
             <Text style={[s.td, { width: 60, textAlign: 'right' }]}>{fmt(c.mean)}</Text>
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Dumbbell width={90} aFrac={frac(c.selfMean!)} bFrac={frac(c.mean!)} diffColor={C.light} />
             </View>
-            <Text style={[s.td, { width: 46, textAlign: 'right', fontFamily: 'Helvetica-Bold', marginRight: 8 }]}>{diff >= 0 ? '+' : ''}{fmt(diff, 2)}</Text>
+            <Text style={[s.td, { width: 46, textAlign: 'right', fontFamily: 'Inter-Bold', marginRight: 8 }]}>{diff >= 0 ? '+' : ''}{fmt(diff, 2)}</Text>
             <View style={{ width: 90 }}>
               <Text style={[s.badge, { backgroundColor: bg, color, alignSelf: 'flex-start' }]}>{leitura}</Text>
             </View>
@@ -1388,19 +1402,19 @@ function HighlightsPage(props: {
       <Text style={s.h1}>Destaques</Text>
       <View style={{ display: 'flex', flexDirection: 'row', gap: 14, marginBottom: 16 }}>
         <View style={{ flex: 1, borderTop: `3pt solid ${C.green}`, backgroundColor: C.cream, borderRadius: 3, padding: 14 }}>
-          <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 10 }}>Competências mais reconhecidas</Text>
+          <Text style={{ fontSize: 8.5, fontFamily: 'Inter-Bold', color: C.navy, marginBottom: 10 }}>Competências mais reconhecidas</Text>
           {top3Comp.map((c) => (
             <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold' }}>{c.name}</Text>
+              <Text style={{ fontSize: 8.5, fontFamily: 'Inter-Bold' }}>{c.name}</Text>
               <Text style={{ fontSize: 8, color: C.muted }}>{fmtPct(c.fav.favoravel, 1)} · média {fmt(c.mean)}</Text>
             </View>
           ))}
         </View>
         <View style={{ flex: 1, borderTop: `3pt solid ${C.orange}`, backgroundColor: C.cream, borderRadius: 3, padding: 14 }}>
-          <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 10 }}>Competências com mais espaço para evoluir</Text>
+          <Text style={{ fontSize: 8.5, fontFamily: 'Inter-Bold', color: C.navy, marginBottom: 10 }}>Competências com mais espaço para evoluir</Text>
           {bottom3Comp.map((c) => (
             <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold' }}>{c.name}</Text>
+              <Text style={{ fontSize: 8.5, fontFamily: 'Inter-Bold' }}>{c.name}</Text>
               <Text style={{ fontSize: 8, color: C.muted }}>{fmtPct(c.fav.favoravel, 1)} · média {fmt(c.mean)}</Text>
             </View>
           ))}
@@ -1410,13 +1424,13 @@ function HighlightsPage(props: {
       <Text style={s.sectionLabel}>Os 5 comportamentos mais reconhecidos</Text>
       {top5.map((r) => (
         <View key={r.number} style={s.tableRow}>
-          <Text style={{ width: 18, fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy }}>{r.number}</Text>
+          <Text style={{ width: 18, fontSize: 8, fontFamily: 'Inter-Bold', color: C.navy }}>{r.number}</Text>
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
             <GroupMeansText row={r} />
           </View>
           <View style={{ width: 70, alignItems: 'flex-end' }}>
-            <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: C.navy }}>{fmtPct(r.fav, 1)}</Text>
+            <Text style={{ fontSize: 10, fontFamily: 'Inter-Bold', color: C.navy }}>{fmtPct(r.fav, 1)}</Text>
             <MiniFavBar pct={r.fav} />
             <Text style={{ fontSize: 6.5, color: C.light, marginTop: 2 }}>média {fmt(r.mean)}</Text>
           </View>
@@ -1429,13 +1443,13 @@ function HighlightsPage(props: {
       <Text style={[s.sectionLabel, { marginTop: 12 }]}>Os 5 comportamentos com mais espaço para evoluir</Text>
       {bottom5.map((r) => (
         <View key={r.number} style={s.tableRow}>
-          <Text style={{ width: 18, fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy }}>{r.number}</Text>
+          <Text style={{ width: 18, fontSize: 8, fontFamily: 'Inter-Bold', color: C.navy }}>{r.number}</Text>
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
             <GroupMeansText row={r} />
           </View>
           <View style={{ width: 70, alignItems: 'flex-end' }}>
-            <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: C.navy }}>{fmtPct(r.fav, 1)}</Text>
+            <Text style={{ fontSize: 10, fontFamily: 'Inter-Bold', color: C.navy }}>{fmtPct(r.fav, 1)}</Text>
             <MiniFavBar pct={r.fav} />
             <Text style={{ fontSize: 6.5, color: C.light, marginTop: 2 }}>média {fmt(r.mean)}</Text>
           </View>
@@ -1485,7 +1499,7 @@ function DivergencePage(props: {
       </View>
       {sorted.map((r) => (
         <View key={r.question_number} style={s.tableRow}>
-          <Text style={{ width: 18, fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy }}>{r.question_number}</Text>
+          <Text style={{ width: 18, fontSize: 8, fontFamily: 'Inter-Bold', color: C.navy }}>{r.question_number}</Text>
           <View style={{ width: 190 }}>
             <Text style={{ fontSize: 7.8, color: C.text, lineHeight: 1.3 }}>{r.question_prompt}</Text>
             <Text style={{ fontSize: 6.3, color: C.light }}>{r.dimension_name}</Text>
@@ -1497,7 +1511,7 @@ function DivergencePage(props: {
               <Text style={{ fontSize: 6.3, color: C.blue }}>{r.highest_groups.map((g) => GROUP_LABEL[g] ?? g).join(' e ')} {fmtPct(r.highest_pct, 1)}</Text>
             </View>
           </View>
-          <Text style={{ width: 42, textAlign: 'right', fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.navy }}>{fmt(r.amplitude_points, 1)}</Text>
+          <Text style={{ width: 42, textAlign: 'right', fontSize: 9, fontFamily: 'Inter-Bold', color: C.navy }}>{fmt(r.amplitude_points, 1)}</Text>
         </View>
       ))}
       <View style={s.howToRead}>
@@ -1566,7 +1580,7 @@ function QuestionsPages(props: {
                 </View>
                 <View style={{ width: 40, alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end', alignSelf: 'center' }}>
                   <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: f.color, marginRight: 3 }} />
-                  <Text style={{ fontSize: 7.8, fontFamily: 'Helvetica-Bold' }}>{fmtPct(r.fav, 1)}</Text>
+                  <Text style={{ fontSize: 7.8, fontFamily: 'Inter-Bold' }}>{fmtPct(r.fav, 1)}</Text>
                 </View>
                 <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8 }}>{fmt(r.mean)}</Text>
                 <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8, color: C.muted }}>{fmt(byCode['manager'] ?? null)}</Text>
@@ -1651,7 +1665,7 @@ function ValuesPage(props: {
       {rows.map((r) => (
         <View key={r.value} style={s.tableRow}>
           <View style={{ width: 130 }}>
-            <Text style={[s.td, { fontFamily: 'Helvetica-Bold' }]}>Valor {r.value}</Text>
+            <Text style={[s.td, { fontFamily: 'Inter-Bold' }]}>Valor {r.value}</Text>
             {r.numbers.length === 1 && <Text style={{ fontSize: 6.3, color: C.orangeTag }}>Medido por uma única pergunta. Ler com cautela.</Text>}
             <Text style={{ fontSize: 6, color: C.light }}>perguntas {r.numbers.join(', ')}</Text>
           </View>
@@ -1660,7 +1674,7 @@ function ValuesPage(props: {
             <View style={{ width: `${r.fav.neutro}%`, backgroundColor: '#d1d5db' }} />
             <View style={{ width: `${r.fav.desfavoravel}%`, backgroundColor: C.red }} />
           </View>
-          <Text style={[s.td, { width: 44, textAlign: 'right', fontFamily: 'Helvetica-Bold' }]}>{fmtPct(r.fav.favoravel, 1)}</Text>
+          <Text style={[s.td, { width: 44, textAlign: 'right', fontFamily: 'Inter-Bold' }]}>{fmtPct(r.fav.favoravel, 1)}</Text>
           <Text style={[s.td, { width: 34, textAlign: 'right' }]}>{fmt(r.mean)}</Text>
           <Text style={[s.td, { width: 76, textAlign: 'right', backgroundColor: C.cream, alignSelf: 'stretch' }]}>{r.selfFavPct != null ? fmtPct(r.selfFavPct, 1) : '—'}</Text>
         </View>
@@ -1720,10 +1734,10 @@ function BenchmarkPage(props: {
             const bg = !rel ? C.cream : r.diff! > 0 ? C.blueTagBg : C.orangeTagBg
             return (
               <View key={r.name} style={s.tableRow}>
-                <Text style={[s.td, { width: 130, fontFamily: 'Helvetica-Bold' }]}>{r.name}</Text>
+                <Text style={[s.td, { width: 130, fontFamily: 'Inter-Bold' }]}>{r.name}</Text>
                 <Text style={[s.td, { width: 50, textAlign: 'right' }]}>{fmt(r.you)}</Text>
                 <Text style={[s.td, { width: 50, textAlign: 'right' }]}>{fmt(r.group)}</Text>
-                <Text style={[s.td, { width: 60, textAlign: 'right', fontFamily: 'Helvetica-Bold', marginRight: 8 }]}>{r.diff != null ? `${r.diff >= 0 ? '+' : ''}${fmt(r.diff, 2)}` : '—'}</Text>
+                <Text style={[s.td, { width: 60, textAlign: 'right', fontFamily: 'Inter-Bold', marginRight: 8 }]}>{r.diff != null ? `${r.diff >= 0 ? '+' : ''}${fmt(r.diff, 2)}` : '—'}</Text>
                 <View style={{ flex: 1, alignItems: 'center' }}>
                   <Text style={[s.badge, { backgroundColor: bg, color, alignSelf: 'center' }]}>{leitura}</Text>
                 </View>
@@ -1776,7 +1790,7 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
         <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
           {dims.map((dim) => (
             <View key={dim} style={{ width: 240, backgroundColor: C.cream, borderRadius: 4, padding: 10 }}>
-              <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 6 }}>{DEMO_DIM_LABEL[dim] ?? dim}</Text>
+              <Text style={{ fontSize: 8.5, fontFamily: 'Inter-Bold', color: C.navy, marginBottom: 6 }}>{DEMO_DIM_LABEL[dim] ?? dim}</Text>
               <View style={{ display: 'flex', flexDirection: 'row', borderBottom: `0.5pt solid ${C.border}`, paddingBottom: 3, marginBottom: 2 }}>
                 <Text style={[s.th, { flex: 1 }]}></Text>
                 <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Pessoas</Text>
@@ -1794,7 +1808,7 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
                     <View style={{ width: 30, alignItems: 'flex-end' }}>
                       {fav.total > 0 && <MiniFavBar pct={fav.favoravel} width={26} marginTop={0} />}
                     </View>
-                    <Text style={{ width: 38, textAlign: 'right', fontSize: 7.8, fontFamily: 'Helvetica-Bold' }}>{fmtPct(fav.total > 0 ? fav.favoravel : null, 1)}</Text>
+                    <Text style={{ width: 38, textAlign: 'right', fontSize: 7.8, fontFamily: 'Inter-Bold' }}>{fmtPct(fav.total > 0 ? fav.favoravel : null, 1)}</Text>
                     <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8 }}>{fmt(g.avg_score)}</Text>
                   </View>
                 )
@@ -1845,21 +1859,21 @@ function GuidePage(props: { personName: string; tenantName: string; cycleLabel: 
         Para quem conduz a conversa. O roteiro pode ser adaptado, mas a ordem ajuda a manter a conversa
         construtiva e focada em desenvolvimento.
       </Text>
-      <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 6 }}>Antes da sessão</Text>
+      <Text style={{ fontSize: 8.5, fontFamily: 'Inter-Bold', color: C.navy, marginBottom: 6 }}>Antes da sessão</Text>
       <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 3 }}>
         - Ler o relatório inteiro, inclusive a metodologia, e anotar as perguntas que pretende fazer. A Síntese dos dados serve como mapa da conversa.
       </Text>
       <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 10 }}>
         - Decidir com a empresa se o participante recebe o relatório antes ou durante a sessão.
       </Text>
-      <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 6 }}>Roteiro sugerido</Text>
+      <Text style={{ fontSize: 8.5, fontFamily: 'Inter-Bold', color: C.navy, marginBottom: 6 }}>Roteiro sugerido</Text>
       {ROTEIRO.map(([title, desc]) => (
         <View key={title} style={{ backgroundColor: C.cream, borderRadius: 3, padding: 7, marginBottom: 5 }}>
-          <Text style={{ fontSize: 7.8, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 2 }}>{title}</Text>
+          <Text style={{ fontSize: 7.8, fontFamily: 'Inter-Bold', color: C.navy, marginBottom: 2 }}>{title}</Text>
           <Text style={{ fontSize: 7.5, color: C.text, lineHeight: 1.4 }}>{desc}</Text>
         </View>
       ))}
-      <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginTop: 6, marginBottom: 6 }}>Cuidados na conversa</Text>
+      <Text style={{ fontSize: 8.5, fontFamily: 'Inter-Bold', color: C.navy, marginTop: 6, marginBottom: 6 }}>Cuidados na conversa</Text>
       {CUIDADOS.map((c, i) => (
         <Text key={i} style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 3 }}>- {c}</Text>
       ))}
@@ -1892,7 +1906,7 @@ function PlanPage(props: { personName: string; tenantName: string; cycleLabel: s
       <View style={{ display: 'flex', flexDirection: 'row', border: `0.75pt solid ${C.border}` }}>
         {cols.map((c, i) => (
           <View key={c.title} style={{ width: '25%', backgroundColor: C.cream, padding: 6, borderLeft: i > 0 ? `0.75pt solid ${C.border}` : undefined }}>
-            <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.muted, textTransform: 'uppercase', letterSpacing: 0.3, lineHeight: 1.3 }}>{c.title}</Text>
+            <Text style={{ fontSize: 7, fontFamily: 'Inter-Bold', color: C.muted, textTransform: 'uppercase', letterSpacing: 0.3, lineHeight: 1.3 }}>{c.title}</Text>
             {c.subtitle !== '' && <Text style={{ fontSize: 6, color: C.light, marginTop: 2, lineHeight: 1.3 }}>{c.subtitle}</Text>}
           </View>
         ))}
@@ -1904,7 +1918,7 @@ function PlanPage(props: { personName: string; tenantName: string; cycleLabel: s
           ))}
         </View>
       ))}
-      <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginTop: 16, marginBottom: 6 }}>Pontos fortes que vou usar a meu favor</Text>
+      <Text style={{ fontSize: 8.5, fontFamily: 'Inter-Bold', color: C.navy, marginTop: 16, marginBottom: 6 }}>Pontos fortes que vou usar a meu favor</Text>
       <View style={{ height: 60, border: `0.75pt solid ${C.border}`, borderRadius: 3 }} />
       <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginTop: 18 }}>
         <View>
@@ -1938,7 +1952,7 @@ function MethodologyPage(props: {
   const r = reliability
   const Block = ({ title, children }: { title: string; children: React.ReactNode }) => (
     <Text style={{ fontSize: 7.8, color: C.text, lineHeight: 1.5, marginBottom: 6 }}>
-      <Text style={{ fontFamily: 'Helvetica-Bold' }}>{title}. </Text>{children}
+      <Text style={{ fontFamily: 'Inter-Bold' }}>{title}. </Text>{children}
     </Text>
   )
   return (
