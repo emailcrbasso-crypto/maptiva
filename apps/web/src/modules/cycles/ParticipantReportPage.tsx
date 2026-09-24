@@ -154,6 +154,7 @@ export function ParticipantReportPage() {
   const [error,          setError]          = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
   const [execPdfLoading, setExecPdfLoading] = useState(false)
+  const [participantPdfLoading, setParticipantPdfLoading] = useState(false)
 
   useEffect(() => {
     if (!id || !cpId) return
@@ -448,6 +449,41 @@ export function ParticipantReportPage() {
     }
   }
 
+  async function handleDownloadParticipantPDF() {
+    setParticipantPdfLoading(true)
+    try {
+      const blob = await pdf(
+        <ReportExecutivePDFDocument
+          variant="participant"
+          personName={personName}
+          personRole={personRole}
+          tenantName={branding.name}
+          cycleLabel={cycleName}
+          issuedAt={new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+          scaleId={scaleId}
+          competencies={competencies}
+          questionScores={questionScores}
+          questionValueNames={questionValueNames}
+          relDetailFav={relDetailFav ?? []}
+          divergence={divergence ?? []}
+          demographics={demographics}
+          benchmark={benchmark}
+          reliability={reliability}
+          benchmarkOverall={benchmarkOverall}
+          nMinimum={nMinimum ?? 3}
+        />
+      ).toBlob()
+      const url = URL.createObjectURL(blob)
+      const a   = document.createElement('a')
+      a.href     = url
+      a.download = `relatorio-individual-${personName.replace(/\s+/g, '-')}-${cycleName.replace(/\s+/g, '-')}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setParticipantPdfLoading(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto">
@@ -520,6 +556,13 @@ export function ParticipantReportPage() {
               className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-sky-300 text-sky-700 bg-sky-50 hover:bg-sky-100 transition-colors disabled:opacity-50"
             >
               {execPdfLoading ? '⏳ Gerando...' : '📘 Relatório Executivo (PDF)'}
+            </button>
+            <button
+              onClick={handleDownloadParticipantPDF}
+              disabled={participantPdfLoading || !profile}
+              className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-teal-300 text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors disabled:opacity-50"
+            >
+              {participantPdfLoading ? '⏳ Gerando...' : '📧 Relatório Individual p/ Envio (PDF)'}
             </button>
             <button
               onClick={() => window.print()}
