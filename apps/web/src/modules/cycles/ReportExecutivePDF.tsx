@@ -1959,9 +1959,10 @@ function MethodologyPage(props: {
     <PageChrome label="Metodologia" {...props}>
       <Text style={s.h1}>Metodologia e glossário</Text>
       <Block title="Origem dos dados">
-        Respostas coletadas nos formulários de avaliação 360° e de autoavaliação da {props.tenantName}.
-        Todos os números deste relatório são calculados diretamente a partir das respostas originais,
-        sem nenhuma resposta acrescentada, alterada ou estimada.
+        Respostas exportadas da plataforma de coleta da {props.tenantName}, nos formulários de avaliação 360°
+        e de autoavaliação. Nenhuma resposta foi acrescentada, alterada ou estimada. Os números foram
+        calculados a partir do banco de dados consolidado para esta avaliação e conferidos por um segundo
+        cálculo, feito de forma independente a partir dos arquivos originais.
       </Block>
       <Block title="Instrumento">
         Perguntas fechadas de frequência de comportamento, organizadas em {props.nComp} competências. O
