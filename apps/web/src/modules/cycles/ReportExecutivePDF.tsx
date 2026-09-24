@@ -15,7 +15,7 @@
  * perguntas manualmente em blocos de 11.
  */
 
-import { Document, Page, Text, View, StyleSheet, Svg, Line, Circle, Polygon, Font } from '@react-pdf/renderer'
+import { Document, Page, Text, View, StyleSheet, Svg, Line, Circle, Polygon, Defs, LinearGradient, Stop, Rect, Font } from '@react-pdf/renderer'
 
 // react-pdf hifeniza automaticamente em quebra de linha, mas não conhece as
 // regras do português e corta em lugares errados ("favor-abilidade",
@@ -465,7 +465,7 @@ function TOCPage(props: { personName: string; tenantName: string; cycleLabel: st
   // "Resultado por pergunta" varia (um bloco por página, ver QUESTIONS_PER_PAGE).
   const PAGE_COUNTS: Record<string, number> = {
     'Como ler este relatório': 1, 'Visão geral': 1, 'Síntese dos dados': 1,
-    'Resultado por competência': 1, 'Competências por perspectiva': 2, 'Autopercepção': 1,
+    'Resultado por competência': 1, 'Competências por perspectiva': 1, 'Autopercepção': 1,
     'Destaques': 1, 'Onde as perspectivas divergem': 1, 'Resultado por pergunta': props.questionsPages,
     'Valores organizacionais': 1, 'Comparação com o grupo de gestores': 1, 'Perfil dos avaliadores': 1,
     'Guia para a devolutiva': 1, 'Plano de desenvolvimento': 1, 'Metodologia e glossário': 1,
@@ -1054,6 +1054,26 @@ function heatColor(pct: number): string {
   return `rgb(${r},${g},${b})`
 }
 
+function HeatLegend({ width = 200 }: { width?: number }) {
+  return (
+    <View style={{ alignItems: 'center', marginTop: 6 }}>
+      <Svg width={width} height={8}>
+        <Defs>
+          <LinearGradient id="heatGrad" x1="0" y1="0" x2="1" y2="0">
+            <Stop offset="0" stopColor={heatColor(0)} />
+            <Stop offset="1" stopColor={heatColor(100)} />
+          </LinearGradient>
+        </Defs>
+        <Rect x={0} y={0} width={width} height={8} rx={2} fill="url(#heatGrad)" />
+      </Svg>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', width, marginTop: 2 }}>
+        <Text style={{ fontSize: 6, color: C.light }}>0%</Text>
+        <Text style={{ fontSize: 6, color: C.light }}>100%</Text>
+      </View>
+    </View>
+  )
+}
+
 const PERSPECTIVE_COL_ORDER = ['geral', 'manager', 'manager_superior', 'peer', 'subordinate', 'self', 'client']
 const PERSPECTIVE_COL_LABEL: Record<string, string> = { geral: 'Geral', ...GROUP_SHORT }
 
@@ -1086,73 +1106,71 @@ function PerspectivePage(props: {
     )
   }
 
-  return (
-    <>
-      <PageChrome label="Perspectivas" {...props}>
-        <Text style={s.h1}>Competências por perspectiva</Text>
-        <Text style={s.intro}>Favorabilidade de cada competência em cada grupo de avaliadores, em porcentagem.</Text>
-        <HeaderRow />
-        {ranked.map((c) => (
-          <View key={c.id} style={s.tableRow} wrap={false}>
-            <Text style={[s.td, { width: 100, fontFamily: 'Inter-Bold' }]}>{c.name}</Text>
-            {cols.map((code) => {
-              const v = cell(c, code)
-              const outOfGeral = code === 'self' || code === 'client'
-              return (
-                <View key={code} style={{ flex: 1, alignItems: 'flex-end', paddingRight: 2 }}>
-                  <Text style={{
-                    fontSize: 7.5, fontFamily: outOfGeral ? 'Inter' : 'Inter-Bold',
-                    color: outOfGeral ? C.muted : (v.pct != null && v.pct >= 60 ? C.white : C.text),
-                    backgroundColor: outOfGeral ? C.cream : (v.pct != null ? heatColor(v.pct) : C.cream),
-                    paddingVertical: 2, paddingHorizontal: 4, borderRadius: 2,
-                  }}>
-                    {v.pct != null ? fmt(v.pct, 1) : '—'}
-                  </Text>
-                </View>
-              )
-            })}
-          </View>
-        ))}
-        <View style={s.howToRead}>
-          <Text style={s.howToReadTitle}>Como ler</Text>
-          <Text style={s.howToReadText}>
-            Cada linha é uma competência e cada coluna um grupo de avaliadores. Quanto mais escuro o azul,
-            maior a favorabilidade. A coluna Geral reúne os avaliadores do resultado geral. As colunas em
-            cinza, Auto e Cli. int., aparecem só para comparação. Em grupos de uma pessoa, o percentual só
-            pode assumir poucos valores (0%, 33,3%, 50%...), e 0% não significa nota zero. Vale ler esses
-            grupos junto com a média.
-          </Text>
-        </View>
-      </PageChrome>
+  const compactRow = { paddingTop: 3, paddingBottom: 3 }
 
-      <PageChrome label="Perspectivas" {...props}>
-        <Text style={s.h1}>Competências por perspectiva, em média</Text>
-        <Text style={s.intro}>As mesmas competências em média, de {getScale('frequency_5_strict').min} a {getScale('frequency_5_strict').max}.</Text>
-        <HeaderRow />
-        {ranked.map((c) => (
-          <View key={c.id} style={s.tableRow} wrap={false}>
-            <Text style={[s.td, { width: 100, fontFamily: 'Inter-Bold' }]}>{c.name}</Text>
-            {cols.map((code) => {
-              const v = cell(c, code)
-              const outOfGeral = code === 'self' || code === 'client'
-              return (
-                <Text key={code} style={{ flex: 1, textAlign: 'right', fontSize: 7.8, color: outOfGeral ? C.light : C.text }}>
-                  {v.mean != null ? fmt(v.mean, 2) : '—'}
+  return (
+    <PageChrome label="Perspectivas" {...props}>
+      <Text style={s.h1}>Competências por perspectiva</Text>
+      <Text style={s.intro}>Favorabilidade de cada competência em cada grupo de avaliadores, em porcentagem e em média.</Text>
+
+      <Text style={s.sectionLabel}>Favorabilidade (%)</Text>
+      <HeaderRow />
+      {ranked.map((c) => (
+        <View key={c.id} style={[s.tableRow, compactRow]} wrap={false}>
+          <Text style={[s.td, { width: 100, fontFamily: 'Inter-Bold' }]}>{c.name}</Text>
+          {cols.map((code) => {
+            const v = cell(c, code)
+            const outOfGeral = code === 'self' || code === 'client'
+            return (
+              <View key={code} style={{ flex: 1, alignItems: 'flex-end', paddingRight: 2 }}>
+                <Text style={{
+                  fontSize: 7.2, fontFamily: outOfGeral ? 'Inter' : 'Inter-Bold',
+                  color: outOfGeral ? C.muted : (v.pct != null && v.pct >= 60 ? C.white : C.text),
+                  backgroundColor: outOfGeral ? C.cream : (v.pct != null ? heatColor(v.pct) : C.cream),
+                  paddingVertical: 1.5, paddingHorizontal: 4, borderRadius: 2,
+                }}>
+                  {v.pct != null ? fmt(v.pct, 1) : '—'}
                 </Text>
-              )
-            })}
-          </View>
-        ))}
-        <View style={s.howToRead}>
-          <Text style={s.howToReadTitle}>Como ler</Text>
-          <Text style={s.howToReadText}>
-            As mesmas competências e grupos da página anterior, agora em média de {getScale('frequency_5_strict').min} a{' '}
-            {getScale('frequency_5_strict').max} em vez de favorabilidade. As colunas em cinza, Auto e Cli. int.,
-            aparecem só para comparação.
-          </Text>
+              </View>
+            )
+          })}
         </View>
-      </PageChrome>
-    </>
+      ))}
+      <HeatLegend />
+
+      <Text style={[s.sectionLabel, { marginTop: 10 }]}>
+        Média (escala de {getScale('frequency_5_strict').min} a {getScale('frequency_5_strict').max})
+      </Text>
+      <HeaderRow />
+      {ranked.map((c) => (
+        <View key={c.id} style={[s.tableRow, compactRow]} wrap={false}>
+          <Text style={[s.td, { width: 100, fontFamily: 'Inter-Bold' }]}>{c.name}</Text>
+          {cols.map((code) => {
+            const v = cell(c, code)
+            const outOfGeral = code === 'self' || code === 'client'
+            return (
+              <Text key={code} style={{ flex: 1, textAlign: 'right', fontSize: 7.6, color: outOfGeral ? C.light : C.text }}>
+                {v.mean != null ? fmt(v.mean, 2) : '—'}
+              </Text>
+            )
+          })}
+        </View>
+      ))}
+
+      <View style={s.howToRead}>
+        <Text style={s.howToReadTitle}>Como ler</Text>
+        <Text style={s.howToReadText}>
+          Cada linha é uma competência e cada coluna é um grupo de avaliadores. Quanto mais escuro o azul,
+          maior a favorabilidade. A coluna Geral reúne os {geralN} avaliadores do resultado geral. As colunas
+          em cinza, Auto e Cli. int., aparecem só para comparação. Chefe é o chefe direto. Lid. sup. é a
+          liderança superior. Auto é a autoavaliação. Cli. int. são os clientes internos. O n é o número de
+          pessoas do grupo. Em grupos de uma pessoa, o percentual de uma competência só pode assumir poucos
+          valores, como 0%, 33,3%, 50%, 66,7% ou 100%, e 0% significa que nenhuma resposta foi{' '}
+          {getScale('frequency_5_strict').max - 1} ou {getScale('frequency_5_strict').max}, o que não quer
+          dizer nota zero. Por isso vale ler esses grupos junto com a tabela de médias.
+        </Text>
+      </View>
+    </PageChrome>
   )
 }
 
