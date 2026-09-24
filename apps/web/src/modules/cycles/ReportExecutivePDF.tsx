@@ -107,10 +107,32 @@ export interface ReportExecutivePDFProps {
 
 const GERAL_CODES = ['manager', 'manager_superior', 'peer', 'subordinate']
 
-/** Perguntas por página em "Resultado por pergunta" — usado ali e no
- * Sumário (pra numerar as páginas corretamente). 9 garante que cada bloco
- * caiba inteiro mesmo com prompts longos e as colunas Auto/Cli. int. */
+/** Teto de perguntas por página em "Resultado por pergunta" — usado pra
+ * calcular quantas páginas físicas a seção ocupa (e numerar o Sumário
+ * certo). 9 garante que cada bloco caiba inteiro mesmo com prompts longos
+ * e as colunas Auto/Cli. int. As páginas em si usam chunkEvenly, que
+ * distribui as perguntas de forma equilibrada dentro desse teto — pra não
+ * sobrar uma última página bem mais vazia que as outras. */
 const QUESTIONS_PER_PAGE = 9
+
+/** Divide `items` em blocos de no máximo `maxPerPage`, mas distribuindo o
+ * total de forma equilibrada entre as páginas (em vez de encher as
+ * primeiras e deixar a última quase vazia). Ex.: 33 itens, teto 9 → 4
+ * páginas de 9/8/8/8 em vez de 9/9/9/6. */
+function chunkEvenly<T>(items: T[], maxPerPage: number): T[][] {
+  if (items.length === 0) return []
+  const numPages = Math.ceil(items.length / maxPerPage)
+  const base = Math.floor(items.length / numPages)
+  const remainder = items.length - base * numPages
+  const chunks: T[][] = []
+  let i = 0
+  for (let p = 0; p < numPages; p++) {
+    const size = base + (p < remainder ? 1 : 0)
+    chunks.push(items.slice(i, i + size))
+    i += size
+  }
+  return chunks
+}
 const GROUP_ORDER  = ['self', 'manager', 'manager_superior', 'peer', 'subordinate', 'client']
 const GROUP_LABEL: Record<string, string> = {
   self:             'Autoavaliação',
@@ -1309,8 +1331,7 @@ function QuestionsPages(props: {
   qRows: QRow[]; nMinimum: number; groups: GroupAgg[]
 }) {
   const { qRows, groups } = props
-  const chunks: QRow[][] = []
-  for (let i = 0; i < qRows.length; i += QUESTIONS_PER_PAGE) chunks.push(qRows.slice(i, i + QUESTIONS_PER_PAGE))
+  const chunks = chunkEvenly(qRows, QUESTIONS_PER_PAGE)
   const hasClient = (groups.find((g) => g.code === 'client')?.n ?? 0) > 0
 
   return (
