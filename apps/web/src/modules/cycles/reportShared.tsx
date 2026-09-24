@@ -46,6 +46,10 @@ export interface SnapshotRow {
 export interface BenchmarkEntry {
   competency_id:     string | null
   score_avg:         number
+  /** % de respostas favoráveis (4 ou 5) do grupo comparativo nessa
+   * competência — migration 0107. Opcional pra não quebrar chamadores que
+   * ainda usam a versão antiga da RPC antes da migração rodar. */
+  fav_avg?:           number
   participant_count: number
 }
 

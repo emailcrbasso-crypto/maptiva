@@ -25,6 +25,8 @@ import {
   tenantRelOverrides,
 } from './reportShared'
 import { ReportPDFDocument } from './ReportPDF'
+import { ReportExecutivePDFDocument, type ReliabilityInfo, type BenchmarkOverall } from './ReportExecutivePDF'
+import { type DemographicGroup, toTitleCasePtBr } from './ParticipantReportPage'
 
 export function MyReportPage() {
   const { id }        = useParams<{ id: string }>()
@@ -32,6 +34,8 @@ export function MyReportPage() {
   const relOverrides  = tenantRelOverrides(branding.slug)
 
   const [cycleName,      setCycleName]      = useState<string>('')
+  const [personName,     setPersonName]     = useState<string>('')
+  const [personRole,     setPersonRole]     = useState<string | null>(null)
   const [snapshots,      setSnapshots]      = useState<SnapshotRow[]>([])
   const [competencies,   setCompetencies]   = useState<CompetencyRow[]>([])
   const [comments,       setComments]       = useState<CommentRow[]>([])
@@ -47,9 +51,14 @@ export function MyReportPage() {
   const [compRelFav,        setCompRelFav]        = useState<CompetencyRelationshipFavorabilityRow[] | undefined>(undefined)
   const [reportNotes,       setReportNotes]       = useState<ReportNotesRow | null>(null)
   const [divergence,        setDivergence]        = useState<DivergenceRow[] | undefined>(undefined)
+  const [questionValueNames, setQuestionValueNames] = useState<Record<number, string>>({})
+  const [reliability,    setReliability]    = useState<ReliabilityInfo | null>(null)
+  const [benchmarkOverall, setBenchmarkOverall] = useState<BenchmarkOverall | null>(null)
+  const [demographics,     setDemographics]     = useState<DemographicGroup[]>([])
   const [loading,          setLoading]          = useState(true)
   const [errorCode,      setErrorCode]      = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
+  const [execPdfLoading, setExecPdfLoading] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -69,11 +78,18 @@ export function MyReportPage() {
 
       const d = data as {
         cycle:     { id: string; name: string; status: string }
+        cp_id:     string | null
+        person:    { id: string; name: string; job_title: string | null; department: string | null } | null
         profile:   ProfileData | null
         snapshots: SnapshotRow[]
       }
 
       setCycleName(d.cycle.name)
+      setPersonName(d.person?.name ?? '')
+      if (d.person) {
+        const parts = [d.person.job_title, d.person.department].filter(Boolean).map((s) => toTitleCasePtBr(s as string))
+        setPersonRole(parts.length > 0 ? parts.join(' · ') : null)
+      }
       setSnapshots(d.snapshots ?? [])
       if (d.profile) {
         setProfile(d.profile)
@@ -112,7 +128,41 @@ export function MyReportPage() {
           .single()
         if (tmplRow?.scale_id) setScaleId(tmplRow.scale_id)
         if (tmplRow?.n_minimum_default != null) setNMinimum(tmplRow.n_minimum_default)
+
+        // Valores organizacionais (best-effort — só existe quando a migration
+        // 0102 populou questions.value_name pro template deste ciclo)
+        const { data: valueRows } = await supabase
+          .from('questions')
+          .select('order_index, value_name')
+          .eq('template_id', cycleRow.template_id)
+          .not('value_name', 'is', null)
+        if (Array.isArray(valueRows)) {
+          const map: Record<number, string> = {}
+          for (const r of valueRows as { order_index: number; value_name: string }[]) map[r.order_index] = r.value_name
+          setQuestionValueNames(map)
+        }
       }
+
+      // Confiabilidade do resultado ao vivo (best-effort — migration 0103/0104)
+      const { data: relData } = await supabase.rpc('get_participant_reliability', {
+        p_cycle_id: id,
+        p_cp_id:    d.cp_id,
+      })
+      if (relData) setReliability(relData as ReliabilityInfo)
+
+      // Média geral do grupo comparativo + posição no ranking (best-effort)
+      const { data: bmOverallData } = await supabase.rpc('get_cycle_benchmark_overall', {
+        p_cycle_id: id,
+        p_cp_id:    d.cp_id,
+      })
+      if (bmOverallData) setBenchmarkOverall(bmOverallData as BenchmarkOverall)
+
+      // Corte demográfico (best-effort — só aparece se houver metadata_json nos avaliadores)
+      const { data: demoData } = await supabase.rpc('get_participant_demographic_breakdown', {
+        p_cycle_id: id,
+        p_cp_id:    d.cp_id,
+      })
+      if (Array.isArray(demoData)) setDemographics(demoData as DemographicGroup[])
 
       // Benchmark (best-effort)
       const { data: bmData } = await supabase.rpc('get_cycle_benchmark', { p_cycle_id: id })
@@ -215,6 +265,41 @@ export function MyReportPage() {
     }
   }
 
+  async function handleDownloadExecutivePDF() {
+    setExecPdfLoading(true)
+    try {
+      const blob = await pdf(
+        <ReportExecutivePDFDocument
+          variant="participant"
+          personName={personName || cycleName}
+          personRole={personRole}
+          tenantName={branding.name}
+          cycleLabel={cycleName}
+          issuedAt={new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+          scaleId={scaleId}
+          competencies={competencies}
+          questionScores={questionScores}
+          questionValueNames={questionValueNames}
+          relDetailFav={relDetailFav ?? []}
+          divergence={divergence ?? []}
+          demographics={demographics}
+          benchmark={benchmark}
+          reliability={reliability}
+          benchmarkOverall={benchmarkOverall}
+          nMinimum={nMinimum ?? 3}
+        />
+      ).toBlob()
+      const url = URL.createObjectURL(blob)
+      const a   = document.createElement('a')
+      a.href     = url
+      a.download = `relatorio-individual-${(personName || cycleName).replace(/\s+/g, '-')}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExecPdfLoading(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto">
@@ -265,6 +350,13 @@ export function MyReportPage() {
               className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors disabled:opacity-50"
             >
               {pdfLoading ? '⏳ Gerando...' : '⬇️ Exportar PDF'}
+            </button>
+            <button
+              onClick={handleDownloadExecutivePDF}
+              disabled={execPdfLoading || !profile}
+              className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-sky-300 text-sky-700 bg-sky-50 hover:bg-sky-100 transition-colors disabled:opacity-50"
+            >
+              {execPdfLoading ? '⏳ Gerando...' : '📘 Relatório Individual (PDF)'}
             </button>
             <button
               onClick={() => window.print()}

@@ -85,6 +85,10 @@ export interface BenchmarkOverall {
 }
 
 export interface ReportExecutivePDFProps {
+  /** "executive" (padrão) leva a marca CR BASSO e a página Guia para a
+   * devolutiva, pra quem conduz a conversa. "participant" leva a marca do
+   * tenant, sem o Guia — versão que o próprio avaliado recebe. */
+  variant?:        'executive' | 'participant'
   personName:      string
   personRole?:     string | null
   tenantName:      string
@@ -147,6 +151,20 @@ const GROUP_SHORT: Record<string, string> = {
 }
 const GERAL_ENTRA: Record<string, boolean> = {
   self: false, manager: true, manager_superior: true, peer: true, subordinate: true, client: false,
+}
+
+function MiniFavBar({ pct, width = 50, marginTop = 2 }: { pct: number; width?: number; marginTop?: number }) {
+  return (
+    <View style={{ width, height: 3, backgroundColor: C.cream, borderRadius: 1.5, overflow: 'hidden', marginTop }}>
+      <View style={{ width: `${pct}%`, height: 3, backgroundColor: C.blue }} />
+    </View>
+  )
+}
+
+function joinWithE(items: string[]): string {
+  if (items.length === 0) return ''
+  if (items.length === 1) return items[0]
+  return `${items.slice(0, -1).join(', ')} e ${items[items.length - 1]}`
 }
 
 function meanFromDist(dist: Record<string, number> | null | undefined): number | null {
@@ -306,8 +324,8 @@ const s = StyleSheet.create({
 // ─── Header / footer ────────────────────────────────────────────────────────
 
 function PageChrome({
-  label, personName, tenantName, cycleLabel, children,
-}: { label: string; personName: string; tenantName: string; cycleLabel: string; children: React.ReactNode }) {
+  label, personName, tenantName, cycleLabel, variant = 'executive', children,
+}: { label: string; personName: string; tenantName: string; cycleLabel: string; variant?: 'executive' | 'participant'; children: React.ReactNode }) {
   // cycleLabel é o nome interno do ciclo (ex.: "Flexmetal 2026 v2 — Avaliação
   // 360° (por Competência)") — usado no cabeçalho/topo pra quem administra,
   // mas não deve vazar pro rodapé do documento do participante. O rodapé usa
@@ -322,7 +340,11 @@ function PageChrome({
       {children}
       <View style={s.footer}>
         <Text style={s.footerText}>{personName} · Avaliação 360° {tenantName}{cycleYear ? ` ${cycleYear}` : ''}</Text>
-        <Text style={s.footerText} render={({ pageNumber, totalPages }) => `CR BASSO Educação Corporativa · Confidencial · ${pageNumber} / ${totalPages}`} />
+        {variant === 'executive' ? (
+          <Text style={s.footerText} render={({ pageNumber, totalPages }) => `CR BASSO Educação Corporativa · Confidencial · ${pageNumber} / ${totalPages}`} />
+        ) : (
+          <Text style={s.footerText} render={({ pageNumber, totalPages }) => `Confidencial · ${pageNumber} / ${totalPages}`} />
+        )}
       </View>
     </Page>
   )
@@ -348,17 +370,22 @@ const cs = StyleSheet.create({
 })
 
 function CoverPage({
-  personName, personRole, tenantName, cycleLabel, issuedAt, nAvaliadores, nFormularios,
+  personName, personRole, tenantName, cycleLabel, issuedAt, nAvaliadores, nFormularios, variant = 'executive',
 }: {
   personName: string; personRole?: string | null; tenantName: string; cycleLabel: string
-  issuedAt: string; nAvaliadores: number; nFormularios: number
+  issuedAt: string; nAvaliadores: number; nFormularios: number; variant?: 'executive' | 'participant'
 }) {
+  const cycleYear = cycleLabel.match(/\d{4}/)?.[0] ?? ''
   return (
     <Page size="A4" style={cs.page}>
       <View style={cs.body}>
         <View>
-          <Text style={cs.brand}><Text style={cs.brandBold}>CR BASSO</Text>  Educação Corporativa</Text>
-          <Text style={cs.kicker}>{cycleLabel}</Text>
+          {variant === 'executive' ? (
+            <Text style={cs.brand}><Text style={cs.brandBold}>CR BASSO</Text>  Educação Corporativa</Text>
+          ) : (
+            <Text style={cs.brand}><Text style={cs.brandBold}>{tenantName.toUpperCase()}</Text></Text>
+          )}
+          <Text style={cs.kicker}>Avaliação 360°{cycleYear ? ` · Ciclo ${cycleYear}` : ''}</Text>
           <Text style={cs.title}>Relatório individual{'\n'}de feedback</Text>
           <View style={cs.rule} />
           <Text style={cs.name}>{personName}</Text>
@@ -372,12 +399,21 @@ function CoverPage({
             <View><Text style={cs.metaLabel}>Formulários</Text><Text style={cs.metaValue}>{nFormularios}</Text></View>
             <View><Text style={cs.metaLabel}>Emissão</Text><Text style={cs.metaValue}>{issuedAt}</Text></View>
           </View>
-          <Text style={cs.disclaimer}>
-            Documento confidencial. Uso exclusivo do participante e de quem conduz a devolutiva. Os
-            {' '}{nAvaliadores} avaliadores são os que formam o resultado geral. Os {nFormularios} formulários
-            incluem também clientes internos e a autoavaliação. Os resultados refletem percepções de
-            comportamento e servem como ponto de partida para uma conversa de desenvolvimento.
-          </Text>
+          {variant === 'executive' ? (
+            <Text style={cs.disclaimer}>
+              Documento confidencial. Uso exclusivo do participante e de quem conduz a devolutiva. Os
+              {' '}{nAvaliadores} avaliadores são os que formam o resultado geral. Os {nFormularios} formulários
+              incluem também clientes internos e a autoavaliação. Os resultados refletem percepções de
+              comportamento e servem como ponto de partida para uma conversa de desenvolvimento.
+            </Text>
+          ) : (
+            <Text style={cs.disclaimer}>
+              Documento confidencial, de uso pessoal. Os {nAvaliadores} avaliadores são os que formam o
+              resultado geral. Os {nFormularios} formulários incluem também clientes internos e a
+              autoavaliação. Os resultados refletem percepções de comportamento e servem como ponto de
+              partida para uma conversa de desenvolvimento.
+            </Text>
+          )}
         </View>
       </View>
     </Page>
@@ -404,8 +440,11 @@ const TOC_ITEMS = [
   ['Metodologia e glossário',          'Todas as regras de cálculo, com exemplos'],
 ]
 
-function TOCPage(props: { personName: string; tenantName: string; cycleLabel: string; hasValues: boolean; questionsPages: number }) {
-  const items = props.hasValues ? TOC_ITEMS : TOC_ITEMS.filter((i) => i[0] !== 'Valores organizacionais')
+function TOCPage(props: { personName: string; tenantName: string; cycleLabel: string; variant?: 'executive' | 'participant'; hasValues: boolean; questionsPages: number }) {
+  const isParticipant = props.variant === 'participant'
+  const items = TOC_ITEMS
+    .filter((i) => props.hasValues || i[0] !== 'Valores organizacionais')
+    .filter((i) => !isParticipant || i[0] !== 'Guia para a devolutiva')
   // Numeração fixa: capa(1) + sumário(2) = 2 páginas antes do primeiro
   // item de TOC_ITEMS ("Como ler este relatório", que é a própria página 3).
   // Cada item mapeia pra um número de páginas físicas no documento — só
@@ -429,14 +468,25 @@ function TOCPage(props: { personName: string; tenantName: string; cycleLabel: st
           <Text style={{ width: 20, fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.text, textAlign: 'right' }}>{pageNumbers[i]}</Text>
         </View>
       ))}
-      <View style={s.callout}>
-        <Text style={s.calloutTitle}>Para quem conduz a devolutiva</Text>
-        <Text style={s.calloutText}>
-          Cada página traz um quadro "Como ler" que explica o gráfico ou a tabela. As regras de cálculo
-          estão em Metodologia e glossário, ao final. Recomenda-se ler o relatório inteiro antes da
-          conversa e usar o Guia para a devolutiva como roteiro.
-        </Text>
-      </View>
+      {isParticipant ? (
+        <View style={s.callout}>
+          <Text style={s.calloutTitle}>Como usar este relatório</Text>
+          <Text style={s.calloutText}>
+            Cada página tem um quadro "Como ler", que explica o gráfico ou a tabela. As regras de cálculo
+            estão em Metodologia e glossário, ao final. O Plano de desenvolvimento é para você registrar,
+            junto com quem conduz a conversa, os compromissos que escolher.
+          </Text>
+        </View>
+      ) : (
+        <View style={s.callout}>
+          <Text style={s.calloutTitle}>Para quem conduz a devolutiva</Text>
+          <Text style={s.calloutText}>
+            Cada página traz um quadro "Como ler" que explica o gráfico ou a tabela. As regras de cálculo
+            estão em Metodologia e glossário, ao final. Recomenda-se ler o relatório inteiro antes da
+            conversa e usar o Guia para a devolutiva como roteiro.
+          </Text>
+        </View>
+      )}
     </PageChrome>
   )
 }
@@ -450,8 +500,12 @@ function HowToReadPage(props: {
 }) {
   const { scale, groups, nFormularios, limiar, margem, nQuestions, nComp } = props
   const groupByCode = Object.fromEntries(groups.map((g) => [g.code, g]))
-  const geral = groups.filter((g) => GERAL_ENTRA[g.code]).reduce((s2, g) => s2 + g.n, 0)
+  const geralRows = groups.filter((g) => GERAL_ENTRA[g.code])
+  const geral = geralRows.reduce((s2, g) => s2 + g.n, 0)
   const cliInt = groupByCode['client']?.n ?? 0
+  const geralDist = mergeDistributions(geralRows.map((g) => g.dist))
+  const geralFav = computeFavorability(geralDist, scale)
+  const geralMean = meanFromDist(geralDist)
 
   return (
     <PageChrome label="Como ler" {...props}>
@@ -495,13 +549,22 @@ function HowToReadPage(props: {
         <View style={{ flex: 1, backgroundColor: C.cream, borderRadius: 4, padding: 10 }}>
           <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 6 }}>Os números do relatório</Text>
           <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 4 }}>
-            <Text style={{ fontFamily: 'Helvetica-Bold' }}>Favorabilidade</Text> é a porcentagem de respostas {scale.max - 1} ou {scale.max}. É o número principal.
+            <Text style={{ fontFamily: 'Helvetica-Bold' }}>Favorabilidade</Text> é a porcentagem de respostas {scale.max - 1} ou {scale.max}. É o número principal. Com 80%, 8 em cada 10 respostas
+            disseram que o comportamento aparece com frequência.
           </Text>
           <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 4 }}>
             <Text style={{ fontFamily: 'Helvetica-Bold' }}>Média</Text> vai de {scale.min} a {scale.max} e ajuda a diferenciar resultados com favorabilidade parecida.
           </Text>
+          <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 4 }}>
+            <Text style={{ fontFamily: 'Helvetica-Bold' }}>Resultado geral</Text> é a leitura principal deste relatório. Ele junta as respostas das pessoas
+            da sua linha de comando e do seu nível, que são chefe direto, a liderança superior, os pares e a
+            equipe, e cada uma tem o mesmo peso. Dele saem a favorabilidade geral de {fmtPct(geralFav.favoravel, 1)} e a
+            média geral de {fmt(geralMean)}, e ele é a base das páginas de competências, destaques e perguntas. A
+            autoavaliação e os clientes internos aparecem à parte, para comparação.
+          </Text>
           <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5 }}>
-            <Text style={{ fontFamily: 'Helvetica-Bold' }}>Resultado geral</Text> reúne os avaliadores marcados como "Entra" na tabela abaixo. Cada um vale o mesmo.
+            <Text style={{ fontFamily: 'Helvetica-Bold' }}>Faixas de cor</Text> classificam a favorabilidade, de ponto forte a prioridade. São uma referência
+            para a leitura, e não uma meta.
           </Text>
         </View>
       </View>
@@ -579,6 +642,22 @@ function OverviewPage(props: {
   const diff = groupMean != null && geralMean != null ? round2(geralMean) - round2(groupMean) : null
   const diffRelevant = diff != null && Math.abs(diff) >= margem
 
+  const inclLabels = GROUP_ORDER
+    .filter((code) => GERAL_ENTRA[code])
+    .map((code) => groups.find((g) => g.code === code))
+    .filter((g): g is GroupAgg => !!g && g.n > 0)
+    .map((g) => `${GROUP_LABEL[g.code].toLowerCase()} (${g.n})`)
+  const exclLabels: string[] = []
+  const selfG = groups.find((g) => g.code === 'self')
+  if (selfG && selfG.n > 0) exclLabels.push('a autoavaliação')
+  const clientG = groups.find((g) => g.code === 'client')
+  if (clientG && clientG.n > 0) exclLabels.push(`${clientG.n} cliente${clientG.n === 1 ? '' : 's'} interno${clientG.n === 1 ? '' : 's'}`)
+
+  const geralRowsPresent = geralRows.filter((g) => g.n > 0)
+  const largestGeral = geralRowsPresent.reduce<GroupAgg | null>((max, g) => (max == null || g.n > max.n ? g : max), null)
+  const othersGeral = geralRowsPresent.filter((g) => g.code !== largestGeral?.code)
+  const othersGeralFav = othersGeral.length > 0 ? computeFavorability(mergeDistributions(othersGeral.map((g) => g.dist)), scale) : null
+
   return (
     <PageChrome label="Visão geral" {...props}>
       <Text style={s.h1}>Visão geral</Text>
@@ -597,6 +676,11 @@ function OverviewPage(props: {
           <Text style={{ fontSize: 7, color: C.muted, marginTop: 4 }}>
             Favorável {fmtPct(geralFav.favoravel, 1)} · Neutro {fmtPct(geralFav.neutro, 1)} · Desfavorável {fmtPct(geralFav.desfavoravel, 1)}
           </Text>
+          {inclLabels.length > 0 && (
+            <Text style={{ fontSize: 7, color: C.muted, marginTop: 6, paddingTop: 6, borderTop: `0.5pt solid ${C.border}`, lineHeight: 1.4 }}>
+              Entram neste número {joinWithE(inclLabels)}.{exclLabels.length > 0 ? ` Ficam de fora ${joinWithE(exclLabels)}.` : ''}
+            </Text>
+          )}
         </View>
         <View style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <View style={s.card}>
@@ -698,8 +782,16 @@ function OverviewPage(props: {
         <Text style={s.howToReadText}>
           A barra mostra a favorabilidade de cada grupo. Barras cinza são de grupos fora do resultado
           geral. Neutro e desfavorável completam as respostas do grupo e separam comportamento visto só
-          às vezes, resposta intermediária, de comportamento raro. Por isso vale ler o resultado geral
-          junto com o resultado de cada grupo.
+          às vezes, nota {scale.max - 2}, de comportamento raro, notas {scale.min} e {scale.min + 1}.
+          {largestGeral != null && (
+            ` O maior grupo do resultado geral é ${GROUP_LABEL[largestGeral.code].toLowerCase()}, com ${largestGeral.n} dos ${geralN} avaliadores (${fmtPct((largestGeral.n / geralN) * 100, 1)}) e ${fmtPct(largestGeral.fav.favoravel, 1)} de favorabilidade.` +
+            (othersGeral.length > 1 && othersGeralFav != null
+              ? ` ${joinWithE(othersGeral.map((g) => GROUP_LABEL[g.code]))}, juntos, têm ${fmtPct(othersGeralFav.favoravel, 1)} de favorabilidade.`
+              : othersGeral.length === 1 && othersGeralFav != null
+              ? ` ${GROUP_LABEL[othersGeral[0].code]} tem ${fmtPct(othersGeralFav.favoravel, 1)} de favorabilidade.`
+              : '')
+          )}
+          {' '}Por isso vale ler o resultado geral junto com o resultado de cada grupo.
           {bm != null && bm.my_rank > 0 && (
             ` No ranking dos ${bm.participant_count} gestores pela média geral, a sua ficou em ${bm.my_rank}º lugar, informação secundária, porque médias de gestores vizinhos na lista não são estatisticamente diferentes.`
           )}
@@ -864,14 +956,16 @@ function SynthesisPage(props: {
 
 // ─── 6. Resultado por competência ───────────────────────────────────────────
 
-function CompetencyResultsPage(props: { personName: string; tenantName: string; cycleLabel: string; comps: CompAgg[]; scale: ScaleDefinition; n: number }) {
+function CompetencyResultsPage(props: { personName: string; tenantName: string; cycleLabel: string; comps: CompAgg[]; scale: ScaleDefinition; n: number; benchmark: BenchmarkMap | undefined }) {
   const ranked = [...props.comps].sort((a, b) => b.fav.favoravel - a.fav.favoravel || (b.mean ?? 0) - (a.mean ?? 0))
+  const hasBenchmark = ranked.some((c) => props.benchmark?.[c.id]?.fav_avg != null)
   return (
     <PageChrome label="Competências" {...props}>
       <Text style={s.h1}>Resultado por competência</Text>
       <Text style={s.intro}>
         Favorabilidade dos {props.n} avaliadores do resultado geral, da competência mais reconhecida
         para a menos reconhecida.
+        {hasBenchmark && ' O traço na barra marca a favorabilidade média do grupo comparativo na mesma competência.'}
       </Text>
       <View style={s.tableHeader}>
         <Text style={[s.th, { width: 120 }]}>Competência</Text>
@@ -884,16 +978,22 @@ function CompetencyResultsPage(props: { personName: string; tenantName: string; 
       </View>
       {ranked.map((c) => {
         const f = faixa(c.fav.favoravel)
+        const benchFav = props.benchmark?.[c.id]?.fav_avg
         return (
           <View key={c.id} style={s.tableRow}>
             <View style={{ width: 120 }}>
               <Text style={[s.td, { fontFamily: 'Helvetica-Bold' }]}>{c.name}</Text>
               <Text style={{ fontSize: 6, color: C.light }}>perguntas {c.questionNumbers.join(', ')}</Text>
             </View>
-            <View style={{ flex: 1, height: 7, backgroundColor: C.cream, borderRadius: 3, flexDirection: 'row', overflow: 'hidden', marginRight: 4 }}>
-              <View style={{ width: `${c.fav.favoravel}%`, backgroundColor: C.blue }} />
-              <View style={{ width: `${c.fav.neutro}%`, backgroundColor: '#d1d5db' }} />
-              <View style={{ width: `${c.fav.desfavoravel}%`, backgroundColor: C.red }} />
+            <View style={{ flex: 1, position: 'relative', marginRight: 4 }}>
+              <View style={{ height: 7, backgroundColor: C.cream, borderRadius: 3, flexDirection: 'row', overflow: 'hidden' }}>
+                <View style={{ width: `${c.fav.favoravel}%`, backgroundColor: C.blue }} />
+                <View style={{ width: `${c.fav.neutro}%`, backgroundColor: '#d1d5db' }} />
+                <View style={{ width: `${c.fav.desfavoravel}%`, backgroundColor: C.red }} />
+              </View>
+              {benchFav != null && (
+                <View style={{ position: 'absolute', left: `${benchFav}%`, top: -1, width: 1.2, height: 9, backgroundColor: C.navy }} />
+              )}
             </View>
             <Text style={[s.td, { width: 44, textAlign: 'right', fontFamily: 'Helvetica-Bold' }]}>{fmtPct(c.fav.favoravel, 1)}</Text>
             <Text style={[s.td, { width: 40, textAlign: 'right', color: C.muted }]}>{fmtPct(c.fav.neutro, 1)}</Text>
@@ -919,7 +1019,9 @@ function CompetencyResultsPage(props: { personName: string; tenantName: string; 
         <Text style={s.howToReadTitle}>Como ler</Text>
         <Text style={s.howToReadText}>
           Cada barra soma 100% das respostas da competência, em azul a parte favorável, em cinza a
-          neutra e em vermelho a desfavorável, com os valores ao lado. A ordem segue a favorabilidade e,
+          neutra e em vermelho a desfavorável, com os valores ao lado.
+          {hasBenchmark && ' O traço vertical marca a favorabilidade média do grupo comparativo na mesma competência.'}
+          {' '}A ordem segue a favorabilidade e,
           no empate, a maior média. Ponto forte a partir de 80%, adequado com atenção de 60% a menos de
           80%, oportunidade de melhoria de 40% a menos de 60%, prioridade abaixo de 40%.
         </Text>
@@ -1058,6 +1160,79 @@ function Dumbbell({ width, aFrac, bFrac, diffColor }: { width: number; aFrac: nu
 
 // ─── 8. Autopercepção ───────────────────────────────────────────────────────
 
+function SelfPerceptionRadar({ ranked, domainMin, domainMax, size = 150 }: {
+  ranked: { id: string; name: string; selfMean: number; mean: number }[]
+  domainMin: number; domainMax: number; size?: number
+}) {
+  const N = ranked.length
+  if (N < 3) return null
+
+  const canvasPad = 46
+  const canvas = size + canvasPad * 2
+  const cx = canvas / 2, cy = canvas / 2
+  const r = size * 0.32
+  const labelR = size * 0.46
+  const RINGS = 4
+
+  const axisAngle = (i: number) => (2 * Math.PI * i / N) - Math.PI / 2
+  const frac = (v: number) => Math.min(Math.max((v - domainMin) / (domainMax - domainMin), 0), 1)
+  const ptX = (f: number, i: number) => cx + r * f * Math.cos(axisAngle(i))
+  const ptY = (f: number, i: number) => cy + r * f * Math.sin(axisAngle(i))
+
+  const gridPolys = Array.from({ length: RINGS }, (_, gi) => {
+    const f = (gi + 1) / RINGS
+    return Array.from({ length: N }, (_, i) => `${ptX(f, i).toFixed(1)},${ptY(f, i).toFixed(1)}`).join(' ')
+  })
+
+  const selfPts = ranked.map((c, i) => ({ x: ptX(frac(c.selfMean), i), y: ptY(frac(c.selfMean), i) }))
+  const evalPts = ranked.map((c, i) => ({ x: ptX(frac(c.mean), i), y: ptY(frac(c.mean), i) }))
+  const selfPoly = selfPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+  const evalPoly = evalPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+
+  const tipPositions = Array.from({ length: N }, (_, i) => {
+    const angle = axisAngle(i)
+    return {
+      x: cx + labelR * Math.cos(angle), y: cy + labelR * Math.sin(angle),
+      anchor: (Math.cos(angle) < -0.15 ? 'end' : Math.cos(angle) > 0.15 ? 'start' : 'middle') as 'start' | 'middle' | 'end',
+    }
+  })
+
+  return (
+    <Svg width={canvas} height={canvas}>
+      {gridPolys.map((pts, gi) => (
+        <Polygon key={`g${gi}`} points={pts} fill="none" stroke="#e5e7eb" strokeWidth={0.5} />
+      ))}
+      {Array.from({ length: N }, (_, i) => (
+        <Line key={`a${i}`} x1={cx} y1={cy} x2={ptX(1, i)} y2={ptY(1, i)} stroke="#d1d5db" strokeWidth={0.5} />
+      ))}
+      {Array.from({ length: RINGS }, (_, gi) => {
+        const f = (gi + 1) / RINGS
+        const val = domainMin + f * (domainMax - domainMin)
+        return (
+          <Text key={`rl${gi}`} x={cx + 3} y={cy - r * f + 2} style={{ fontSize: 5, fill: '#9ca3af' } as object}>
+            {fmt(val, 1)}
+          </Text>
+        )
+      })}
+      <Polygon points={evalPoly} fill={C.blue} fillOpacity={0.12} stroke={C.blue} strokeWidth={1.3} />
+      <Polygon points={selfPoly} fill={C.orange} fillOpacity={0.12} stroke={C.orange} strokeWidth={1.3} />
+      {evalPts.map((p, i) => <Circle key={`e${i}`} cx={p.x} cy={p.y} r={2.3} fill={C.blue} />)}
+      {selfPts.map((p, i) => (
+        <Polygon key={`s${i}`} points={`${p.x},${p.y - 2.6} ${p.x + 2.6},${p.y} ${p.x},${p.y + 2.6} ${p.x - 2.6},${p.y}`} fill={C.orange} />
+      ))}
+      {tipPositions.map((tp, i) => {
+        const label = ranked[i].name
+        const truncated = label.length > 18 ? label.slice(0, 17) + '…' : label
+        return (
+          <Text key={`l${i}`} x={tp.x} y={tp.y + 2} textAnchor={tp.anchor} style={{ fontSize: 5.5, fill: '#6b7280', fontFamily: 'Helvetica-Bold' } as object}>
+            {truncated}
+          </Text>
+        )
+      })}
+    </Svg>
+  )
+}
+
 function SelfPerceptionPage(props: {
   personName: string; tenantName: string; cycleLabel: string
   comps: CompAgg[]; scale: ScaleDefinition; readingThreshold: number; geralFavPct: number; selfFavPct: number | null
@@ -1075,7 +1250,7 @@ function SelfPerceptionPage(props: {
         A sua autoavaliação comparada com a média dos avaliadores do resultado geral, em cada
         competência. Na favorabilidade geral, você se avaliou em {props.selfFavPct != null ? fmtPct(props.selfFavPct, 1) : '—'} e os avaliadores em {fmtPct(props.geralFavPct, 1)}.
       </Text>
-      <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+      <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 2 }}>
         <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           <Svg width={8} height={8}><Polygon points="4,0.5 7.5,4 4,7.5 0.5,4" fill={C.orange} /></Svg>
           <Text style={{ fontSize: 7.5, color: C.muted }}>Autoavaliação</Text>
@@ -1084,6 +1259,27 @@ function SelfPerceptionPage(props: {
           <Svg width={8} height={8}><Circle cx={4} cy={4} r={3.4} fill={C.blue} /></Svg>
           <Text style={{ fontSize: 7.5, color: C.muted }}>Avaliadores</Text>
         </View>
+      </View>
+      <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 6 }} wrap={false}>
+        <SelfPerceptionRadar
+          ranked={ranked.map((c) => ({ id: c.id, name: c.name, selfMean: c.selfMean!, mean: c.mean! }))}
+          domainMin={domainMin}
+          domainMax={domainMax}
+        />
+        {(() => {
+          const acima = ranked.filter((c) => round2(c.selfMean!) - round2(c.mean!) >= readingThreshold).length
+          const abaixo = ranked.filter((c) => round2(c.mean!) - round2(c.selfMean!) >= readingThreshold).length
+          const alinhado = ranked.length - acima - abaixo
+          return (
+            <View style={{ flex: 1, backgroundColor: C.cream, borderLeft: `3pt solid ${C.blue}`, borderRadius: 3, padding: 8 }}>
+              <Text style={{ fontSize: 7.8, color: C.text, lineHeight: 1.4 }}>
+                Em {acima} competência{acima !== 1 ? 's' : ''} a sua autoavaliação ficou acima da visão dos avaliadores por{' '}
+                {fmt(readingThreshold, 1)} ponto ou mais. Em {alinhado} as duas visões estão alinhadas, e em {abaixo} você se
+                avaliou abaixo do que os avaliadores observam.
+              </Text>
+            </View>
+          )
+        })()}
       </View>
       <View style={s.tableHeader}>
         <Text style={[s.th, { width: 90 }]}>Competência</Text>
@@ -1114,25 +1310,18 @@ function SelfPerceptionPage(props: {
           </View>
         )
       })}
-      {(() => {
-        const acima = ranked.filter((c) => round2(c.selfMean!) - round2(c.mean!) >= readingThreshold).length
-        const abaixo = ranked.filter((c) => round2(c.mean!) - round2(c.selfMean!) >= readingThreshold).length
-        const alinhado = ranked.length - acima - abaixo
-        return (
-          <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginTop: 4, marginBottom: 4 }}>
-            Em {acima} competência{acima !== 1 ? 's' : ''} a sua autoavaliação ficou acima da visão dos avaliadores por{' '}
-            {fmt(readingThreshold, 1)} ponto ou mais. Em {alinhado} as duas visões estão alinhadas, e em {abaixo} você se
-            avaliou abaixo do que os avaliadores observam.
-          </Text>
-        )
-      })()}
       <View style={s.howToRead}>
         <Text style={s.howToReadTitle}>Como ler</Text>
         <Text style={s.howToReadText}>
-          O losango laranja é a sua autoavaliação e o círculo azul é a média dos avaliadores. A diferença
-          é a sua média menos a dos avaliadores; quando positiva, você se vê melhor do que os outros veem.
-          A leitura usa o limiar de {fmt(readingThreshold, 1)} ponto. Uma autoavaliação acima não é um erro. É um convite
-          para entender o que os outros ainda não enxergam, ou o que você ainda não percebeu.
+          O gráfico radial dá a visão de conjunto. Cada eixo é uma competência, com {fmt(domainMin, 1)} no centro
+          e {fmt(domainMax, 1)} na borda, como no eixo da tabela, e os valores exatos estão na tabela. O losango
+          laranja é a sua autoavaliação e o círculo azul é a média dos avaliadores. Na tabela, o eixo começa em{' '}
+          {fmt(domainMin, 1)} para facilitar a leitura, mas a escala completa vai de {scale.min} a {scale.max}. A
+          diferença é a sua média menos a dos avaliadores, e quando positiva você se vê melhor do que os outros
+          veem. A leitura usa o limiar de {fmt(readingThreshold, 1)} ponto. Como cada competência tem poucas
+          perguntas, diferenças perto do limiar devem ser tratadas como indício, e não como conclusão. Uma
+          autoavaliação acima não é um erro. É um convite para entender o que os outros ainda não enxergam no
+          seu comportamento, ou o que você ainda não percebeu.
         </Text>
       </View>
     </PageChrome>
@@ -1228,7 +1417,8 @@ function HighlightsPage(props: {
           </View>
           <View style={{ width: 70, alignItems: 'flex-end' }}>
             <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: C.navy }}>{fmtPct(r.fav, 1)}</Text>
-            <Text style={{ fontSize: 6.5, color: C.light }}>média {fmt(r.mean)}</Text>
+            <MiniFavBar pct={r.fav} />
+            <Text style={{ fontSize: 6.5, color: C.light, marginTop: 2 }}>média {fmt(r.mean)}</Text>
           </View>
         </View>
       ))}
@@ -1246,7 +1436,8 @@ function HighlightsPage(props: {
           </View>
           <View style={{ width: 70, alignItems: 'flex-end' }}>
             <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: C.navy }}>{fmtPct(r.fav, 1)}</Text>
-            <Text style={{ fontSize: 6.5, color: C.light }}>média {fmt(r.mean)}</Text>
+            <MiniFavBar pct={r.fav} />
+            <Text style={{ fontSize: 6.5, color: C.light, marginTop: 2 }}>média {fmt(r.mean)}</Text>
           </View>
         </View>
       ))}
@@ -1344,6 +1535,11 @@ function QuestionsPages(props: {
               <Text style={s.intro}>As perguntas na ordem do questionário, com o texto exato apresentado aos avaliadores.</Text>
             </>
           )}
+          <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'flex-end' }}>
+            <Text style={{ width: (hasClient ? 26 + 30 : 26) + 4, fontSize: 5.8, color: C.light, textAlign: 'center' }}>
+              fora do resultado geral
+            </Text>
+          </View>
           <View style={s.tableHeader}>
             <Text style={[s.th, { width: 16 }]}>Nº</Text>
             <Text style={[s.th, { flex: 1 }]}>Pergunta</Text>
@@ -1353,8 +1549,10 @@ function QuestionsPages(props: {
             <Text style={[s.th, { width: 32, textAlign: 'right' }]}>Lid.sup.</Text>
             <Text style={[s.th, { width: 30, textAlign: 'right' }]}>Pares</Text>
             <Text style={[s.th, { width: 32, textAlign: 'right', marginRight: 8 }]}>Equipe</Text>
-            <Text style={[s.th, { width: 26, textAlign: 'right', color: C.light }]}>Auto</Text>
-            {hasClient && <Text style={[s.th, { width: 30, textAlign: 'right', color: C.light }]}>Cli.int.</Text>}
+            <View style={{ flexDirection: 'row', backgroundColor: C.cream, paddingVertical: 1 }}>
+              <Text style={[s.th, { width: 26, textAlign: 'right', color: C.light }]}>Auto</Text>
+              {hasClient && <Text style={[s.th, { width: 30, textAlign: 'right', color: C.light }]}>Cli.int.</Text>}
+            </View>
           </View>
           {chunk.map((r) => {
             const f = faixa(r.fav)
@@ -1375,8 +1573,10 @@ function QuestionsPages(props: {
                 <Text style={{ width: 32, textAlign: 'right', fontSize: 7.8, color: C.muted }}>{fmt(byCode['manager_superior'] ?? null)}</Text>
                 <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8, color: C.muted }}>{fmt(byCode['peer'] ?? null)}</Text>
                 <Text style={{ width: 32, textAlign: 'right', fontSize: 7.8, color: C.muted, marginRight: 8 }}>{fmt(byCode['subordinate'] ?? null)}</Text>
-                <Text style={{ width: 26, textAlign: 'right', fontSize: 7.8, color: C.light }}>{fmt(byCode['self'] ?? null)}</Text>
-                {hasClient && <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8, color: C.light }}>{fmt(byCode['client'] ?? null)}</Text>}
+                <View style={{ flexDirection: 'row', backgroundColor: C.cream, alignSelf: 'stretch', alignItems: 'center' }}>
+                  <Text style={{ width: 26, textAlign: 'right', fontSize: 7.8, color: C.light }}>{fmt(byCode['self'] ?? null)}</Text>
+                  {hasClient && <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8, color: C.light }}>{fmt(byCode['client'] ?? null)}</Text>}
+                </View>
               </View>
             )
           })}
@@ -1438,12 +1638,15 @@ function ValuesPage(props: {
           ` ${joinNames(sharedNames)} também ${sharedNames.length > 1 ? 'são nomes' : 'é nome'} de competência${sharedNames.length > 1 ? 's' : ''}, mas ${sharedNames.length > 1 ? 'reúnem' : 'reúne'} um conjunto diferente de perguntas, e por isso os números são diferentes.`
         )}
       </Text>
+      <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'flex-end' }}>
+        <Text style={{ width: 76, fontSize: 5.8, color: C.light, textAlign: 'center' }}>fora do resultado geral</Text>
+      </View>
       <View style={s.tableHeader}>
         <Text style={[s.th, { width: 130 }]}>Valor</Text>
         <Text style={[s.th, { flex: 1 }]}>Favorabilidade</Text>
         <Text style={[s.th, { width: 44, textAlign: 'right' }]}>Favor.</Text>
         <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Média</Text>
-        <Text style={[s.th, { width: 76, textAlign: 'right' }]}>Auto (favor.)</Text>
+        <Text style={[s.th, { width: 76, textAlign: 'right', backgroundColor: C.cream, color: C.light }]}>Auto (favor.)</Text>
       </View>
       {rows.map((r) => (
         <View key={r.value} style={s.tableRow}>
@@ -1459,7 +1662,7 @@ function ValuesPage(props: {
           </View>
           <Text style={[s.td, { width: 44, textAlign: 'right', fontFamily: 'Helvetica-Bold' }]}>{fmtPct(r.fav.favoravel, 1)}</Text>
           <Text style={[s.td, { width: 34, textAlign: 'right' }]}>{fmt(r.mean)}</Text>
-          <Text style={[s.td, { width: 76, textAlign: 'right' }]}>{r.selfFavPct != null ? fmtPct(r.selfFavPct, 1) : '—'}</Text>
+          <Text style={[s.td, { width: 76, textAlign: 'right', backgroundColor: C.cream, alignSelf: 'stretch' }]}>{r.selfFavPct != null ? fmtPct(r.selfFavPct, 1) : '—'}</Text>
         </View>
       ))}
       <View style={s.howToRead}>
@@ -1508,7 +1711,7 @@ function BenchmarkPage(props: {
             <Text style={[s.th, { width: 50, textAlign: 'right' }]}>Você</Text>
             <Text style={[s.th, { width: 50, textAlign: 'right' }]}>Grupo</Text>
             <Text style={[s.th, { width: 60, textAlign: 'right', marginRight: 8 }]}>Diferença</Text>
-            <Text style={[s.th, { flex: 1 }]}>Leitura</Text>
+            <Text style={[s.th, { flex: 1, textAlign: 'center' }]}>Leitura</Text>
           </View>
           {rows.map((r) => {
             const rel = r.diff != null && Math.abs(r.diff) >= limiar
@@ -1521,8 +1724,8 @@ function BenchmarkPage(props: {
                 <Text style={[s.td, { width: 50, textAlign: 'right' }]}>{fmt(r.you)}</Text>
                 <Text style={[s.td, { width: 50, textAlign: 'right' }]}>{fmt(r.group)}</Text>
                 <Text style={[s.td, { width: 60, textAlign: 'right', fontFamily: 'Helvetica-Bold', marginRight: 8 }]}>{r.diff != null ? `${r.diff >= 0 ? '+' : ''}${fmt(r.diff, 2)}` : '—'}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.badge, { backgroundColor: bg, color, alignSelf: 'flex-start' }]}>{leitura}</Text>
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={[s.badge, { backgroundColor: bg, color, alignSelf: 'center' }]}>{leitura}</Text>
                 </View>
               </View>
             )
@@ -1576,19 +1779,23 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
               <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 6 }}>{DEMO_DIM_LABEL[dim] ?? dim}</Text>
               <View style={{ display: 'flex', flexDirection: 'row', borderBottom: `0.5pt solid ${C.border}`, paddingBottom: 3, marginBottom: 2 }}>
                 <Text style={[s.th, { flex: 1 }]}></Text>
-                <Text style={[s.th, { width: 42, textAlign: 'right' }]}>Pessoas</Text>
-                <Text style={[s.th, { width: 42, textAlign: 'right' }]}>Favor.</Text>
-                <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Média</Text>
+                <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Pessoas</Text>
+                <Text style={[s.th, { width: 30 }]}></Text>
+                <Text style={[s.th, { width: 38, textAlign: 'right' }]}>Favor.</Text>
+                <Text style={[s.th, { width: 30, textAlign: 'right' }]}>Média</Text>
               </View>
               {byDim.get(dim)!.map((g, gi) => {
                 const fav = computeFavorability(g.distribution ?? {}, getScale('frequency_5_strict'))
                 const rows = byDim.get(dim)!
                 return (
-                  <View key={g.value} style={{ display: 'flex', flexDirection: 'row', paddingTop: 4, paddingBottom: 4, borderBottom: gi < rows.length - 1 ? `0.5pt solid ${C.border}` : undefined }}>
+                  <View key={g.value} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', paddingTop: 4, paddingBottom: 4, borderBottom: gi < rows.length - 1 ? `0.5pt solid ${C.border}` : undefined }}>
                     <Text style={{ flex: 1, fontSize: 7.8 }}>{normalizeDemographicValue(g.value)}</Text>
-                    <Text style={{ width: 42, textAlign: 'right', fontSize: 7.8 }}>{g.respondent_count}</Text>
-                    <Text style={{ width: 42, textAlign: 'right', fontSize: 7.8, fontFamily: 'Helvetica-Bold' }}>{fmtPct(fav.total > 0 ? fav.favoravel : null, 1)}</Text>
-                    <Text style={{ width: 34, textAlign: 'right', fontSize: 7.8 }}>{fmt(g.avg_score)}</Text>
+                    <Text style={{ width: 34, textAlign: 'right', fontSize: 7.8 }}>{g.respondent_count}</Text>
+                    <View style={{ width: 30, alignItems: 'flex-end' }}>
+                      {fav.total > 0 && <MiniFavBar pct={fav.favoravel} width={26} marginTop={0} />}
+                    </View>
+                    <Text style={{ width: 38, textAlign: 'right', fontSize: 7.8, fontFamily: 'Helvetica-Bold' }}>{fmtPct(fav.total > 0 ? fav.favoravel : null, 1)}</Text>
+                    <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8 }}>{fmt(g.avg_score)}</Text>
                   </View>
                 )
               })}
@@ -1765,9 +1972,11 @@ function MethodologyPage(props: {
           <>A margem é de 95% e vale 1,96 vezes o desvio-padrão das médias individuais dos avaliadores ({fmt(r.desvio_padrao, 2)}) dividido pela raiz do número de avaliadores ({r.n_avaliadores}). Neste relatório a margem é {fmt(r.margem, 2)}. O limiar de leitura é a margem arredondada para cima na primeira casa decimal, {fmt(r.limiar_leitura, 1)}, e é usado nas comparações por competência. Diferenças menores estão dentro da variação esperada.</>
         ) : 'Calculados a partir do desvio-padrão das médias individuais dos avaliadores do resultado geral.'}
       </Block>
-      <Block title="Posição em relação ao grupo">
+      <Block title="Posição em relação ao grupo e ranking">
         A média do grupo é a média simples das médias gerais de todo o grupo comparativo do ciclo. A
-        posição só fica acima ou abaixo quando a diferença passa da margem.
+        posição só fica acima ou abaixo quando a diferença passa da margem. O ranking ordena o grupo
+        comparativo pela média geral e é informação secundária, porque médias de posições vizinhas na
+        lista costumam não ser estatisticamente diferentes.
       </Block>
       <Block title="Confiabilidade do resultado">
         Frágil quando menos de 3 grupos entram no resultado geral ou há menos de 15 avaliadores. Atenção
@@ -1792,7 +2001,7 @@ function MethodologyPage(props: {
         Pontos percentuais (p.p.) são a diferença entre duas porcentagens. Ponto, sem outro complemento, é
         a distância na escala de {scale.min} a {scale.max}. O n é o número de pessoas de um grupo.
       </Block>
-      <Block title="Faixas">Ponto forte a partir de 80%, adequado com atenção de 60% a menos de 80%, oportunidade de melhoria de 40% a menos de 60%, prioridade abaixo de 40%.</Block>
+      <Block title="Faixas">Ponto forte a partir de 80%, adequado com atenção de 60% a menos de 80%, oportunidade de melhoria de 40% a menos de 60%, prioridade abaixo de 40%. São uma referência para a leitura, e não uma meta.</Block>
       <Block title="Sigilo">
         Chefe direto e liderança superior são uma pessoa cada e aparecem em grupo próprio, por serem
         posições únicas na estrutura, sem expor o nome de quem respondeu. Os demais grupos aparecem de
@@ -1810,7 +2019,7 @@ function MethodologyPage(props: {
 
 export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
   const {
-    personName, personRole, tenantName, cycleLabel, issuedAt, scaleId,
+    variant = 'executive', personName, personRole, tenantName, cycleLabel, issuedAt, scaleId,
     competencies, questionScores, questionValueNames, relDetailFav, divergence,
     demographics, benchmark, benchmarkOverall, reliability, nMinimum,
   } = props
@@ -1832,16 +2041,21 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
   const hasValues = Object.keys(questionValueNames).length > 0
   const questionsPages = Math.max(1, Math.ceil(qRows.length / QUESTIONS_PER_PAGE))
 
-  const chrome = { personName, tenantName, cycleLabel }
+  const chrome = { personName, tenantName, cycleLabel, variant }
 
   return (
-    <Document title={`Relatório Executivo — ${personName}`} author="CR BASSO Educação Corporativa" subject={cycleLabel} creator="Maptiva">
-      <CoverPage personName={personName} personRole={personRole} tenantName={tenantName} cycleLabel={cycleLabel} issuedAt={issuedAt} nAvaliadores={nAvaliadores} nFormularios={nFormularios} />
+    <Document
+      title={`${variant === 'executive' ? 'Relatório Executivo' : 'Relatório Individual'} — ${personName}`}
+      author={variant === 'executive' ? 'CR BASSO Educação Corporativa' : tenantName}
+      subject={cycleLabel}
+      creator="Maptiva"
+    >
+      <CoverPage personName={personName} personRole={personRole} tenantName={tenantName} cycleLabel={cycleLabel} issuedAt={issuedAt} nAvaliadores={nAvaliadores} nFormularios={nFormularios} variant={variant} />
       <TOCPage {...chrome} hasValues={hasValues} questionsPages={questionsPages} />
       <HowToReadPage {...chrome} scale={scale} groups={groupList} nFormularios={nFormularios} limiar={readingThreshold} margem={margem} nQuestions={qRows.length} nComp={competencies.length} />
       <OverviewPage {...chrome} groups={groupList} benchmark={benchmark} benchmarkOverall={benchmarkOverall} reliability={reliability} />
       <SynthesisPage {...chrome} groups={groupList} comps={comps} divergence={divergence} reliability={reliability} benchmark={benchmark} benchmarkOverall={benchmarkOverall} scale={scale} readingThreshold={readingThreshold} />
-      <CompetencyResultsPage {...chrome} comps={comps} scale={scale} n={nAvaliadores} />
+      <CompetencyResultsPage {...chrome} comps={comps} scale={scale} n={nAvaliadores} benchmark={benchmark} />
       <PerspectivePage {...chrome} comps={comps} questionScores={questionScores} groups={groupList} />
       <SelfPerceptionPage {...chrome} comps={comps} scale={scale} readingThreshold={readingThreshold} geralFavPct={geralFav.favoravel} selfFavPct={selfFav} />
       <HighlightsPage {...chrome} comps={comps} qRows={qRows} />
@@ -1850,7 +2064,7 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
       {hasValues && <ValuesPage {...chrome} qRows={qRows} questionValueNames={questionValueNames} questionScores={questionScores} scale={scale} competencies={competencies} />}
       <BenchmarkPage {...chrome} comps={comps} benchmark={benchmark} limiar={readingThreshold} />
       <ProfilePage {...chrome} demographics={demographics} />
-      <GuidePage {...chrome} />
+      {variant === 'executive' && <GuidePage {...chrome} />}
       <PlanPage {...chrome} />
       <MethodologyPage {...chrome} scale={scale} nMinimum={nMinimum} reliability={reliability} nComp={competencies.length} nQuestions={qRows.length} />
     </Document>

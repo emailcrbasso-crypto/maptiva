@@ -63,7 +63,7 @@ const NIVEL_DETALHE_VALUE_LABEL: Record<string, string> = {
  * (ex.: "COORDENADOR MANUTENÇAO") — normaliza pra Title Case pro cabeçalho
  * do relatório executivo, mantendo preposições comuns em minúsculo. */
 const TITLE_CASE_LOWERCASE_WORDS = new Set(['de', 'da', 'do', 'das', 'dos', 'e'])
-function toTitleCasePtBr(text: string): string {
+export function toTitleCasePtBr(text: string): string {
   return text
     .toLocaleLowerCase('pt-BR')
     .split(' ')
