@@ -124,15 +124,24 @@ function meanFromDist(dist: Record<string, number> | null | undefined): number |
 
 function round2(v: number): number { return Math.round(v * 100) / 100 }
 
-/** Perfis demográficos às vezes vêm em CAIXA ALTA do cadastro importado
- * pelo cliente (ex.: "ADMINISTRATIVO") — normaliza pra Title Case. */
-const TITLE_CASE_LOWERCASE_WORDS = new Set(['de', 'da', 'do', 'das', 'dos', 'e'])
-function toTitleCasePtBr(text: string): string {
-  return text
-    .toLocaleLowerCase('pt-BR')
-    .split(' ')
-    .map((word, i) => (i > 0 && TITLE_CASE_LOWERCASE_WORDS.has(word) ? word : word.charAt(0).toLocaleUpperCase('pt-BR') + word.slice(1)))
-    .join(' ')
+const SEXO_LABEL: Record<string, string> = { F: 'Feminino', M: 'Masculino' }
+
+/** Valores de perfil demográfico (sexo/cargo/geração/tempo de casa) vêm
+ * direto do cadastro importado pelo cliente — alguns campos (cargo) vêm
+ * em CAIXA ALTA, outros (tempo de casa, geração) já vêm bem formatados
+ * ("De 1 a 3 anos"). Só corrige quando o valor inteiro está em maiúsculas
+ * (sem nenhuma letra minúscula) — nesse caso normaliza pra frase (só a
+ * primeira letra maiúscula), que é como o cadastro escreveria por
+ * extenso. Valores já com case misto ficam intocados. Sexo abreviado
+ * ("F"/"M") vira o nome por extenso.
+ */
+function normalizeDemographicValue(value: string): string {
+  const mapped = SEXO_LABEL[value.toUpperCase()]
+  if (mapped && value.length <= 2) return mapped
+  const hasLowercase = /[a-zà-öø-ÿ]/.test(value)
+  if (hasLowercase) return value
+  const lower = value.toLocaleLowerCase('pt-BR')
+  return lower.charAt(0).toLocaleUpperCase('pt-BR') + lower.slice(1)
 }
 
 function fmt(v: number | null | undefined, digits = 2): string {
@@ -1115,22 +1124,22 @@ function HighlightsPage(props: {
   return (
     <PageChrome label="Destaques" {...props}>
       <Text style={s.h1}>Destaques</Text>
-      <View style={{ display: 'flex', flexDirection: 'row', gap: 12, marginBottom: 12 }}>
-        <View style={{ flex: 1, borderTop: `2pt solid ${C.green}`, backgroundColor: C.cream, borderRadius: 3, padding: 8 }}>
-          <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 4 }}>Competências mais reconhecidas</Text>
+      <View style={{ display: 'flex', flexDirection: 'row', gap: 14, marginBottom: 16 }}>
+        <View style={{ flex: 1, borderTop: `3pt solid ${C.green}`, backgroundColor: C.cream, borderRadius: 3, padding: 14 }}>
+          <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 10 }}>Competências mais reconhecidas</Text>
           {top3Comp.map((c) => (
-            <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
-              <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold' }}>{c.name}</Text>
-              <Text style={{ fontSize: 7.5, color: C.muted }}>{fmtPct(c.fav.favoravel, 1)} · média {fmt(c.mean)}</Text>
+            <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold' }}>{c.name}</Text>
+              <Text style={{ fontSize: 8, color: C.muted }}>{fmtPct(c.fav.favoravel, 1)} · média {fmt(c.mean)}</Text>
             </View>
           ))}
         </View>
-        <View style={{ flex: 1, borderTop: `2pt solid ${C.orange}`, backgroundColor: C.cream, borderRadius: 3, padding: 8 }}>
-          <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 4 }}>Competências com mais espaço para evoluir</Text>
+        <View style={{ flex: 1, borderTop: `3pt solid ${C.orange}`, backgroundColor: C.cream, borderRadius: 3, padding: 14 }}>
+          <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 10 }}>Competências com mais espaço para evoluir</Text>
           {bottom3Comp.map((c) => (
-            <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
-              <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold' }}>{c.name}</Text>
-              <Text style={{ fontSize: 7.5, color: C.muted }}>{fmtPct(c.fav.favoravel, 1)} · média {fmt(c.mean)}</Text>
+            <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold' }}>{c.name}</Text>
+              <Text style={{ fontSize: 8, color: C.muted }}>{fmtPct(c.fav.favoravel, 1)} · média {fmt(c.mean)}</Text>
             </View>
           ))}
         </View>
@@ -1502,11 +1511,12 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
                 <Text style={[s.th, { width: 42, textAlign: 'right' }]}>Favor.</Text>
                 <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Média</Text>
               </View>
-              {byDim.get(dim)!.map((g) => {
+              {byDim.get(dim)!.map((g, gi) => {
                 const fav = computeFavorability(g.distribution ?? {}, getScale('frequency_5_strict'))
+                const rows = byDim.get(dim)!
                 return (
-                  <View key={g.value} style={{ display: 'flex', flexDirection: 'row', paddingTop: 3, paddingBottom: 3 }}>
-                    <Text style={{ flex: 1, fontSize: 7.8 }}>{toTitleCasePtBr(g.value)}</Text>
+                  <View key={g.value} style={{ display: 'flex', flexDirection: 'row', paddingTop: 4, paddingBottom: 4, borderBottom: gi < rows.length - 1 ? `0.5pt solid ${C.border}` : undefined }}>
+                    <Text style={{ flex: 1, fontSize: 7.8 }}>{normalizeDemographicValue(g.value)}</Text>
                     <Text style={{ width: 42, textAlign: 'right', fontSize: 7.8 }}>{g.respondent_count}</Text>
                     <Text style={{ width: 42, textAlign: 'right', fontSize: 7.8, fontFamily: 'Helvetica-Bold' }}>{fmtPct(fav.total > 0 ? fav.favoravel : null, 1)}</Text>
                     <Text style={{ width: 34, textAlign: 'right', fontSize: 7.8 }}>{fmt(g.avg_score)}</Text>
@@ -1583,31 +1593,57 @@ function GuidePage(props: { personName: string; tenantName: string; cycleLabel: 
 
 // ─── 18. Plano de desenvolvimento ───────────────────────────────────────────
 
+function PlanCheckbox({ label }: { label: string }) {
+  return (
+    <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+      <View style={{ width: 8, height: 8, border: `0.75pt solid ${C.muted}`, borderRadius: 1.5 }} />
+      <Text style={{ fontSize: 8, color: C.text }}>{label}</Text>
+    </View>
+  )
+}
+
 function PlanPage(props: { personName: string; tenantName: string; cycleLabel: string }) {
+  const cols: { title: string; subtitle: string }[] = [
+    { title: 'Comportamento a desenvolver', subtitle: 'pergunta ou competência do relatório' },
+    { title: 'O que vou fazer',              subtitle: 'ações concretas no dia a dia' },
+    { title: 'Quem pode me apoiar',          subtitle: '' },
+    { title: 'Como e quando vou verificar',  subtitle: '' },
+  ]
   return (
     <PageChrome label="Plano" {...props}>
       <Text style={s.h1}>Plano de desenvolvimento</Text>
       <Text style={s.intro}>Para preencher durante ou logo após a devolutiva. Dois ou três focos bem escolhidos valem mais que uma lista longa.</Text>
-      <View style={{ display: 'flex', flexDirection: 'row', backgroundColor: C.cream, borderTopLeftRadius: 3, borderTopRightRadius: 3, padding: 6 }}>
-        <Text style={{ width: '25%', fontSize: 6.8, fontFamily: 'Helvetica-Bold', color: C.muted, textTransform: 'uppercase' }}>Comportamento a desenvolver</Text>
-        <Text style={{ width: '25%', fontSize: 6.8, fontFamily: 'Helvetica-Bold', color: C.muted, textTransform: 'uppercase' }}>O que vou fazer</Text>
-        <Text style={{ width: '25%', fontSize: 6.8, fontFamily: 'Helvetica-Bold', color: C.muted, textTransform: 'uppercase' }}>Quem pode me apoiar</Text>
-        <Text style={{ width: '25%', fontSize: 6.8, fontFamily: 'Helvetica-Bold', color: C.muted, textTransform: 'uppercase' }}>Como e quando vou verificar</Text>
+      <View style={{ display: 'flex', flexDirection: 'row', border: `0.75pt solid ${C.border}` }}>
+        {cols.map((c, i) => (
+          <View key={c.title} style={{ width: '25%', backgroundColor: C.cream, padding: 6, borderLeft: i > 0 ? `0.75pt solid ${C.border}` : undefined }}>
+            <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.muted, textTransform: 'uppercase', letterSpacing: 0.3, lineHeight: 1.3 }}>{c.title}</Text>
+            {c.subtitle !== '' && <Text style={{ fontSize: 6, color: C.light, marginTop: 2, lineHeight: 1.3 }}>{c.subtitle}</Text>}
+          </View>
+        ))}
       </View>
       {[0, 1, 2, 3].map((i) => (
-        <View key={i} style={{ display: 'flex', flexDirection: 'row', height: 46, borderBottom: `0.5pt solid ${C.border}`, borderLeft: `0.5pt solid ${C.border}`, borderRight: `0.5pt solid ${C.border}` }}>
-          {[0, 1, 2, 3].map((j) => (
-            <View key={j} style={{ width: '25%', borderRight: j < 3 ? `0.5pt solid ${C.border}` : undefined }} />
+        <View key={i} style={{ display: 'flex', flexDirection: 'row', height: 48, borderLeft: `0.75pt solid ${C.border}`, borderRight: `0.75pt solid ${C.border}`, borderBottom: `0.75pt solid ${C.border}` }}>
+          {cols.map((c, j) => (
+            <View key={c.title} style={{ width: '25%', borderLeft: j > 0 ? `0.75pt solid ${C.border}` : undefined }} />
           ))}
         </View>
       ))}
-      <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginTop: 14, marginBottom: 6 }}>Pontos fortes que vou usar a meu favor</Text>
-      <View style={{ height: 60, border: `0.5pt solid ${C.border}`, borderRadius: 3 }} />
-      <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
-        <View><Text style={{ fontSize: 7.5, color: C.muted }}>Próxima conversa de acompanhamento</Text><View style={{ width: 140, borderBottom: `0.5pt solid ${C.text}`, marginTop: 14 }} /></View>
-        <View><Text style={{ fontSize: 7.5, color: C.muted }}>Plano compartilhado com o chefe direto</Text><Text style={{ fontSize: 8, marginTop: 8 }}>[  ] sim    [  ] não</Text></View>
+      <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy, marginTop: 16, marginBottom: 6 }}>Pontos fortes que vou usar a meu favor</Text>
+      <View style={{ height: 60, border: `0.75pt solid ${C.border}`, borderRadius: 3 }} />
+      <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginTop: 18 }}>
+        <View>
+          <Text style={{ fontSize: 7.5, color: C.muted }}>Próxima conversa de acompanhamento</Text>
+          <View style={{ width: 160, borderBottom: `0.5pt solid ${C.text}`, marginTop: 16 }} />
+        </View>
+        <View style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <Text style={{ fontSize: 7.5, color: C.muted }}>Plano compartilhado com o chefe direto</Text>
+          <View style={{ display: 'flex', flexDirection: 'row', gap: 14 }}>
+            <PlanCheckbox label="sim" />
+            <PlanCheckbox label="não" />
+          </View>
+        </View>
       </View>
-      <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginTop: 30 }}>
+      <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginTop: 34 }}>
         <View style={{ width: 150, borderTop: `0.5pt solid ${C.text}`, paddingTop: 3 }}><Text style={{ fontSize: 7.5, color: C.muted }}>Participante</Text></View>
         <View style={{ width: 150, borderTop: `0.5pt solid ${C.text}`, paddingTop: 3 }}><Text style={{ fontSize: 7.5, color: C.muted }}>Responsável pela devolutiva</Text></View>
         <View style={{ width: 100, borderTop: `0.5pt solid ${C.text}`, paddingTop: 3 }}><Text style={{ fontSize: 7.5, color: C.muted }}>Data</Text></View>
