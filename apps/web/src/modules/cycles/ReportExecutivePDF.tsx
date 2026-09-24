@@ -15,7 +15,7 @@
  * perguntas manualmente em blocos de até 11 (ver paginateQuestions).
  */
 
-import { Document, Page, Text, View, StyleSheet, Svg, Line, Circle, Polygon, Defs, LinearGradient, Stop, Rect, Font } from '@react-pdf/renderer'
+import { Document, Page, Text, View, StyleSheet, Svg, Line, Circle, Polygon, Font } from '@react-pdf/renderer'
 
 // react-pdf hifeniza automaticamente em quebra de linha, mas não conhece as
 // regras do português e corta em lugares errados ("favor-abilidade",
@@ -60,23 +60,32 @@ const C = {
   orange:      '#dd6537',
   blue:        '#2978d5',
   blueLight:   '#d9e6f6',
-  text:        '#1f2937',
-  muted:       '#6b7280',
-  light:       '#9ca3af',
-  border:      '#e5e7eb',
+  text:        '#14212e',
+  muted:       '#4a5561',
+  /** Texto secundário (contagens, nomes de competência sob a pergunta). */
+  sub:         '#5f666e',
+  light:       '#8a9099',
+  border:      '#e6e4de',
+  borderStrong:'#dbd9d1',
   cream:       '#f5f5f1',
   orangeBg:    '#fff5ec',
   orangeBorder:'#fbb381',
-  blueCallout: '#eef4fb',
+  blueCallout: '#edf4fa',
   blueCalloutBorder: '#8fb3d9',
-  green:       '#1f8a3b',
-  greenBg:     '#dcf0dc',
-  blueTag:     '#2261a8',
-  blueTagBg:   '#d9e6f6',
-  orangeTag:   '#b5591f',
-  orangeTagBg: '#fbe4d3',
-  red:         '#c0362c',
-  redBg:       '#fbe0dd',
+  green:       '#0b6b0b',
+  greenBg:     '#e2f4e2',
+  blueTag:     '#1c5cab',
+  blueTagBg:   '#e3edfa',
+  orangeTag:   '#a8461a',
+  orangeTagBg: '#fde9de',
+  red:         '#a82a2a',
+  redBg:       '#fae3e3',
+  /** Etiqueta neutra ("Alinhado", "não entra"). */
+  neutralTag:  '#5d6167',
+  neutralTagBg:'#efede8',
+  /** Quadro "Como ler". */
+  howToBg:     '#fafbff',
+  howToBorder: '#d9e4f2',
   white:       '#ffffff',
 }
 
@@ -123,35 +132,37 @@ export interface ReportExecutivePDFProps {
   nMinimum:        number
 }
 
+/** Cinza da parte neutra nas barras de distribuição. */
+const NEUTRAL_BAR = '#cfccc4'
+
 // ─── Grupos do "resultado geral" ───────────────────────────────────────────────
 
 const GERAL_CODES = ['manager', 'manager_superior', 'peer', 'subordinate']
 
-/** Teto de perguntas por página em "Resultado por pergunta". 11 deixa as
- * 33 perguntas do modelo em 3 páginas, como no relatório de referência. */
-const QUESTIONS_PER_PAGE = 11
+/** Teto de perguntas por página em "Resultado por pergunta". O modelo de
+ * referência usa de 10 a 12 por página (33 perguntas em 3 páginas). */
+const QUESTIONS_PER_PAGE = 12
 
 /** Altura útil (pt) pras linhas da tabela de "Resultado por pergunta",
- * descontados margens, cabeçalho da página e cabeçalho da tabela. A
- * primeira página perde ainda o título e a introdução, e a última o quadro
- * "Como ler". Valores conservadores: uma página que estoura cria uma página
- * física a mais e desalinha a numeração do Sumário. */
-const Q_ROWS_BUDGET = 660
-const Q_FIRST_PAGE_EXTRA = 65
-const Q_LAST_PAGE_EXTRA = 90
-/** Caracteres por linha do texto da pergunta na coluna "Pergunta" (7,8pt),
- * arredondado pra baixo pra estimar a quebra com folga. */
-const Q_PROMPT_CHARS_PER_LINE = 56
+ * descontados margens, cabeçalho da página, título e cabeçalho da tabela.
+ * A primeira página perde ainda a introdução, e a última o quadro "Como
+ * ler". Uma página que estoura cria uma página física a mais e desalinha a
+ * numeração do Sumário, por isso as estimativas erram pra cima. */
+// Medido: 660 pt úteis numa página de continuação, 30 a menos na primeira
+// (introdução) e ~96 do quadro "Como ler" na última. A estimativa da linha
+// erra 3–6% pra cima, o que dá a margem de segurança.
+const Q_ROWS_BUDGET = 655
+const Q_FIRST_PAGE_EXTRA = 30
+const Q_LAST_PAGE_EXTRA = 100
+/** Largura da coluna "Pergunta" (pt) e caracteres por linha do texto a 9 pt
+ * (0,47 da fonte por caractere, calibrado contra a quebra real da Carlito). */
+const Q_PROMPT_W = 200
+const Q_PROMPT_CHARS_PER_LINE = Math.floor((Q_PROMPT_W - 8) / (9 * 0.47))
 
 /** Altura estimada (pt) de uma linha da tabela: padding + linhas do prompt
  * + nome da competência. */
 function estimateQRowHeight(prompt: string): number {
-  let lines = 1, len = 0
-  for (const word of prompt.split(/\s+/)) {
-    if (len > 0 && len + 1 + word.length > Q_PROMPT_CHARS_PER_LINE) { lines++; len = word.length }
-    else len += (len > 0 ? 1 : 0) + word.length
-  }
-  return 16 + lines * 10.2
+  return 21 + estimateLines(prompt, Q_PROMPT_CHARS_PER_LINE) * 12.15
 }
 
 /** Divide `items` em exatamente `numPages` blocos, distribuindo o total de
@@ -205,12 +216,16 @@ const GERAL_ENTRA: Record<string, boolean> = {
   self: false, manager: true, manager_superior: true, peer: true, subordinate: true, client: false,
 }
 
-function MiniFavBar({ pct, width = 50, marginTop = 2 }: { pct: number; width?: number; marginTop?: number }) {
+function MiniFavBar({ pct, width = 50, marginTop = 2, height = 3 }: { pct: number; width?: number; marginTop?: number; height?: number }) {
   return (
-    <View style={{ width, height: 3, backgroundColor: C.cream, borderRadius: 1.5, overflow: 'hidden', marginTop }}>
-      <View style={{ width: `${pct}%`, height: 3, backgroundColor: C.blue }} />
+    <View style={{ width, height, backgroundColor: '#f1f0ec', borderRadius: height / 2, overflow: 'hidden', marginTop }}>
+      <View style={{ width: `${pct}%`, height, backgroundColor: C.blue }} />
     </View>
   )
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 function joinWithE(items: string[]): string {
@@ -318,11 +333,13 @@ function estimateBenchmarkOverall(benchmark: BenchmarkMap | undefined): Benchmar
   return { score_avg, participant_count, my_rank: 0 }
 }
 
-function faixa(pct: number): { label: string; color: string; bg: string } {
-  if (pct >= 80) return { label: 'Ponto forte', color: C.green, bg: C.greenBg }
-  if (pct >= 60) return { label: 'Adequado com atenção', color: C.blueTag, bg: C.blueTagBg }
-  if (pct >= 40) return { label: 'Oportunidade de melhoria', color: C.orangeTag, bg: C.orangeTagBg }
-  return { label: 'Prioridade', color: C.red, bg: C.redBg }
+/** Faixa de favorabilidade: rótulo, cores da etiqueta e cor do ponto usado
+ * nas tabelas (tons do modelo). */
+function faixa(pct: number): { label: string; color: string; bg: string; dot: string } {
+  if (pct >= 80) return { label: 'Ponto forte', color: C.green, bg: C.greenBg, dot: '#0ca20c' }
+  if (pct >= 60) return { label: 'Adequado com atenção', color: C.blueTag, bg: C.blueTagBg, dot: C.blue }
+  if (pct >= 40) return { label: 'Oportunidade de melhoria', color: C.orangeTag, bg: C.orangeTagBg, dot: '#ec8259' }
+  return { label: 'Prioridade', color: C.red, bg: C.redBg, dot: '#e34948' }
 }
 
 // ─── Styles ─────────────────────────────────────────────────────────────────
@@ -330,47 +347,50 @@ function faixa(pct: number): { label: string; color: string; bg: string } {
 const s = StyleSheet.create({
   page: {
     fontFamily: 'Carlito', fontSize: 9, color: C.text,
-    paddingTop: 40, paddingBottom: 46, paddingLeft: 46, paddingRight: 46, backgroundColor: C.white,
+    paddingTop: 24, paddingBottom: 48, paddingLeft: 51, paddingRight: 51, backgroundColor: C.white,
   },
   header: {
     display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    borderBottom: `0.75pt solid ${C.border}`, paddingBottom: 8, marginBottom: 16,
+    borderBottom: `0.75pt solid ${C.border}`, paddingBottom: 8, marginBottom: 20,
   },
-  headerLabel: { fontSize: 7.5, fontFamily: 'Carlito-Bold', color: C.navy, letterSpacing: 1.2, textTransform: 'uppercase' },
-  headerName:  { fontSize: 7.5, color: C.light, letterSpacing: 0.5, textTransform: 'uppercase' },
+  headerLabel: { fontSize: 8, fontFamily: 'Carlito-Bold', color: C.navy, letterSpacing: 1.2, textTransform: 'uppercase' },
+  headerName:  { fontSize: 8, color: C.light, letterSpacing: 0.5, textTransform: 'uppercase' },
   footer: {
-    position: 'absolute', bottom: 18, left: 46, right: 46,
+    position: 'absolute', bottom: 22, left: 51, right: 51,
     display: 'flex', flexDirection: 'row', justifyContent: 'space-between',
-    borderTop: `0.5pt solid ${C.border}`, paddingTop: 6,
+    borderTop: `0.75pt solid ${C.border}`, paddingTop: 6,
   },
-  footerText: { fontSize: 7, color: C.light },
+  footerText: { fontSize: 7.5, color: C.light },
   h1: { fontSize: 19, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 10 },
-  intro: { fontSize: 9, color: C.text, lineHeight: 1.5, marginBottom: 14 },
-  sectionLabel: { fontSize: 8.5, fontFamily: 'Carlito-Bold', color: C.text, marginBottom: 8, marginTop: 4 },
+  intro: { fontSize: 10.5, color: C.muted, lineHeight: 1.45, marginBottom: 14 },
+  sectionLabel: { fontSize: 11.5, fontFamily: 'Carlito-Bold', color: C.text, marginBottom: 8, marginTop: 4 },
   callout: {
-    backgroundColor: C.blueCallout, borderLeft: `2.5pt solid ${C.blue}`, borderRadius: 3,
+    backgroundColor: C.blueCallout, borderLeft: `2.2pt solid ${C.blue}`, borderRadius: 3,
     padding: 10, marginTop: 10, marginBottom: 10,
   },
   calloutOrange: {
     backgroundColor: C.orangeBg, borderLeft: `2.5pt solid ${C.orange}`, borderRadius: 3,
     padding: 10, marginTop: 10, marginBottom: 10,
   },
-  calloutTitle: { fontSize: 8, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 3 },
-  calloutText: { fontSize: 8, color: C.text, lineHeight: 1.5 },
+  calloutTitle: { fontSize: 9.5, fontFamily: 'Carlito-Bold', color: C.muted, marginBottom: 3 },
+  calloutText: { fontSize: 9.5, color: C.muted, lineHeight: 1.45 },
   howToRead: {
-    backgroundColor: C.cream, borderRadius: 4, padding: 10, marginTop: 12,
+    backgroundColor: C.howToBg, border: `0.75pt solid ${C.howToBorder}`, borderRadius: 4,
+    paddingTop: 9, paddingBottom: 10, paddingLeft: 11, paddingRight: 11, marginTop: 14,
   },
-  howToReadTitle: { fontSize: 7.5, fontFamily: 'Carlito-Bold', color: C.muted, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 5 },
-  howToReadText: { fontSize: 7.8, color: C.muted, lineHeight: 1.5 },
+  howToReadTitle: { fontSize: 7.8, fontFamily: 'Carlito-Bold', color: C.navy, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 5 },
+  howToReadText: { fontSize: 8.8, color: C.muted, lineHeight: 1.4 },
   card: { backgroundColor: C.cream, borderRadius: 4, padding: 12 },
-  cardLabel: { fontSize: 7, fontFamily: 'Carlito-Bold', color: C.muted, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 },
-  cardBig: { fontSize: 22, fontFamily: 'Carlito-Bold', color: C.navy },
+  cardLabel: { fontSize: 7.8, fontFamily: 'Carlito-Bold', color: C.light, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 },
+  cardBig: { fontSize: 22, fontFamily: 'Carlito-Bold', color: C.text },
   cardMid: { fontSize: 15, fontFamily: 'Carlito-Bold', color: C.navy },
-  tableHeader: { display: 'flex', flexDirection: 'row', borderBottom: `1pt solid ${C.border}`, paddingBottom: 4, marginBottom: 3 },
-  tableRow: { display: 'flex', flexDirection: 'row', paddingTop: 5, paddingBottom: 5, borderBottom: `0.5pt solid ${C.border}`, alignItems: 'center' },
-  th: { fontSize: 6.8, fontFamily: 'Carlito-Bold', color: C.muted, textTransform: 'uppercase', letterSpacing: 0.4 },
-  td: { fontSize: 8, color: C.text },
-  badge: { borderRadius: 3, paddingLeft: 5, paddingRight: 5, paddingTop: 2, paddingBottom: 2, fontSize: 6.8, fontFamily: 'Carlito-Bold' },
+  tableHeader: { display: 'flex', flexDirection: 'row', borderBottom: `0.75pt solid ${C.borderStrong}`, paddingBottom: 5, marginBottom: 2 },
+  tableRow: { display: 'flex', flexDirection: 'row', paddingTop: 6, paddingBottom: 6, borderBottom: `0.75pt solid ${C.border}`, alignItems: 'center' },
+  th: { fontSize: 7.8, fontFamily: 'Carlito-Bold', color: C.light, textTransform: 'uppercase', letterSpacing: 0.4 },
+  td: { fontSize: 9, color: C.text },
+  /** Etiqueta arredondada das faixas de favorabilidade. */
+  pill: { borderRadius: 8, paddingLeft: 7, paddingRight: 7, paddingTop: 2.5, paddingBottom: 2.5, fontSize: 7.6, fontFamily: 'Carlito-Bold' },
+  badge: { borderRadius: 3, paddingLeft: 5, paddingRight: 5, paddingTop: 2, paddingBottom: 2, fontSize: 8, fontFamily: 'Carlito-Bold' },
 })
 
 // ─── Header / footer ────────────────────────────────────────────────────────
@@ -405,20 +425,24 @@ function PageChrome({
 // ─── 1. Capa ────────────────────────────────────────────────────────────────
 
 const cs = StyleSheet.create({
-  page:       { fontFamily: 'Carlito', backgroundColor: C.navy, padding: 0, display: 'flex', flexDirection: 'column' },
-  body:       { flex: 1, paddingTop: 70, paddingBottom: 50, paddingLeft: 54, paddingRight: 54, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
-  brand:      { fontSize: 11, color: C.white, marginBottom: 90 },
+  page:       { fontFamily: 'Carlito', backgroundColor: C.white, padding: 0, position: 'relative' },
+  // Faixa azul só na parte de cima (como no modelo); dados e aviso ficam
+  // embaixo, em fundo branco.
+  band:       { position: 'absolute', top: 0, left: 0, right: 0, height: 538, backgroundColor: C.navy },
+  bandBody:   { position: 'absolute', top: 60, left: 57, right: 57 },
+  brand:      { fontSize: 13, color: C.white },
   brandBold:  { fontFamily: 'Carlito-Bold', letterSpacing: 1.5 },
-  kicker:     { fontSize: 9, color: '#bcd2e6', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10 },
-  title:      { fontSize: 26, fontFamily: 'Carlito-Bold', color: C.white, lineHeight: 1.25, marginBottom: 14 },
-  rule:       { width: 40, height: 1.5, backgroundColor: '#7ea3c4', marginBottom: 14 },
-  name:       { fontSize: 20, fontFamily: 'Carlito-Bold', color: C.white, marginBottom: 4 },
-  role:       { fontSize: 10, color: '#bcd2e6' },
-  accentBar:  { height: 5, width: 130, backgroundColor: C.orange, marginTop: 40 },
-  metaRow:    { display: 'flex', flexDirection: 'row', justifyContent: 'space-between', paddingTop: 18, marginTop: 18 },
-  metaLabel:  { fontSize: 7, color: '#8fadc6', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 3 },
-  metaValue:  { fontSize: 10, color: C.white, fontFamily: 'Carlito-Bold' },
-  disclaimer: { fontSize: 7.3, color: '#8fadc6', lineHeight: 1.5, marginTop: 20, borderTop: '0.5pt solid #3a5f80', paddingTop: 14 },
+  kicker:     { position: 'absolute', top: 214, left: 57, fontSize: 10.5, color: C.white, opacity: 0.8, letterSpacing: 2, textTransform: 'uppercase' },
+  title:      { position: 'absolute', top: 234, left: 57, fontSize: 36, fontFamily: 'Carlito-Bold', color: C.white, lineHeight: 1.08 },
+  rule:       { position: 'absolute', top: 347, left: 57, width: 51, height: 0.8, backgroundColor: C.white, opacity: 0.6 },
+  name:       { position: 'absolute', top: 364, left: 57, fontSize: 22, fontFamily: 'Carlito-Bold', color: C.white },
+  role:       { position: 'absolute', top: 400, left: 57, fontSize: 12, color: C.white, opacity: 0.9 },
+  accentBar:  { position: 'absolute', top: 530, left: 57, height: 8, width: 113, backgroundColor: C.orange },
+  metaRow:    { position: 'absolute', top: 576, left: 57, right: 57, display: 'flex', flexDirection: 'row' },
+  metaCol:    { width: 125 },
+  metaLabel:  { fontSize: 8, color: C.light, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 4 },
+  metaValue:  { fontSize: 13, color: C.text, fontFamily: 'Carlito-Bold' },
+  disclaimer: { position: 'absolute', top: 748, left: 57, width: 425, fontSize: 8.5, color: C.light, lineHeight: 1.45, borderTop: `0.8pt solid ${C.border}`, paddingTop: 11 },
 })
 
 function CoverPage({
@@ -428,46 +452,46 @@ function CoverPage({
   issuedAt: string; nAvaliadores: number; nFormularios: number; variant?: 'executive' | 'participant'
 }) {
   const cycleYear = cycleLabel.match(/\d{4}/)?.[0] ?? ''
+  // toLocaleDateString('pt-BR') devolve "setembro de 2026"; na capa o mês
+  // aparece com inicial maiúscula.
+  const issued = capitalize(issuedAt)
   return (
     <Page size="A4" style={cs.page}>
-      <View style={cs.body}>
-        <View>
-          {variant === 'executive' ? (
-            <Text style={cs.brand}><Text style={cs.brandBold}>CR BASSO</Text>  Educação Corporativa</Text>
-          ) : (
-            <Text style={cs.brand}><Text style={cs.brandBold}>{tenantName.toUpperCase()}</Text></Text>
-          )}
-          <Text style={cs.kicker}>Avaliação 360°{cycleYear ? ` · Ciclo ${cycleYear}` : ''}</Text>
-          <Text style={cs.title}>Relatório individual{'\n'}de feedback</Text>
-          <View style={cs.rule} />
-          <Text style={cs.name}>{personName}</Text>
-          {personRole && <Text style={cs.role}>{personRole}</Text>}
-          <View style={cs.accentBar} />
-        </View>
-        <View>
-          <View style={cs.metaRow}>
-            <View><Text style={cs.metaLabel}>Empresa</Text><Text style={cs.metaValue}>{tenantName}</Text></View>
-            <View><Text style={cs.metaLabel}>Avaliadores</Text><Text style={cs.metaValue}>{nAvaliadores}</Text></View>
-            <View><Text style={cs.metaLabel}>Formulários</Text><Text style={cs.metaValue}>{nFormularios}</Text></View>
-            <View><Text style={cs.metaLabel}>Emissão</Text><Text style={cs.metaValue}>{issuedAt}</Text></View>
-          </View>
-          {variant === 'executive' ? (
-            <Text style={cs.disclaimer}>
-              Documento confidencial. Uso exclusivo do participante e de quem conduz a devolutiva. Os
-              {' '}{nAvaliadores} avaliadores são os que formam o resultado geral. Os {nFormularios} formulários
-              incluem também clientes internos e a autoavaliação. Os resultados refletem percepções de
-              comportamento e servem como ponto de partida para uma conversa de desenvolvimento.
-            </Text>
-          ) : (
-            <Text style={cs.disclaimer}>
-              Documento confidencial, de uso pessoal. Os {nAvaliadores} avaliadores são os que formam o
-              resultado geral. Os {nFormularios} formulários incluem também clientes internos e a
-              autoavaliação. Os resultados refletem percepções de comportamento e servem como ponto de
-              partida para uma conversa de desenvolvimento.
-            </Text>
-          )}
-        </View>
+      <View style={cs.band} />
+      <View style={cs.bandBody}>
+        {variant === 'executive' ? (
+          <Text style={cs.brand}><Text style={cs.brandBold}>CR BASSO</Text>  Educação Corporativa</Text>
+        ) : (
+          <Text style={cs.brand}><Text style={cs.brandBold}>{tenantName.toUpperCase()}</Text></Text>
+        )}
       </View>
+      <Text style={cs.kicker}>Avaliação 360°{cycleYear ? ` · Ciclo ${cycleYear}` : ''}</Text>
+      <Text style={cs.title}>Relatório individual{'\n'}de feedback</Text>
+      <View style={cs.rule} />
+      <Text style={cs.name}>{personName}</Text>
+      {personRole && <Text style={cs.role}>{personRole}</Text>}
+      <View style={cs.accentBar} />
+      <View style={cs.metaRow}>
+        <View style={cs.metaCol}><Text style={cs.metaLabel}>Empresa</Text><Text style={cs.metaValue}>{tenantName}</Text></View>
+        <View style={cs.metaCol}><Text style={cs.metaLabel}>Avaliadores</Text><Text style={cs.metaValue}>{nAvaliadores}</Text></View>
+        <View style={cs.metaCol}><Text style={cs.metaLabel}>Formulários</Text><Text style={cs.metaValue}>{nFormularios}</Text></View>
+        <View style={cs.metaCol}><Text style={cs.metaLabel}>Emissão</Text><Text style={cs.metaValue}>{issued}</Text></View>
+      </View>
+      {variant === 'executive' ? (
+        <Text style={cs.disclaimer}>
+          Documento confidencial. Uso exclusivo do participante e de quem conduz a devolutiva. Os
+          {' '}{nAvaliadores} avaliadores são os que formam o resultado geral. Os {nFormularios} formulários
+          incluem também clientes internos e a autoavaliação. Os resultados refletem percepções de
+          comportamento e servem como ponto de partida para uma conversa de desenvolvimento.
+        </Text>
+      ) : (
+        <Text style={cs.disclaimer}>
+          Documento confidencial, de uso pessoal. Os {nAvaliadores} avaliadores são os que formam o
+          resultado geral. Os {nFormularios} formulários incluem também clientes internos e a
+          autoavaliação. Os resultados refletem percepções de comportamento e servem como ponto de
+          partida para uma conversa de desenvolvimento.
+        </Text>
+      )}
     </Page>
   )
 }
@@ -514,26 +538,26 @@ function TOCPage(props: { personName: string; tenantName: string; cycleLabel: st
     <PageChrome label="Sumário" {...props}>
       <Text style={s.h1}>Sumário</Text>
       {items.map(([title, desc], i) => (
-        <View key={title} style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', paddingTop: 8, paddingBottom: 8, borderBottom: `0.5pt solid ${C.border}` }}>
-          <Text style={{ width: 160, fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{title}</Text>
-          <Text style={{ flex: 1, fontSize: 8.5, color: C.muted }}>{desc}</Text>
-          <Text style={{ width: 20, fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text, textAlign: 'right' }}>{pageNumbers[i]}</Text>
+        <View key={title} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', paddingTop: 7.5, paddingBottom: 7.5, paddingLeft: 5, paddingRight: 5, borderBottom: `0.75pt solid ${C.border}` }}>
+          <Text style={{ width: 160, fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.text, paddingRight: 8 }}>{title}</Text>
+          <Text style={{ flex: 1, fontSize: 10.5, color: C.sub, lineHeight: 1.35 }}>{desc}</Text>
+          <Text style={{ width: 24, fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.text, textAlign: 'right' }}>{pageNumbers[i]}</Text>
         </View>
       ))}
       {isParticipant ? (
-        <View style={s.callout}>
-          <Text style={s.calloutTitle}>Como usar este relatório</Text>
+        <View style={[s.callout, { marginTop: 16 }]}>
           <Text style={s.calloutText}>
-            Cada página tem um quadro "Como ler", que explica o gráfico ou a tabela. As regras de cálculo
+            <Text style={{ fontFamily: 'Carlito-Bold' }}>Como usar este relatório.</Text>{' '}
+            Cada página tem um quadro Como ler, que explica o gráfico ou a tabela. As regras de cálculo
             estão em Metodologia e glossário, ao final. O Plano de desenvolvimento é para você registrar,
             junto com quem conduz a conversa, os compromissos que escolher.
           </Text>
         </View>
       ) : (
-        <View style={s.callout}>
-          <Text style={s.calloutTitle}>Para quem conduz a devolutiva</Text>
+        <View style={[s.callout, { marginTop: 16 }]}>
           <Text style={s.calloutText}>
-            Cada página traz um quadro "Como ler" que explica o gráfico ou a tabela. As regras de cálculo
+            <Text style={{ fontFamily: 'Carlito-Bold' }}>Para quem conduz a devolutiva.</Text>{' '}
+            Cada página traz um quadro Como ler, que explica o gráfico ou a tabela. As regras de cálculo
             estão em Metodologia e glossário, ao final. Recomenda-se ler o relatório inteiro antes da
             conversa e usar o Guia para a devolutiva como roteiro.
           </Text>
@@ -567,65 +591,63 @@ function HowToReadPage(props: {
         comportamentos organizados em {nComp} competências. Não é uma nota de desempenho. É um retrato de
         percepções, feito para orientar uma conversa de desenvolvimento.
       </Text>
-      <View style={{ display: 'flex', flexDirection: 'row', gap: 16 }}>
-        <View style={{ flex: 1, backgroundColor: C.cream, borderRadius: 4, padding: 10 }}>
-          <Text style={{ fontSize: 9, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 6 }}>A escala usada nas respostas</Text>
-          <Text style={{ fontSize: 8, color: C.muted, marginBottom: 6, lineHeight: 1.4 }}>
+      <View style={{ display: 'flex', flexDirection: 'row', gap: 14 }}>
+        <View style={{ flex: 0.74, backgroundColor: C.cream, borderRadius: 4, padding: 14 }}>
+          <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 8 }}>A escala usada nas respostas</Text>
+          <Text style={{ fontSize: 9.5, color: C.muted, marginBottom: 10, lineHeight: 1.45 }}>
             Cada pessoa indicou com que frequência observa cada comportamento.{scale.allowNa ? '' : ' Não havia opção de não observado.'}
           </Text>
-          {[...scale.labels].reverse().map((l) => (
-            <View key={l.value} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 3 }}>
-              <Text style={{ width: 14, fontSize: 8, fontFamily: 'Carlito-Bold', color: C.navy }}>{l.value}</Text>
-              <Text style={{ flex: 1, fontSize: 8, color: C.text }}>{l.label}</Text>
-              {l.value >= scale.max - 1 && (
-                <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                  <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: C.blue }} />
-                  <Text style={{ fontSize: 7, color: C.blue }}>Favorável</Text>
-                </View>
-              )}
-              {l.value <= scale.min + 1 && (
-                <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                  <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: C.red }} />
-                  <Text style={{ fontSize: 7, color: C.red }}>Desfavorável</Text>
-                </View>
-              )}
-              {l.value > scale.min + 1 && l.value < scale.max - 1 && (
-                <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                  <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: C.light }} />
-                  <Text style={{ fontSize: 7, color: C.muted }}>Neutro</Text>
-                </View>
-              )}
+          {/* Notas agrupadas pela faixa de favorabilidade, com a etiqueta uma
+              vez por faixa (como no modelo). */}
+          {([
+            { label: 'Favorável', color: C.blue, test: (v: number) => v >= scale.max - 1 },
+            { label: 'Neutro', color: '#b4b1a9', test: (v: number) => v > scale.min + 1 && v < scale.max - 1 },
+            { label: 'Desfavorável', color: C.red, test: (v: number) => v <= scale.min + 1 },
+          ]).map((band, bi) => (
+            <View key={band.label} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', paddingTop: 3, paddingBottom: 3, borderTop: bi > 0 ? `0.75pt solid ${C.border}` : undefined }}>
+              <View style={{ flex: 1 }}>
+                {[...scale.labels].reverse().filter((l) => band.test(l.value)).map((l) => (
+                  <View key={l.value} style={{ display: 'flex', flexDirection: 'row', paddingTop: 3, paddingBottom: 3 }}>
+                    <Text style={{ width: 16, fontSize: 9.5, fontFamily: 'Carlito-Bold', color: C.navy }}>{l.value}</Text>
+                    <Text style={{ fontSize: 9.5, color: C.text }}>{l.label}</Text>
+                  </View>
+                ))}
+              </View>
+              <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 4, width: 76 }}>
+                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: band.color }} />
+                <Text style={{ fontSize: 9.5, fontFamily: 'Carlito-Bold', color: C.muted }}>{band.label}</Text>
+              </View>
             </View>
           ))}
         </View>
-        <View style={{ flex: 1, backgroundColor: C.cream, borderRadius: 4, padding: 10 }}>
-          <Text style={{ fontSize: 9, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 6 }}>Os números do relatório</Text>
-          <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 4 }}>
+        <View style={{ flex: 1, backgroundColor: C.cream, borderRadius: 4, padding: 14 }}>
+          <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 8 }}>Os números do relatório</Text>
+          <Text style={{ fontSize: 9.5, color: C.muted, lineHeight: 1.45, marginBottom: 6 }}>
             <Text style={{ fontFamily: 'Carlito-Bold' }}>Favorabilidade</Text> é a porcentagem de respostas {scale.max - 1} ou {scale.max}. É o número principal. Com 80%, 8 em cada 10 respostas
             disseram que o comportamento aparece com frequência.
           </Text>
-          <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 4 }}>
+          <Text style={{ fontSize: 9.5, color: C.muted, lineHeight: 1.45, marginBottom: 6 }}>
             <Text style={{ fontFamily: 'Carlito-Bold' }}>Média</Text> vai de {scale.min} a {scale.max} e ajuda a diferenciar resultados com favorabilidade parecida.
           </Text>
-          <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 4 }}>
+          <Text style={{ fontSize: 9.5, color: C.muted, lineHeight: 1.45, marginBottom: 6 }}>
             <Text style={{ fontFamily: 'Carlito-Bold' }}>Resultado geral</Text> é a leitura principal deste relatório. Ele junta as respostas das pessoas
             da sua linha de comando e do seu nível, que são chefe direto, a liderança superior, os pares e a
             equipe, e cada uma tem o mesmo peso. Dele saem a favorabilidade geral de {fmtPct(geralFav.favoravel, 1)} e a
             média geral de {fmt(geralMean)}, e ele é a base das páginas de competências, destaques e perguntas. A
             autoavaliação e os clientes internos aparecem à parte, para comparação.
           </Text>
-          <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5 }}>
+          <Text style={{ fontSize: 9.5, color: C.muted, lineHeight: 1.45 }}>
             <Text style={{ fontFamily: 'Carlito-Bold' }}>Faixas de cor</Text> classificam a favorabilidade, de ponto forte a prioridade. São uma referência
             para a leitura, e não uma meta.
           </Text>
         </View>
       </View>
 
-      <Text style={s.sectionLabel}>Quem avaliou você</Text>
+      <Text style={[s.sectionLabel, { marginTop: 16 }]}>Quem avaliou você</Text>
       <View style={s.tableHeader}>
-        <Text style={[s.th, { width: 120 }]}>Grupo de avaliadores</Text>
-        <Text style={[s.th, { width: 44, textAlign: 'right', marginRight: 12 }]}>Pessoas</Text>
-        <Text style={[s.th, { width: 76, marginRight: 8 }]}>No resultado{'\n'}geral</Text>
+        <Text style={[s.th, { width: 96 }]}>Grupo de{'\n'}avaliadores</Text>
+        <Text style={[s.th, { width: 38, textAlign: 'right', marginRight: 14 }]}>Pessoas</Text>
+        <Text style={[s.th, { width: 58, marginRight: 14 }]}>No resultado{'\n'}geral</Text>
         <Text style={[s.th, { flex: 1 }]}>Quem são</Text>
       </View>
       {GROUP_ORDER.map((code) => {
@@ -634,24 +656,24 @@ function HowToReadPage(props: {
         const entra = GERAL_ENTRA[code]
         return (
           <View key={code} style={s.tableRow}>
-            <Text style={[s.td, { width: 120, fontFamily: 'Carlito-Bold' }]}>{GROUP_LABEL[code]}</Text>
-            <Text style={[s.td, { width: 44, textAlign: 'right', marginRight: 12 }]}>{g.n}</Text>
-            <View style={{ width: 76, marginRight: 8 }}>
-              <Text style={[s.badge, entra ? { backgroundColor: C.blueTagBg, color: C.blueTag } : { backgroundColor: C.cream, color: C.muted }, { alignSelf: 'flex-start' }]}>
+            <Text style={[s.td, { width: 96, fontSize: 9.5, fontFamily: 'Carlito-Bold' }]}>{GROUP_LABEL[code]}</Text>
+            <Text style={[s.td, { width: 38, fontSize: 9.5, color: C.sub, textAlign: 'right', marginRight: 14 }]}>{g.n}</Text>
+            <View style={{ width: 58, marginRight: 14 }}>
+              <Text style={[s.badge, entra ? { backgroundColor: C.blueTagBg, color: C.blueTag } : { backgroundColor: C.neutralTagBg, color: C.neutralTag }, { alignSelf: 'flex-start', fontSize: 7.3 }]}>
                 {entra ? 'Entra' : 'Não entra'}
               </Text>
             </View>
-            <Text style={[s.td, { flex: 1, color: C.muted, lineHeight: 1.4 }]}>{GROUP_DESC[code]}</Text>
+            <Text style={[s.td, { flex: 1, fontSize: 9.5, color: C.sub, lineHeight: 1.4 }]}>{GROUP_DESC[code]}</Text>
           </View>
         )
       })}
-      <Text style={{ fontSize: 8, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
+      <Text style={{ fontSize: 8.8, color: C.sub, marginTop: 8, lineHeight: 1.45 }}>
         Foram {nFormularios} formulários. {geral} avaliadores formam o resultado geral{cliInt > 0 ? `, ${cliInt} clientes internos aparecem para comparação` : ''} e 1 é a sua autoavaliação.
         {cliInt > 0 && ' Os clientes internos não entram no resultado geral porque não fazem parte da sua linha de comando nem do seu nível, e essa regra vale igualmente para todos os gestores avaliados.'}
       </Text>
       <View style={s.callout}>
-        <Text style={s.calloutTitle}>Como ler as diferenças</Text>
         <Text style={s.calloutText}>
+          <Text style={{ fontFamily: 'Carlito-Bold' }}>Como ler as diferenças.</Text>{' '}
           Diferenças de média menores que {fmt(limiar, 1)} ponto na escala de {scale.min} a {scale.max} não devem ser lidas
           como diferença real. Esse valor se chama limiar de leitura e é explicado na metodologia. Só na
           posição geral em relação ao grupo de gestores a referência é a margem exata, de {fmt(margem, 2)}.
@@ -713,83 +735,91 @@ function OverviewPage(props: {
   return (
     <PageChrome label="Visão geral" {...props}>
       <Text style={s.h1}>Visão geral</Text>
-      <View style={{ display: 'flex', flexDirection: 'row', gap: 10 }}>
-        <View style={[s.card, { flex: 1.4 }]}>
-          <Text style={s.cardLabel}>Favorabilidade geral</Text>
-          <Text style={s.cardBig}>{fmtPct(geralFav.favoravel, 1)}</Text>
-          <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 4, lineHeight: 1.4 }}>
+      {/* Cartão grande à esquerda (favorabilidade geral) e grade 2×2 de
+          cartões com contorno à direita, como no modelo. */}
+      <View style={{ display: 'flex', flexDirection: 'row', gap: 16 }}>
+        <View style={{ width: 250, backgroundColor: C.cream, borderRadius: 6, padding: 16 }}>
+          <Text style={[s.cardLabel, { fontSize: 8.5 }]}>Favorabilidade geral</Text>
+          <Text style={{ fontSize: 46, fontFamily: 'Carlito-Bold', color: C.navy, marginTop: 2 }}>{fmtPct(geralFav.favoravel, 1)}</Text>
+          <Text style={{ fontSize: 9.5, color: C.muted, marginTop: 6, lineHeight: 1.4 }}>
             {Math.round(geralFav.favoravel / 100 * geralResp)} das {geralResp} respostas dos {geralN} avaliadores foram {scale.max - 1} ou {scale.max}.
           </Text>
-          <View style={{ marginTop: 8, height: 8, backgroundColor: C.cream, borderRadius: 3, flexDirection: 'row', overflow: 'hidden' }}>
+          <View style={{ marginTop: 12, height: 10, backgroundColor: C.cream, borderRadius: 2, flexDirection: 'row', overflow: 'hidden' }}>
             <View style={{ width: `${geralFav.favoravel}%`, backgroundColor: C.blue }} />
-            <View style={{ width: `${geralFav.neutro}%`, backgroundColor: '#d1d5db' }} />
+            <View style={{ width: `${geralFav.neutro}%`, backgroundColor: NEUTRAL_BAR }} />
             <View style={{ width: `${geralFav.desfavoravel}%`, backgroundColor: C.red }} />
           </View>
-          <Text style={{ fontSize: 7, color: C.muted, marginTop: 4 }}>
-            Favorável {fmtPct(geralFav.favoravel, 1)} · Neutro {fmtPct(geralFav.neutro, 1)} · Desfavorável {fmtPct(geralFav.desfavoravel, 1)}
-          </Text>
+          <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8 }}>
+            {([['Favorável', geralFav.favoravel, C.blue], ['Neutro', geralFav.neutro, NEUTRAL_BAR], ['Desfavorável', geralFav.desfavoravel, C.red]] as const).map(([label, v, color]) => (
+              <View key={label} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <View style={{ width: 6, height: 6, backgroundColor: color }} />
+                <Text style={{ fontSize: 8.5, color: C.muted }}>{label} {fmtPct(v, 1)}</Text>
+              </View>
+            ))}
+          </View>
           {inclLabels.length > 0 && (
-            <Text style={{ fontSize: 7, color: C.muted, marginTop: 6, paddingTop: 6, borderTop: `0.5pt solid ${C.border}`, lineHeight: 1.4 }}>
+            <Text style={{ fontSize: 9, color: C.muted, marginTop: 14, paddingTop: 12, borderTop: `0.75pt solid ${C.border}`, lineHeight: 1.45 }}>
               Entram neste número {joinWithE(inclLabels)}.{exclLabels.length > 0 ? ` Ficam de fora ${joinWithE(exclLabels)}.` : ''}
             </Text>
           )}
         </View>
-        <View style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <View style={s.card}>
+        <View style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+         <View style={ov.tileRow}>
+          <View style={ov.tile}>
             <Text style={s.cardLabel}>Média geral</Text>
-            <Text style={s.cardMid}>{fmt(geralMean)}</Text>
-            <Text style={{ fontSize: 7, color: C.muted, marginTop: 3 }}>na escala de {scale.min} a {scale.max}</Text>
+            <Text style={ov.value}>{fmt(geralMean)}</Text>
+            <Text style={ov.desc}>{`na escala de ${scale.min} a ${scale.max}, calculada com as mesmas ${geralResp} respostas`}</Text>
           </View>
-          <View style={s.card}>
+          <View style={ov.tile}>
+            <Text style={s.cardLabel}>{bm != null && bm.participant_count > 0 ? `Em relação aos ${bm.participant_count} gestores` : 'Em relação ao grupo comparativo'}</Text>
+            {groupMean == null ? (
+              <Text style={[ov.category, { color: C.muted }]}>Sem dado de comparação</Text>
+            ) : (
+              <>
+                <Text style={[ov.category, { color: diffRelevant ? (diff! > 0 ? C.green : C.red) : C.navy }]}>
+                  {diffRelevant ? (diff! > 0 ? 'Acima do grupo' : 'Abaixo do grupo') : 'Sem diferença relevante'}
+                </Text>
+                <Text style={ov.desc}>
+                  {diff! >= 0 ? '+' : ''}{fmt(diff, 2)} sobre a média do grupo, de {fmt(groupMean, 2)}. Para ficar acima ou abaixo, a diferença
+                  precisaria passar de {fmt(margem, 2)}.
+                </Text>
+              </>
+            )}
+          </View>
+         </View>
+         <View style={ov.tileRow}>
+          <View style={ov.tile}>
             <Text style={s.cardLabel}>Sua autoavaliação</Text>
-            <Text style={s.cardMid}>{selfFav != null ? fmtPct(selfFav, 1) : '—'}</Text>
+            <Text style={ov.value}>{selfFav != null ? fmtPct(selfFav, 1) : '—'}</Text>
             {selfFav != null && (() => {
               // Subtrai os valores já arredondados a 1 casa (os mesmos impressos
               // na página), não os precisos — pro leitor conseguir refazer a
               // conta com os números que vê e chegar no mesmo resultado.
               const diffPp = Math.round(selfFav * 10) / 10 - Math.round(geralFav.favoravel * 10) / 10
               return (
-                <Text style={{ fontSize: 7, color: C.muted, marginTop: 3 }}>
-                  {diffPp >= 0 ? '+' : ''}{fmt(diffPp, 1)} p.p. em relação à favorabilidade geral
+                <Text style={ov.desc}>
+                  {diffPp >= 0 ? '+' : ''}{fmt(diffPp, 1)} pontos percentuais em relação aos {fmtPct(geralFav.favoravel, 1)} dos avaliadores
                 </Text>
               )
             })()}
           </View>
-        </View>
-      </View>
-
-      <View style={{ display: 'flex', flexDirection: 'row', gap: 10, marginTop: 10 }}>
-        <View style={[s.card, { flex: 1 }]}>
-          <Text style={s.cardLabel}>Em relação ao grupo comparativo</Text>
-          {groupMean == null ? (
-            <Text style={{ fontSize: 11, fontFamily: 'Carlito-Bold', color: C.muted }}>Sem dado de comparação</Text>
-          ) : (
-            <>
-              <Text style={{ fontSize: 13, fontFamily: 'Carlito-Bold', color: diffRelevant ? (diff! > 0 ? C.green : C.red) : C.navy }}>
-                {diffRelevant ? (diff! > 0 ? 'Acima do grupo' : 'Abaixo do grupo') : 'Sem diferença relevante'}
-              </Text>
-              <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 4, lineHeight: 1.4 }}>
-                {diff! >= 0 ? '+' : ''}{fmt(diff, 2)} sobre a média do grupo, de {fmt(groupMean, 2)}. Para ficar acima ou abaixo, a diferença
-                precisaria passar de {fmt(margem, 2)}.
-              </Text>
-            </>
-          )}
-        </View>
-        <View style={[s.card, { flex: 1 }]}>
-          <Text style={s.cardLabel}>Confiabilidade do resultado</Text>
-          {reliability ? (
-            <>
-              <Text style={{ fontSize: 13, fontFamily: 'Carlito-Bold', color: tierColor(reliability.tier) }}>{tierLabel(reliability.tier)}</Text>
-              <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 4, lineHeight: 1.4 }}>{reliabilityReason(reliability)}</Text>
-            </>
-          ) : <Text style={{ fontSize: 9, color: C.muted }}>—</Text>}
+          <View style={ov.tile}>
+            <Text style={s.cardLabel}>Confiabilidade do resultado</Text>
+            {reliability ? (
+              <>
+                <Text style={[ov.category, { color: C.navy }]}>{tierLabel(reliability.tier)}</Text>
+                <Text style={ov.desc}>{reliabilityReason(reliability)}</Text>
+              </>
+            ) : <Text style={[ov.category, { color: C.muted }]}>—</Text>}
+          </View>
+         </View>
         </View>
       </View>
 
       {reliability && (
         <View style={s.calloutOrange}>
-          <Text style={s.calloutTitle}>Cuidado na leitura</Text>
           <Text style={s.calloutText}>
+            <Text style={{ fontFamily: 'Carlito-Bold' }}>Cuidado na leitura.</Text>{' '}
             Com {reliability.n_avaliadores} avaliadores no resultado geral, diferenças pequenas podem ser efeito
             do acaso. Por isso o relatório só trata como diferença real o que passa do limiar de leitura de{' '}
             {fmt(reliability.limiar_leitura, 1)} ponto.
@@ -797,35 +827,33 @@ function OverviewPage(props: {
         </View>
       )}
 
-      <Text style={s.sectionLabel}>Resultado por grupo de avaliadores</Text>
+      <Text style={[s.sectionLabel, { marginTop: 6 }]}>Resultado por grupo de avaliadores</Text>
       <View style={s.tableHeader}>
-        <Text style={[s.th, { width: 100 }]}>Grupo</Text>
-        <Text style={[s.th, { width: 44, textAlign: 'right', marginRight: 8 }]}>Pessoas</Text>
+        <Text style={[s.th, { width: 104 }]}>Grupo</Text>
+        <Text style={[s.th, { width: 40, textAlign: 'right', marginRight: 10 }]}>Pessoas</Text>
         <Text style={[s.th, { flex: 1 }]}>Favorabilidade</Text>
-        <Text style={[s.th, { width: 46, textAlign: 'right' }]}>Favor.</Text>
+        <Text style={[s.th, { width: 52, textAlign: 'right' }]}>Favorável</Text>
         <Text style={[s.th, { width: 40, textAlign: 'right' }]}>Neutro</Text>
-        <Text style={[s.th, { width: 52, textAlign: 'right' }]}>Desfav.</Text>
-        <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Média</Text>
+        <Text style={[s.th, { width: 64, textAlign: 'right' }]}>Desfavorável</Text>
+        <Text style={[s.th, { width: 36, textAlign: 'right' }]}>Média</Text>
       </View>
       {GROUP_ORDER.map((code) => {
         const g = groups.find((x) => x.code === code)
         if (!g || g.n === 0) return null
         return (
           <View key={code} style={s.tableRow}>
-            <View style={{ width: 100 }}>
-              <Text style={[s.td, { fontFamily: 'Carlito-Bold' }]}>{GROUP_LABEL[code]}</Text>
-              {!GERAL_ENTRA[code] && <Text style={{ fontSize: 6, color: C.muted }}>não entra</Text>}
+            <View style={{ width: 104 }}>
+              <Text style={[s.td, { fontSize: 9.5, fontFamily: 'Carlito-Bold' }]}>{GROUP_LABEL[code]}</Text>
+              {!GERAL_ENTRA[code] && <Text style={[s.badge, { fontSize: 7.3, backgroundColor: C.neutralTagBg, color: C.neutralTag, alignSelf: 'flex-start', marginTop: 3 }]}>não entra</Text>}
             </View>
-            <Text style={[s.td, { width: 44, textAlign: 'right', marginRight: 8 }]}>{g.n}</Text>
-            <View style={{ flex: 1, height: 7, backgroundColor: C.cream, borderRadius: 3, flexDirection: 'row', overflow: 'hidden', marginRight: 4 }}>
-              <View style={{ width: `${g.fav.favoravel}%`, backgroundColor: GERAL_ENTRA[code] ? C.blue : '#b9c3cf' }} />
-              <View style={{ width: `${g.fav.neutro}%`, backgroundColor: '#d1d5db' }} />
-              <View style={{ width: `${g.fav.desfavoravel}%`, backgroundColor: C.red }} />
+            <Text style={[s.td, { width: 40, fontSize: 9.5, color: C.sub, textAlign: 'right', marginRight: 10 }]}>{g.n}</Text>
+            <View style={{ flex: 1, height: 9, backgroundColor: '#f1f0ec', borderRadius: 2, flexDirection: 'row', overflow: 'hidden', marginRight: 6 }}>
+              <View style={{ width: `${g.fav.favoravel}%`, backgroundColor: GERAL_ENTRA[code] ? C.blue : '#99a2ac' }} />
             </View>
-            <Text style={[s.td, { width: 46, textAlign: 'right', fontFamily: 'Carlito-Bold' }]}>{fmtPct(g.fav.favoravel, 1)}</Text>
-            <Text style={[s.td, { width: 40, textAlign: 'right', color: C.muted }]}>{fmtPct(g.fav.neutro, 1)}</Text>
-            <Text style={[s.td, { width: 52, textAlign: 'right', color: C.muted }]}>{fmtPct(g.fav.desfavoravel, 1)}</Text>
-            <Text style={[s.td, { width: 34, textAlign: 'right' }]}>{fmt(g.mean)}</Text>
+            <Text style={[s.td, { width: 52, fontSize: 9.5, textAlign: 'right', fontFamily: 'Carlito-Bold' }]}>{fmtPct(g.fav.favoravel, 1)}</Text>
+            <Text style={[s.td, { width: 40, fontSize: 9.5, textAlign: 'right' }]}>{fmtPct(g.fav.neutro, 1)}</Text>
+            <Text style={[s.td, { width: 64, fontSize: 9.5, textAlign: 'right' }]}>{fmtPct(g.fav.desfavoravel, 1)}</Text>
+            <Text style={[s.td, { width: 36, fontSize: 9.5, textAlign: 'right' }]}>{fmt(g.mean)}</Text>
           </View>
         )
       })}
@@ -838,7 +866,7 @@ function OverviewPage(props: {
           {largestGeral != null && (
             ` O maior grupo do resultado geral é ${GROUP_LABEL[largestGeral.code].toLowerCase()}, com ${largestGeral.n} dos ${geralN} avaliadores (${fmtPct((largestGeral.n / geralN) * 100, 1)}) e ${fmtPct(largestGeral.fav.favoravel, 1)} de favorabilidade.` +
             (othersGeral.length > 1 && othersGeralFav != null
-              ? ` ${joinWithE(othersGeral.map((g) => GROUP_LABEL[g.code]))}, juntos, têm ${fmtPct(othersGeralFav.favoravel, 1)} de favorabilidade.`
+              ? ` ${capitalize(joinWithE(othersGeral.map((g) => GROUP_LABEL[g.code].toLowerCase())))}, juntos, têm ${fmtPct(othersGeralFav.favoravel, 1)} de favorabilidade.`
               : othersGeral.length === 1 && othersGeralFav != null
               ? ` ${GROUP_LABEL[othersGeral[0].code]} tem ${fmtPct(othersGeralFav.favoravel, 1)} de favorabilidade.`
               : '')
@@ -853,8 +881,15 @@ function OverviewPage(props: {
   )
 }
 
+const ov = StyleSheet.create({
+  tileRow:  { flexGrow: 1, flexShrink: 0, display: 'flex', flexDirection: 'row', gap: 12 },
+  tile:     { flex: 1, border: `0.75pt solid ${C.border}`, borderRadius: 6, paddingTop: 9, paddingBottom: 9, paddingLeft: 10, paddingRight: 10 },
+  value:    { fontSize: 22, fontFamily: 'Carlito-Bold', color: C.text, marginTop: 1 },
+  category: { fontSize: 15, fontFamily: 'Carlito-Bold', lineHeight: 1.1, marginTop: 1 },
+  desc:     { fontSize: 8, color: C.muted, lineHeight: 1.4, marginTop: 4 },
+})
+
 function tierLabel(t: string): string { return t === 'bom' ? 'Bom' : t === 'atencao' ? 'Atenção' : 'Frágil' }
-function tierColor(t: string): string { return t === 'bom' ? C.green : t === 'atencao' ? C.orangeTag : C.red }
 
 function reliabilityReason(r: ReliabilityInfo): string {
   const reasons: string[] = []
@@ -900,7 +935,7 @@ function buildSynthesisBullets(
   if (geralGroups.length >= 2) {
     const top = geralGroups[0], bot = geralGroups[geralGroups.length - 1]
     bullets.push(
-      `Entre os grupos do resultado geral, o mais favorável é ${GROUP_LABEL[top.code]} com ${fmtPct(top.fav.favoravel, 1)} (n=${top.n}) e o menos favorável é ${GROUP_LABEL[bot.code]} com ${fmtPct(bot.fav.favoravel, 1)} (n=${bot.n}).`
+      `Entre os grupos do resultado geral, o mais favorável é ${GROUP_LABEL[top.code].toLowerCase()} com ${fmtPct(top.fav.favoravel, 1)} (n=${top.n}) e o menos favorável é ${GROUP_LABEL[bot.code].toLowerCase()} com ${fmtPct(bot.fav.favoravel, 1)} (n=${bot.n}).`
     )
   }
 
@@ -935,7 +970,7 @@ function buildSynthesisBullets(
     const entries = Object.entries(counts).sort((a, b) => b[1] - a[1])
     if (entries.length > 0) {
       const [code, count] = entries[0]
-      bullets.push(`Nas ${top10.length} perguntas de maior divergência, o grupo menos favorável é ${GROUP_LABEL[code] ?? code} em ${count} delas.`)
+      bullets.push(`Nas ${top10.length} perguntas de maior divergência, o grupo menos favorável é ${(GROUP_LABEL[code] ?? code).toLowerCase()} em ${count} delas.`)
     }
   }
 
@@ -946,7 +981,7 @@ function buildSynthesisBullets(
       .map((g) => ({ code: g.code, n: Object.entries(g.dist).filter(([k]) => Number(k) <= scale.min + 1).reduce((s2, [, v]) => s2 + v, 0) }))
       .filter((x) => x.n > 0)
       .sort((a, b) => b.n - a.n)
-    const desc = byGroup.map((x) => `${x.n} de ${GROUP_LABEL[x.code]}`).join(' e ')
+    const desc = byGroup.map((x) => `${x.n} de ${GROUP_LABEL[x.code].toLowerCase()}`).join(' e ')
     bullets.push(`O resultado geral tem ${desfavTotal} ${desfavTotal === 1 ? 'resposta' : 'respostas'} ${scale.min} ou ${scale.min + 1}, de ${respTotal}. Dessas, ${desc}.`)
   }
 
@@ -989,9 +1024,9 @@ function SynthesisPage(props: {
         interpretação. Servem como mapa para a conversa.
       </Text>
       {bullets.map((b, i) => (
-        <View key={i} style={{ display: 'flex', flexDirection: 'row', marginBottom: 9 }}>
-          <Text style={{ width: 10, fontSize: 9, color: C.navy }}>-</Text>
-          <Text style={{ flex: 1, fontSize: 9, color: C.text, lineHeight: 1.5 }}>{b}</Text>
+        <View key={i} style={{ display: 'flex', flexDirection: 'row', marginBottom: 10, paddingLeft: 4 }}>
+          <Text style={{ width: 14, fontSize: 10.5, color: C.text }}>•</Text>
+          <Text style={{ flex: 1, fontSize: 10.5, color: C.text, lineHeight: 1.45 }}>{b}</Text>
         </View>
       ))}
       <View style={s.howToRead}>
@@ -1019,50 +1054,66 @@ function CompetencyResultsPage(props: { personName: string; tenantName: string; 
         para a menos reconhecida.
         {hasBenchmark && ' O traço na barra marca a favorabilidade média do grupo comparativo na mesma competência.'}
       </Text>
+      <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: -2, marginBottom: 10 }}>
+        {([['Favorável', `(${props.scale.max - 1} ou ${props.scale.max})`, C.blue], ['Neutro', `(${props.scale.max - 2})`, NEUTRAL_BAR], ['Desfavorável', `(${props.scale.min} ou ${props.scale.min + 1})`, C.red]] as const).map(([label, range, color]) => (
+          <View key={label} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 7, height: 7, backgroundColor: color }} />
+            <Text style={{ fontSize: 8.5, color: C.muted }}>{label} {range}</Text>
+          </View>
+        ))}
+        {hasBenchmark && (
+          <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 1.5, height: 10, backgroundColor: C.navyDark }} />
+            <Text style={{ fontSize: 8.5, color: C.muted }}>Média do grupo comparativo</Text>
+          </View>
+        )}
+      </View>
       <View style={s.tableHeader}>
-        <Text style={[s.th, { width: 120 }]}>Competência</Text>
+        <Text style={[s.th, { width: 96 }]}>Competência</Text>
         <Text style={[s.th, { flex: 1 }]}>Distribuição</Text>
-        <Text style={[s.th, { width: 44, textAlign: 'right' }]}>Favor.</Text>
+        <Text style={[s.th, { width: 50, textAlign: 'right' }]}>Favorável</Text>
         <Text style={[s.th, { width: 40, textAlign: 'right' }]}>Neutro</Text>
-        <Text style={[s.th, { width: 44, textAlign: 'right' }]}>Desfav.</Text>
-        <Text style={[s.th, { width: 34, textAlign: 'right', marginRight: 8 }]}>Média</Text>
-        <Text style={[s.th, { width: 76 }]}>Faixa</Text>
+        <Text style={[s.th, { width: 42, textAlign: 'right' }]}>Desfav.</Text>
+        <Text style={[s.th, { width: 36, textAlign: 'right', marginRight: 6 }]}>Média</Text>
+        <Text style={[s.th, { width: 92, textAlign: 'center' }]}>Faixa</Text>
       </View>
       {ranked.map((c) => {
         const f = faixa(c.fav.favoravel)
         const benchFav = props.benchmark?.[c.id]?.fav_avg
         return (
           <View key={c.id} style={s.tableRow}>
-            <View style={{ width: 120 }}>
-              <Text style={[s.td, { fontFamily: 'Carlito-Bold' }]}>{c.name}</Text>
-              <Text style={{ fontSize: 6, color: C.light }}>perguntas {c.questionNumbers.join(', ')}</Text>
+            <View style={{ width: 96 }}>
+              <Text style={[s.td, { fontSize: 9.5, fontFamily: 'Carlito-Bold' }]}>{c.name}</Text>
+              <Text style={{ fontSize: 8, fontFamily: 'Carlito-Bold', color: C.sub, marginTop: 1 }}>perguntas {c.questionNumbers.join(', ')}</Text>
             </View>
-            <View style={{ flex: 1, position: 'relative', marginRight: 4 }}>
-              <View style={{ height: 7, backgroundColor: C.cream, borderRadius: 3, flexDirection: 'row', overflow: 'hidden' }}>
+            <View style={{ flex: 1, position: 'relative', marginRight: 6 }}>
+              <View style={{ height: 9, backgroundColor: '#f1f0ec', borderRadius: 2, flexDirection: 'row', overflow: 'hidden' }}>
                 <View style={{ width: `${c.fav.favoravel}%`, backgroundColor: C.blue }} />
-                <View style={{ width: `${c.fav.neutro}%`, backgroundColor: '#d1d5db' }} />
+                <View style={{ width: `${c.fav.neutro}%`, backgroundColor: NEUTRAL_BAR }} />
                 <View style={{ width: `${c.fav.desfavoravel}%`, backgroundColor: C.red }} />
               </View>
               {benchFav != null && (
-                <View style={{ position: 'absolute', left: `${benchFav}%`, top: -1, width: 1.2, height: 9, backgroundColor: C.navy }} />
+                <View style={{ position: 'absolute', left: `${benchFav}%`, top: -2, width: 1.5, height: 13, backgroundColor: C.navyDark }} />
               )}
             </View>
-            <Text style={[s.td, { width: 44, textAlign: 'right', fontFamily: 'Carlito-Bold' }]}>{fmtPct(c.fav.favoravel, 1)}</Text>
-            <Text style={[s.td, { width: 40, textAlign: 'right', color: C.muted }]}>{fmtPct(c.fav.neutro, 1)}</Text>
-            <Text style={[s.td, { width: 44, textAlign: 'right', color: C.muted }]}>{fmtPct(c.fav.desfavoravel, 1)}</Text>
-            <Text style={[s.td, { width: 34, textAlign: 'right', marginRight: 8 }]}>{fmt(c.mean)}</Text>
-            <View style={{ width: 76 }}>
-              <Text style={[s.badge, { backgroundColor: f.bg, color: f.color }]}>{f.label}</Text>
+            <Text style={[s.td, { width: 50, fontSize: 9.5, textAlign: 'right', fontFamily: 'Carlito-Bold' }]}>{fmtPct(c.fav.favoravel, 1)}</Text>
+            <Text style={[s.td, { width: 40, fontSize: 9.5, textAlign: 'right' }]}>{fmtPct(c.fav.neutro, 1)}</Text>
+            <Text style={[s.td, { width: 42, fontSize: 9.5, textAlign: 'right' }]}>{fmtPct(c.fav.desfavoravel, 1)}</Text>
+            <Text style={[s.td, { width: 36, fontSize: 9.5, textAlign: 'right', marginRight: 6 }]}>{fmt(c.mean)}</Text>
+            <View style={{ width: 92, alignItems: 'center' }}>
+              <Text style={[s.pill, { backgroundColor: f.bg, color: f.color }]}>{f.label}</Text>
             </View>
           </View>
         )
       })}
-      <View style={{ display: 'flex', flexDirection: 'row', gap: 10, marginTop: 10 }}>
-        {(['Ponto forte', 'Adequado com atenção', 'Oportunidade de melhoria', 'Prioridade'] as const).map((label) => {
-          const f = faixa(label === 'Ponto forte' ? 90 : label === 'Adequado com atenção' ? 70 : label === 'Oportunidade de melhoria' ? 50 : 10)
+      {/* Legenda das faixas, com o intervalo de cada uma (como no modelo). */}
+      <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+        {([['Ponto forte', 90, '80% ou mais'], ['Adequado com atenção', 70, 'de 60% a menos de 80%'], ['Oportunidade de melhoria', 50, 'de 40% a menos de 60%'], ['Prioridade', 10, 'menos de 40%']] as const).map(([label, sample, range]) => {
+          const f = faixa(sample)
           return (
-            <View key={label} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <Text style={[s.badge, { backgroundColor: f.bg, color: f.color }]}>{label}</Text>
+            <View key={label} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 5, marginRight: 12, marginBottom: 5 }}>
+              <Text style={[s.pill, { backgroundColor: f.bg, color: f.color }]}>{label}</Text>
+              <Text style={{ fontSize: 8.3, color: C.muted }}>{range}</Text>
             </View>
           )
         })}
@@ -1084,36 +1135,53 @@ function CompetencyResultsPage(props: { personName: string; tenantName: string; 
 
 // ─── 7. Competências por perspectiva ────────────────────────────────────────
 
-function heatColor(pct: number): string {
-  const t = Math.max(0, Math.min(1, pct / 100))
-  const r = Math.round(214 + (41 - 214) * t)
-  const g = Math.round(224 + (120 - 224) * t)
-  const b = Math.round(238 + (213 - 238) * t)
-  return `rgb(${r},${g},${b})`
+/** Escala do mapa de calor: 11 tons de azul, um a cada 10 pontos
+ * percentuais (valor arredondado à dezena mais próxima), iguais aos do
+ * modelo de referência. A partir do 8º tom o número fica branco. */
+const HEAT_STEPS = ['#f2f6fd', '#e7f1fb', '#dae8fa', '#cce2fa', '#b6d3f5', '#9dc4f4', '#86b5ef', '#6da6ec', '#5498e7', '#3886e4', '#2978d5']
+const HEAT_DARK_FROM = 8
+/** Fundo das colunas fora do resultado geral (Auto e Cli. int.). */
+const OUT_OF_GERAL_BG = '#f5f4f0'
+
+function heatStep(pct: number): number {
+  return Math.max(0, Math.min(HEAT_STEPS.length - 1, Math.round(pct / 10)))
 }
 
-function HeatLegend({ width = 200 }: { width?: number }) {
+function HeatLegend() {
   return (
-    <View style={{ alignItems: 'center', marginTop: 6 }}>
-      <Svg width={width} height={8}>
-        <Defs>
-          <LinearGradient id="heatGrad" x1="0" y1="0" x2="1" y2="0">
-            <Stop offset="0" stopColor={heatColor(0)} />
-            <Stop offset="1" stopColor={heatColor(100)} />
-          </LinearGradient>
-        </Defs>
-        <Rect x={0} y={0} width={width} height={8} rx={2} fill="url(#heatGrad)" />
-      </Svg>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', width, marginTop: 2 }}>
-        <Text style={{ fontSize: 6, color: C.light }}>0%</Text>
-        <Text style={{ fontSize: 6, color: C.light }}>100%</Text>
+    <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 5, marginTop: 6, marginRight: 22 }}>
+      <Text style={{ fontSize: 8, color: C.light }}>0%</Text>
+      <View style={{ display: 'flex', flexDirection: 'row' }}>
+        {HEAT_STEPS.map((color) => <View key={color} style={{ width: 20, height: 8, backgroundColor: color }} />)}
       </View>
+      <Text style={{ fontSize: 8, color: C.light }}>100%</Text>
     </View>
   )
 }
 
 const PERSPECTIVE_COL_ORDER = ['geral', 'manager', 'manager_superior', 'peer', 'subordinate', 'self', 'client']
 const PERSPECTIVE_COL_LABEL: Record<string, string> = { geral: 'Geral', ...GROUP_SHORT }
+const PERSPECTIVE_NAME_W = 121
+/** Espaço branco que separa a coluna Geral das colunas por grupo. */
+const PERSPECTIVE_GERAL_GAP = 4.5
+
+function PerspectiveHeader({ cols, nOf }: { cols: string[]; nOf: (code: string) => number | undefined }) {
+  return (
+    <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-end', borderBottom: `0.75pt solid ${C.borderStrong}`, paddingBottom: 4 }}>
+      <Text style={[s.th, { width: PERSPECTIVE_NAME_W, paddingLeft: 6 }]}>Competência</Text>
+      {cols.map((c) => {
+        const out = c === 'self' || c === 'client'
+        const color = out ? '#7c8187' : C.light
+        return (
+          <View key={c} style={{ flex: 1, alignItems: 'center', marginRight: c === 'geral' ? PERSPECTIVE_GERAL_GAP : 0 }}>
+            <Text style={[s.th, { color }]}>{PERSPECTIVE_COL_LABEL[c] ?? c}</Text>
+            <Text style={{ fontSize: 7.8, color, marginTop: 1 }}>n={nOf(c)}</Text>
+          </View>
+        )
+      })}
+    </View>
+  )
+}
 
 function PerspectivePage(props: {
   personName: string; tenantName: string; cycleLabel: string
@@ -1123,6 +1191,7 @@ function PerspectivePage(props: {
   const ranked = [...comps].sort((a, b) => b.fav.favoravel - a.fav.favoravel || (b.mean ?? 0) - (a.mean ?? 0))
   const geralN = groups.filter((g) => GERAL_ENTRA[g.code]).reduce((s2, g) => s2 + g.n, 0)
   const cols = PERSPECTIVE_COL_ORDER.filter((c) => c === 'geral' ? geralN > 0 : (groups.find((g) => g.code === c)?.n ?? 0) > 0)
+  const nOf = (c: string) => c === 'geral' ? geralN : groups.find((g) => g.code === c)?.n
 
   function cell(comp: CompAgg, code: string): { pct: number | null; mean: number | null } {
     if (code === 'geral') return { pct: comp.fav.total > 0 ? comp.fav.favoravel : null, mean: comp.mean }
@@ -1133,39 +1202,32 @@ function PerspectivePage(props: {
     return { pct: fav.total > 0 ? fav.favoravel : null, mean: meanFromDist(dist) }
   }
 
-  function HeaderRow() {
-    return (
-      <View style={s.tableHeader}>
-        <Text style={[s.th, { width: 100 }]}>Competência</Text>
-        {cols.map((c) => (
-          <Text key={c} style={[s.th, { flex: 1, textAlign: 'right' }]}>{PERSPECTIVE_COL_LABEL[c] ?? c}{'\n'}n={c === 'geral' ? geralN : groups.find((g) => g.code === c)?.n}</Text>
-        ))}
-      </View>
-    )
-  }
-
-  const compactRow = { paddingTop: 3, paddingBottom: 3 }
-
   return (
     <PageChrome label="Perspectivas" {...props}>
       <Text style={s.h1}>Competências por perspectiva</Text>
       <Text style={s.intro}>Favorabilidade de cada competência em cada grupo de avaliadores, em porcentagem e em média.</Text>
 
-      <Text style={s.sectionLabel}>Favorabilidade (%)</Text>
-      <HeaderRow />
+      {/* Mapa de calor: célula inteira pintada, separada por fios brancos. */}
+      <PerspectiveHeader cols={cols} nOf={nOf} />
       {ranked.map((c) => (
-        <View key={c.id} style={[s.tableRow, compactRow]} wrap={false}>
-          <Text style={[s.td, { width: 100, fontFamily: 'Carlito-Bold' }]}>{c.name}</Text>
+        <View key={c.id} style={{ display: 'flex', flexDirection: 'row', height: 19.8 }} wrap={false}>
+          <View style={{ width: PERSPECTIVE_NAME_W, justifyContent: 'center', paddingLeft: 6, borderBottom: `0.75pt solid ${C.border}` }}>
+            <Text style={{ fontSize: 9.5, fontFamily: 'Carlito-Bold', color: C.text }}>{c.name}</Text>
+          </View>
           {cols.map((code) => {
             const v = cell(c, code)
-            const outOfGeral = code === 'self' || code === 'client'
+            const out = code === 'self' || code === 'client'
+            const step = v.pct != null ? heatStep(v.pct) : null
             return (
-              <View key={code} style={{ flex: 1, alignItems: 'flex-end', paddingRight: 2 }}>
+              <View key={code} style={{
+                flex: 1, justifyContent: 'center', alignItems: 'center',
+                backgroundColor: out || step == null ? OUT_OF_GERAL_BG : HEAT_STEPS[step],
+                borderRight: `1.5pt solid ${C.white}`, borderBottom: `1.5pt solid ${C.white}`,
+                marginRight: code === 'geral' ? PERSPECTIVE_GERAL_GAP - 1.5 : 0,
+              }}>
                 <Text style={{
-                  fontSize: 7.2, fontFamily: outOfGeral ? 'Carlito' : 'Carlito-Bold',
-                  color: outOfGeral ? C.muted : (v.pct != null && v.pct >= 60 ? C.white : C.text),
-                  backgroundColor: outOfGeral ? C.cream : (v.pct != null ? heatColor(v.pct) : C.cream),
-                  paddingVertical: 1.5, paddingHorizontal: 4, borderRadius: 2,
+                  fontSize: 9, fontFamily: out ? 'Carlito' : 'Carlito-Bold',
+                  color: out ? C.sub : (step != null && step >= HEAT_DARK_FROM ? C.white : C.text),
                 }}>
                   {v.pct != null ? fmt(v.pct, 1) : '—'}
                 </Text>
@@ -1176,20 +1238,28 @@ function PerspectivePage(props: {
       ))}
       <HeatLegend />
 
-      <Text style={[s.sectionLabel, { marginTop: 10 }]}>
-        Média (escala de {getScale('frequency_5_strict').min} a {getScale('frequency_5_strict').max})
+      <Text style={[s.sectionLabel, { marginTop: 8 }]}>
+        As mesmas competências em média, de {getScale('frequency_5_strict').min} a {getScale('frequency_5_strict').max}
       </Text>
-      <HeaderRow />
+      <PerspectiveHeader cols={cols} nOf={nOf} />
       {ranked.map((c) => (
-        <View key={c.id} style={[s.tableRow, compactRow]} wrap={false}>
-          <Text style={[s.td, { width: 100, fontFamily: 'Carlito-Bold' }]}>{c.name}</Text>
+        <View key={c.id} style={{ display: 'flex', flexDirection: 'row', height: 16, borderBottom: `0.75pt solid ${C.border}` }} wrap={false}>
+          <View style={{ width: PERSPECTIVE_NAME_W, justifyContent: 'center', paddingLeft: 6 }}>
+            <Text style={{ fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{c.name}</Text>
+          </View>
           {cols.map((code) => {
             const v = cell(c, code)
-            const outOfGeral = code === 'self' || code === 'client'
+            const out = code === 'self' || code === 'client'
             return (
-              <Text key={code} style={{ flex: 1, textAlign: 'right', fontSize: 7.6, color: outOfGeral ? C.light : C.text }}>
-                {v.mean != null ? fmt(v.mean, 2) : '—'}
-              </Text>
+              <View key={code} style={{
+                flex: 1, justifyContent: 'center', alignItems: 'center',
+                backgroundColor: out ? OUT_OF_GERAL_BG : undefined,
+                marginRight: code === 'geral' ? PERSPECTIVE_GERAL_GAP : 0,
+              }}>
+                <Text style={{ fontSize: 9, fontFamily: code === 'geral' ? 'Carlito-Bold' : 'Carlito', color: out ? C.sub : C.text }}>
+                  {v.mean != null ? fmt(v.mean, 2) : '—'}
+                </Text>
+              </View>
             )
           })}
         </View>
@@ -1214,24 +1284,32 @@ function PerspectivePage(props: {
 
 // ─── Dumbbell mini-chart ────────────────────────────────────────────────────
 
-function Dumbbell({ width, aFrac, bFrac, diffColor, ticks = [] }: { width: number; aFrac: number; bFrac: number; diffColor: string; ticks?: number[] }) {
-  const h = 12
-  const ax = Math.max(3, Math.min(width - 3, aFrac * width))
-  const bx = Math.max(3, Math.min(width - 3, bFrac * width))
+function Dumbbell({ width, aFrac, bFrac, aColor = C.orange, ticks = [] }: { width: number; aFrac: number; bFrac: number; aColor?: string; ticks?: number[] }) {
+  // Losango (a) e círculo azul (b) com contorno branco, ligados por uma
+  // linha cinza, sobre linhas-guia verticais — medidas do modelo.
+  const h = 13.5
+  const pad = 4.5
+  const ax = pad + Math.max(0, Math.min(1, aFrac)) * (width - pad * 2)
+  const bx = pad + Math.max(0, Math.min(1, bFrac)) * (width - pad * 2)
   const y = h / 2
   return (
     <Svg width={width} height={h}>
       {ticks.map((f) => (
-        <Line key={f} x1={f * width} y1={0} x2={f * width} y2={h} stroke={C.border} strokeWidth={0.5} />
+        <Line key={f} x1={pad + f * (width - pad * 2)} y1={0} x2={pad + f * (width - pad * 2)} y2={h} stroke="#ebe9e3" strokeWidth={0.75} />
       ))}
-      <Line x1={Math.min(ax, bx)} y1={y} x2={Math.max(ax, bx)} y2={y} stroke={diffColor} strokeWidth={1.2} />
-      <Circle cx={bx} cy={y} r={3} fill={C.blue} />
-      <Polygon points={`${ax},${y - 3.6} ${ax + 3.6},${y} ${ax},${y + 3.6} ${ax - 3.6},${y}`} fill={C.orange} />
+      <Line x1={Math.min(ax, bx)} y1={y} x2={Math.max(ax, bx)} y2={y} stroke="#b9b6ae" strokeWidth={1.5} />
+      <Circle cx={bx} cy={y} r={3.75} fill={C.blue} stroke={C.white} strokeWidth={1.2} />
+      <Polygon points={`${ax},${y - 4.5} ${ax + 4.5},${y} ${ax},${y + 4.5} ${ax - 4.5},${y}`} fill={aColor} stroke={C.white} strokeWidth={1} />
     </Svg>
   )
 }
 
 // ─── 8. Autopercepção ───────────────────────────────────────────────────────
+
+/** Eixo dos dumbbells da tabela de Autopercepção (3,0 a 5,0), com a escala
+ * no cabeçalho e linhas-guia a cada 0,5 ponto, como no modelo. */
+const SELF_TRACK = 140
+const SELF_TICKS = [0, 0.25, 0.5, 0.75, 1]
 
 function SelfPerceptionRadar({ ranked, domainMin, domainMax, r = 68 }: {
   ranked: { id: string; name: string; selfMean: number; mean: number }[]
@@ -1283,7 +1361,7 @@ function SelfPerceptionRadar({ ranked, domainMin, domainMax, r = 68 }: {
         const f = (gi + 1) / RINGS
         const val = domainMin + f * (domainMax - domainMin)
         return (
-          <Text key={`rl${gi}`} x={cx + 3} y={cy - r * f + 2} style={{ fontSize: 5, fill: '#9ca3af', fontFamily: 'Carlito' } as object}>
+          <Text key={`rl${gi}`} x={cx + 3} y={cy - r * f + 2} style={{ fontSize: 4.5, fill: C.light, fontFamily: 'Carlito' } as object}>
             {fmt(val, 1)}
           </Text>
         )
@@ -1298,7 +1376,7 @@ function SelfPerceptionRadar({ ranked, domainMin, domainMax, r = 68 }: {
         const label = ranked[i].name
         const truncated = label.length > 18 ? label.slice(0, 17) + '…' : label
         return (
-          <Text key={`l${i}`} x={tp.x} y={tp.y + 2} textAnchor={tp.anchor} style={{ fontSize: 5.5, fill: '#6b7280', fontFamily: 'Carlito-Bold' } as object}>
+          <Text key={`l${i}`} x={tp.x} y={tp.y + 2} textAnchor={tp.anchor} style={{ fontSize: 6, fill: C.muted, fontFamily: 'Carlito' } as object}>
             {truncated}
           </Text>
         )
@@ -1339,15 +1417,15 @@ function SelfPerceptionPage(props: {
               <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
                 <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <Svg width={8} height={8}><Polygon points="4,0.5 7.5,4 4,7.5 0.5,4" fill={C.orange} /></Svg>
-                  <Text style={{ fontSize: 7.5, color: C.muted }}>Autoavaliação</Text>
+                  <Text style={{ fontSize: 8.5, color: C.muted }}>Autoavaliação</Text>
                 </View>
                 <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <Svg width={8} height={8}><Circle cx={4} cy={4} r={3.4} fill={C.blue} /></Svg>
-                  <Text style={{ fontSize: 7.5, color: C.muted }}>Avaliadores</Text>
+                  <Text style={{ fontSize: 8.5, color: C.muted }}>Avaliadores</Text>
                 </View>
               </View>
-              <View style={{ backgroundColor: C.cream, borderLeft: `3pt solid ${C.blue}`, borderRadius: 3, padding: 8 }}>
-                <Text style={{ fontSize: 7.8, color: C.text, lineHeight: 1.5 }}>
+              <View style={[s.callout, { marginTop: 0, marginBottom: 0, padding: 12 }]}>
+                <Text style={s.calloutText}>
                   Em {acima} competência{acima !== 1 ? 's' : ''} a sua autoavaliação ficou acima da visão dos avaliadores por{' '}
                   {fmt(readingThreshold, 1)} ponto ou mais. Em {alinhado} as duas visões estão alinhadas, e em {abaixo} você se
                   avaliou abaixo do que os avaliadores observam.
@@ -1360,28 +1438,36 @@ function SelfPerceptionPage(props: {
       <View style={s.tableHeader}>
         <Text style={[s.th, { width: 90 }]}>Competência</Text>
         <Text style={[s.th, { width: 32, textAlign: 'right' }]}>Auto</Text>
-        <Text style={[s.th, { width: 60, textAlign: 'right' }]}>Avaliadores</Text>
-        <Text style={[s.th, { flex: 1 }]}></Text>
+        <Text style={[s.th, { width: 60, textAlign: 'right', marginRight: 10 }]}>Avaliadores</Text>
+        <View style={{ flex: 1, alignItems: 'center' }}>
+          <View style={{ width: SELF_TRACK, height: 8, position: 'relative' }}>
+            {SELF_TICKS.map((f) => (
+              <Text key={f} style={[s.th, { position: 'absolute', left: 4.5 + f * (SELF_TRACK - 9) - 12, width: 24, textAlign: 'center', fontFamily: 'Carlito', textTransform: 'none' }]}>
+                {fmt(domainMin + f * (domainMax - domainMin), 1)}
+              </Text>
+            ))}
+          </View>
+        </View>
         <Text style={[s.th, { width: 46, textAlign: 'right', marginRight: 8 }]}>Diferença</Text>
-        <Text style={[s.th, { width: 90 }]}>Leitura</Text>
+        <Text style={[s.th, { width: 90, textAlign: 'center' }]}>Leitura</Text>
       </View>
       {ranked.map((c) => {
         const diff = round2(c.selfMean!) - round2(c.mean!)
         const rel = Math.abs(diff) >= readingThreshold
         const leitura = !rel ? 'Alinhado' : diff > 0 ? 'Autoavaliação acima' : 'Autoavaliação abaixo'
-        const color = !rel ? C.muted : diff > 0 ? C.orangeTag : C.blueTag
-        const bg = !rel ? C.cream : diff > 0 ? C.orangeTagBg : C.blueTagBg
+        const color = !rel ? C.neutralTag : diff > 0 ? C.orangeTag : C.blueTag
+        const bg = !rel ? C.neutralTagBg : diff > 0 ? C.orangeTagBg : C.blueTagBg
         return (
-          <View key={c.id} style={[s.tableRow, { paddingTop: 3.5, paddingBottom: 3.5 }]}>
+          <View key={c.id} style={[s.tableRow, { paddingTop: 5, paddingBottom: 5 }]}>
             <Text style={[s.td, { width: 90, fontFamily: 'Carlito-Bold' }]}>{c.name}</Text>
             <Text style={[s.td, { width: 32, textAlign: 'right' }]}>{fmt(c.selfMean)}</Text>
-            <Text style={[s.td, { width: 60, textAlign: 'right' }]}>{fmt(c.mean)}</Text>
+            <Text style={[s.td, { width: 60, textAlign: 'right', marginRight: 10 }]}>{fmt(c.mean)}</Text>
             <View style={{ flex: 1, alignItems: 'center' }}>
-              <Dumbbell width={90} aFrac={frac(c.selfMean!)} bFrac={frac(c.mean!)} diffColor={C.light} />
+              <Dumbbell width={SELF_TRACK} aFrac={frac(c.selfMean!)} bFrac={frac(c.mean!)} ticks={SELF_TICKS} />
             </View>
             <Text style={[s.td, { width: 46, textAlign: 'right', fontFamily: 'Carlito-Bold', marginRight: 8 }]}>{diff >= 0 ? '+' : ''}{fmt(diff, 2)}</Text>
-            <View style={{ width: 90 }}>
-              <Text style={[s.badge, { backgroundColor: bg, color, alignSelf: 'flex-start' }]}>{leitura}</Text>
+            <View style={{ width: 90, alignItems: 'center' }}>
+              <Text style={[s.badge, { backgroundColor: bg, color }]}>{leitura}</Text>
             </View>
           </View>
         )
@@ -1456,28 +1542,28 @@ function HighlightsPage(props: {
     const text = row.groupMeans
       .filter((g) => GERAL_CODES.includes(g.code) && g.mean != null)
       .map((g) => `${GROUP_SHORT[g.code]} ${fmt(g.mean)}`).join(' · ')
-    return <Text style={{ fontSize: 6.5, color: C.light }}>{row.compName} · média por grupo, {text}</Text>
+    return <Text style={{ fontSize: 8, color: C.sub, marginTop: 1 }}>{row.compName} · média por grupo, {text}</Text>
   }
 
   return (
     <PageChrome label="Destaques" {...props}>
       <Text style={s.h1}>Destaques</Text>
-      <View style={{ display: 'flex', flexDirection: 'row', gap: 14, marginBottom: 16 }}>
-        <View style={{ flex: 1, borderTop: `3pt solid ${C.green}`, backgroundColor: C.cream, borderRadius: 3, padding: 14 }}>
-          <Text style={{ fontSize: 8.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 10 }}>Competências mais reconhecidas</Text>
+      <View style={{ display: 'flex', flexDirection: 'row', gap: 14, marginBottom: 12 }}>
+        <View style={{ flex: 1, borderTop: `3pt solid ${C.green}`, backgroundColor: C.cream, borderRadius: 3, paddingTop: 12, paddingBottom: 8, paddingLeft: 14, paddingRight: 14 }}>
+          <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 10 }}>Competências mais reconhecidas</Text>
           {top3Comp.map((c) => (
-            <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text style={{ fontSize: 8.5, fontFamily: 'Carlito-Bold' }}>{c.name}</Text>
-              <Text style={{ fontSize: 8, color: C.muted }}>{fmtPct(c.fav.favoravel, 1)} · média {fmt(c.mean)}</Text>
+            <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ fontSize: 10, fontFamily: 'Carlito-Bold' }}>{c.name}</Text>
+              <Text style={{ fontSize: 9, color: C.muted }}>{fmtPct(c.fav.favoravel, 1)} · média {fmt(c.mean)}</Text>
             </View>
           ))}
         </View>
-        <View style={{ flex: 1, borderTop: `3pt solid ${C.orange}`, backgroundColor: C.cream, borderRadius: 3, padding: 14 }}>
-          <Text style={{ fontSize: 8.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 10 }}>Competências com mais espaço para evoluir</Text>
+        <View style={{ flex: 1, borderTop: `3pt solid ${C.orange}`, backgroundColor: C.cream, borderRadius: 3, paddingTop: 12, paddingBottom: 8, paddingLeft: 14, paddingRight: 14 }}>
+          <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 10 }}>Competências com mais espaço para evoluir</Text>
           {bottom3Comp.map((c) => (
-            <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text style={{ fontSize: 8.5, fontFamily: 'Carlito-Bold' }}>{c.name}</Text>
-              <Text style={{ fontSize: 8, color: C.muted }}>{fmtPct(c.fav.favoravel, 1)} · média {fmt(c.mean)}</Text>
+            <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ fontSize: 10, fontFamily: 'Carlito-Bold' }}>{c.name}</Text>
+              <Text style={{ fontSize: 9, color: C.muted }}>{fmtPct(c.fav.favoravel, 1)} · média {fmt(c.mean)}</Text>
             </View>
           ))}
         </View>
@@ -1485,40 +1571,44 @@ function HighlightsPage(props: {
 
       <Text style={s.sectionLabel}>Os 5 comportamentos mais reconhecidos</Text>
       {top5.map((r) => (
-        <View key={r.number} style={s.tableRow}>
-          <Text style={{ width: 18, fontSize: 8, fontFamily: 'Carlito-Bold', color: C.navy }}>{r.number}</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
+        <View key={r.number} style={[s.tableRow, { paddingTop: 4.5, paddingBottom: 4.5 }]} wrap={false}>
+          <Text style={{ width: 26, fontSize: 13, fontFamily: 'Carlito-Bold', color: C.navy, textAlign: 'center', marginRight: 8 }}>{r.number}</Text>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text style={{ fontSize: 9.2, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
             <GroupMeansText row={r} />
           </View>
-          <View style={{ width: 70, alignItems: 'flex-end' }}>
-            <Text style={{ fontSize: 10, fontFamily: 'Carlito-Bold', color: C.navy }}>{fmtPct(r.fav, 1)}</Text>
-            <MiniFavBar pct={r.fav} />
-            <Text style={{ fontSize: 6.5, color: C.light, marginTop: 2 }}>média {fmt(r.mean)}</Text>
+          <View style={{ width: 96, alignItems: 'flex-end' }}>
+            <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <MiniFavBar pct={r.fav} width={46} marginTop={0} height={4} />
+              <Text style={{ fontSize: 12, fontFamily: 'Carlito-Bold', color: C.text }}>{fmtPct(r.fav, 1)}</Text>
+            </View>
+            <Text style={{ fontSize: 8, color: C.sub, marginTop: 2 }}>média {fmt(r.mean)}</Text>
           </View>
         </View>
       ))}
       {top5Footnote && (
-        <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 2, lineHeight: 1.4 }}>{top5Footnote}</Text>
+        <Text style={{ fontSize: 8.8, color: C.sub, marginTop: 5, lineHeight: 1.4 }}>{top5Footnote}</Text>
       )}
 
-      <Text style={[s.sectionLabel, { marginTop: 12 }]}>Os 5 comportamentos com mais espaço para evoluir</Text>
+      <Text style={[s.sectionLabel, { marginTop: 10 }]}>Os 5 comportamentos com mais espaço para evoluir</Text>
       {bottom5.map((r) => (
-        <View key={r.number} style={s.tableRow}>
-          <Text style={{ width: 18, fontSize: 8, fontFamily: 'Carlito-Bold', color: C.navy }}>{r.number}</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
+        <View key={r.number} style={[s.tableRow, { paddingTop: 4.5, paddingBottom: 4.5 }]} wrap={false}>
+          <Text style={{ width: 26, fontSize: 13, fontFamily: 'Carlito-Bold', color: C.navy, textAlign: 'center', marginRight: 8 }}>{r.number}</Text>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text style={{ fontSize: 9.2, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
             <GroupMeansText row={r} />
           </View>
-          <View style={{ width: 70, alignItems: 'flex-end' }}>
-            <Text style={{ fontSize: 10, fontFamily: 'Carlito-Bold', color: C.navy }}>{fmtPct(r.fav, 1)}</Text>
-            <MiniFavBar pct={r.fav} />
-            <Text style={{ fontSize: 6.5, color: C.light, marginTop: 2 }}>média {fmt(r.mean)}</Text>
+          <View style={{ width: 96, alignItems: 'flex-end' }}>
+            <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <MiniFavBar pct={r.fav} width={46} marginTop={0} height={4} />
+              <Text style={{ fontSize: 12, fontFamily: 'Carlito-Bold', color: C.text }}>{fmtPct(r.fav, 1)}</Text>
+            </View>
+            <Text style={{ fontSize: 8, color: C.sub, marginTop: 2 }}>média {fmt(r.mean)}</Text>
           </View>
         </View>
       ))}
       {bottom5Footnote && (
-        <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 2, lineHeight: 1.4 }}>{bottom5Footnote}</Text>
+        <Text style={{ fontSize: 8.8, color: C.sub, marginTop: 5, lineHeight: 1.4 }}>{bottom5Footnote}</Text>
       )}
       <View style={s.howToRead}>
         <Text style={s.howToReadTitle}>Como ler</Text>
@@ -1534,14 +1624,45 @@ function HighlightsPage(props: {
 
 // ─── 10. Divergência ─────────────────────────────────────────────────────────
 
-/** Largura do eixo 0–100% dos dumbbells, compartilhada com a escala do cabeçalho. */
-const DIVERGENCE_TRACK = 200
+/** Vermelho do losango do grupo menos favorável. */
+const DIVERGENCE_LOW = '#e34948'
+
+/** Estima quantas linhas um texto ocupa, quebrando por palavra. */
+function estimateLines(text: string, charsPerLine: number): number {
+  let lines = 1, len = 0
+  for (const word of text.split(/\s+/)) {
+    if (len > 0 && len + 1 + word.length > charsPerLine) { lines++; len = word.length }
+    else len += (len > 0 ? 1 : 0) + word.length
+  }
+  return lines
+}
+
+interface DivergenceLayout { promptW: number; track: number; fontSize: number; lineH: number; catSize: number }
+/** Layout do modelo (texto 9 pt, eixo de 210 pt). Se as 10 perguntas não
+ * couberem na página com ele, usa a versão compacta (texto 8 pt, coluna da
+ * pergunta mais larga) — a página nunca pode se dividir em duas, senão a
+ * numeração do Sumário desalinha. */
+function divergenceLayout(rows: DivergenceRow[]): DivergenceLayout {
+  const full: DivergenceLayout = { promptW: 185, track: 210, fontSize: 9, lineH: 12.15, catSize: 8 }
+  const dense: DivergenceLayout = { promptW: 250, track: 150, fontSize: 8, lineH: 10.4, catSize: 7 }
+  // Altura útil pras 10 linhas, com folga pra uma introdução de 3 linhas.
+  // A estimativa (0,47 da fonte por caractere) foi calibrada contra a quebra
+  // real da Carlito: com as perguntas do modelo erra por 1 linha a mais.
+  const ROWS_BUDGET = 510
+  const height = (l: DivergenceLayout) => rows.reduce((h, r) => {
+    const cpl = Math.floor((l.promptW - 8) / (l.fontSize * 0.47))
+    const text = estimateLines(r.question_prompt, cpl) * l.lineH + l.catSize * 1.4
+    return h + Math.max(text, 30) + 9
+  }, 0)
+  return height(full) <= ROWS_BUDGET ? full : dense
+}
 
 function DivergencePage(props: {
   personName: string; tenantName: string; cycleLabel: string
   divergence: DivergenceRow[]; nMinimum: number; relDetailFav: RelationshipDetailFavorabilityRow[]
 }) {
   const sorted = [...props.divergence].sort((a, b) => b.amplitude_points - a.amplitude_points).slice(0, 10)
+  const L = divergenceLayout(sorted)
   const eligibleCodes = [...new Set(props.relDetailFav.filter((r) => (r.rater_count ?? 0) >= props.nMinimum).map((r) => r.relationship_code))]
 
   return (
@@ -1555,42 +1676,47 @@ function DivergencePage(props: {
       <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 6 }}>
         <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           <Svg width={8} height={8}><Circle cx={4} cy={4} r={3.4} fill={C.blue} /></Svg>
-          <Text style={{ fontSize: 7.5, color: C.muted }}>Grupo mais favorável</Text>
+          <Text style={{ fontSize: 8.5, color: C.muted }}>Grupo mais favorável</Text>
         </View>
         <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <Svg width={8} height={8}><Polygon points="4,0.5 7.5,4 4,7.5 0.5,4" fill={C.red} /></Svg>
-          <Text style={{ fontSize: 7.5, color: C.muted }}>Grupo menos favorável</Text>
+          <Svg width={8} height={8}><Polygon points="4,0.5 7.5,4 4,7.5 0.5,4" fill={DIVERGENCE_LOW} /></Svg>
+          <Text style={{ fontSize: 8.5, color: C.muted }}>Grupo menos favorável</Text>
         </View>
       </View>
       <View style={[s.tableHeader, { alignItems: 'flex-end' }]}>
-        <Text style={[s.th, { width: 18 }]}>Nº</Text>
-        <Text style={[s.th, { width: 190 }]}>Pergunta</Text>
+        <Text style={[s.th, { width: 20 }]}>Nº</Text>
+        <Text style={[s.th, { width: L.promptW }]}>Pergunta</Text>
         <View style={{ flex: 1, alignItems: 'center' }}>
-          <View style={{ width: DIVERGENCE_TRACK, height: 8, position: 'relative' }}>
+          <View style={{ width: L.track, height: 8, position: 'relative' }}>
             {[0, 25, 50, 75, 100].map((pct) => (
-              <Text key={pct} style={[s.th, { position: 'absolute', left: (pct / 100) * DIVERGENCE_TRACK - 12, width: 24, textAlign: 'center', fontFamily: 'Carlito', textTransform: 'none' }]}>
+              <Text key={pct} style={[s.th, { position: 'absolute', left: 4.5 + (pct / 100) * (L.track - 9) - 12, width: 24, textAlign: 'center', fontFamily: 'Carlito', textTransform: 'none' }]}>
                 {pct}%
               </Text>
             ))}
           </View>
         </View>
-        <Text style={[s.th, { width: 42, textAlign: 'right' }]}>Distância (p.p.)</Text>
+        <Text style={[s.th, { width: 50, textAlign: 'right' }]}>Distância{'\n'}(p.p.)</Text>
       </View>
       {sorted.map((r) => (
-        <View key={r.question_number} style={s.tableRow}>
-          <Text style={{ width: 18, fontSize: 8, fontFamily: 'Carlito-Bold', color: C.navy }}>{r.question_number}</Text>
-          <View style={{ width: 190 }}>
-            <Text style={{ fontSize: 7.8, color: C.text, lineHeight: 1.3 }}>{r.question_prompt}</Text>
-            <Text style={{ fontSize: 6.3, color: C.light }}>{r.dimension_name}</Text>
-          </View>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Dumbbell width={DIVERGENCE_TRACK} aFrac={(r.lowest_pct ?? 0) / 100} bFrac={(r.highest_pct ?? 0) / 100} diffColor={C.light} ticks={[0.25, 0.5, 0.75]} />
-            <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', width: DIVERGENCE_TRACK, marginTop: 2 }}>
-              <Text style={{ fontSize: 6.3, color: C.red }}>{r.lowest_groups.map((g) => GROUP_LABEL[g] ?? g).join(' e ')} {fmtPct(r.lowest_pct, 1)}</Text>
-              <Text style={{ fontSize: 6.3, color: C.blue }}>{r.highest_groups.map((g) => GROUP_LABEL[g] ?? g).join(' e ')} {fmtPct(r.highest_pct, 1)}</Text>
+        <View key={r.question_number} style={[s.tableRow, { paddingTop: 4, paddingBottom: 4 }]} wrap={false}>
+          <Text style={{ width: 20, fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{r.question_number}</Text>
+          <View style={{ width: L.promptW, paddingRight: 8 }}>
+            <Text style={{ fontSize: L.fontSize, color: C.text, lineHeight: L.lineH / L.fontSize }}>{r.question_prompt}</Text>
+            <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 }}>
+              <Text style={{ fontSize: L.catSize, color: C.sub }}>{r.dimension_name}</Text>
+              {[...r.lowest_groups, ...r.highest_groups].includes('client') && (
+                <Text style={[s.badge, { fontSize: 7.3, backgroundColor: C.neutralTagBg, color: C.neutralTag }]}>envolve clientes internos</Text>
+              )}
             </View>
           </View>
-          <Text style={{ width: 42, textAlign: 'right', fontSize: 9, fontFamily: 'Carlito-Bold', color: C.navy }}>{fmt(r.amplitude_points, 1)}</Text>
+          <View style={{ flex: 1, alignItems: 'center' }}>
+            <Dumbbell width={L.track} aFrac={(r.lowest_pct ?? 0) / 100} bFrac={(r.highest_pct ?? 0) / 100} aColor={DIVERGENCE_LOW} ticks={[0, 0.25, 0.5, 0.75, 1]} />
+            <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', width: L.track, marginTop: 1.5 }}>
+              <Text style={{ fontSize: 8, color: C.muted }}>{r.lowest_groups.map((g) => GROUP_LABEL[g] ?? g).join(' e ')} {fmtPct(r.lowest_pct, 1)}</Text>
+              <Text style={{ fontSize: 8, color: C.muted }}>{r.highest_groups.map((g) => GROUP_LABEL[g] ?? g).join(' e ')} {fmtPct(r.highest_pct, 1)}</Text>
+            </View>
+          </View>
+          <Text style={{ width: 50, textAlign: 'right', fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{fmt(r.amplitude_points, 1)}</Text>
         </View>
       ))}
       <View style={s.howToRead}>
@@ -1598,7 +1724,8 @@ function DivergencePage(props: {
         <Text style={s.howToReadText}>
           O círculo azul é a favorabilidade do grupo que mais reconhece o comportamento e o losango
           vermelho é a do grupo que menos reconhece, com o nome e o percentual de cada um abaixo do
-          símbolo. Quando dois grupos empatam, os dois aparecem. A distância é a diferença entre os dois
+          símbolo. Quando dois grupos empatam, os dois aparecem. A etiqueta cinza envolve clientes internos
+          indica que um grupo fora do resultado geral está num dos extremos. A distância é a diferença entre os dois
           percentuais, em pontos percentuais (p.p.). Chefe direto e liderança superior ficam de fora por
           serem uma pessoa cada. Divergência não aponta erro de ninguém. Mostra onde grupos diferentes
           vivem experiências diferentes com você.
@@ -1610,77 +1737,114 @@ function DivergencePage(props: {
 
 // ─── 11-13. Resultado por pergunta ──────────────────────────────────────────
 
+/** Colunas de "Resultado por pergunta" (larguras do modelo). */
+const Q_COLS = {
+  num: 17, fav: 47, mean: 31.5,
+  groups: [['manager', 28], ['manager_superior', 37.5], ['peer', 28], ['subordinate', 32]] as [string, number][],
+  out: [['self', 31], ['client', 41]] as [string, number][],
+}
+
 function QuestionsPages(props: {
   personName: string; tenantName: string; cycleLabel: string
   qRows: QRow[]; nMinimum: number; groups: GroupAgg[]
 }) {
   const { qRows, groups } = props
   const chunks = paginateQuestions(qRows)
-  const hasClient = (groups.find((g) => g.code === 'client')?.n ?? 0) > 0
+  const nOf = (code: string) => groups.find((g) => g.code === code)?.n ?? 0
+  const geralN = groups.filter((g) => GERAL_ENTRA[g.code]).reduce((s2, g) => s2 + g.n, 0)
+  const groupCols = Q_COLS.groups.filter(([code]) => nOf(code) > 0)
+  const outCols = Q_COLS.out.filter(([code]) => nOf(code) > 0)
+  const outW = outCols.reduce((w, [, cw]) => w + cw, 0)
+  const groupsW = groupCols.reduce((w, [, cw]) => w + cw, 0)
+  const groupTh = { fontSize: 6.8, fontFamily: 'Carlito-Bold', color: C.light, textTransform: 'uppercase' as const, letterSpacing: 0.4, textAlign: 'center' as const }
+  const colTh = { fontSize: 7, fontFamily: 'Carlito-Bold', color: C.light, textTransform: 'uppercase' as const, letterSpacing: 0.4, textAlign: 'center' as const }
+  const nTh = { fontSize: 7, color: C.light, textAlign: 'center' as const, marginTop: 1 }
+  const OUT_TH = '#7c8187'
 
   return (
     <>
       {chunks.map((chunk, pageIdx) => (
         <PageChrome key={pageIdx} label="Perguntas" {...props}>
+          <Text style={s.h1}>Resultado por pergunta{pageIdx > 0 ? ' (continuação)' : ''}</Text>
           {pageIdx === 0 && (
-            <>
-              <Text style={s.h1}>Resultado por pergunta</Text>
-              <Text style={s.intro}>As perguntas na ordem do questionário, com o texto exato apresentado aos avaliadores.</Text>
-            </>
+            <Text style={s.intro}>As {qRows.length} perguntas na ordem do questionário, com o texto exato apresentado aos avaliadores.</Text>
           )}
-          <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'flex-end' }}>
-            <Text style={{ width: (hasClient ? 26 + 30 : 26) + 4, fontSize: 5.8, color: C.light, textAlign: 'center' }}>
-              fora do resultado geral
-            </Text>
-          </View>
-          <View style={s.tableHeader}>
-            <Text style={[s.th, { width: 16 }]}>Nº</Text>
-            <Text style={[s.th, { flex: 1 }]}>Pergunta</Text>
-            <Text style={[s.th, { width: 40, textAlign: 'right' }]}>Favor.</Text>
-            <Text style={[s.th, { width: 30, textAlign: 'right' }]}>Média</Text>
-            <Text style={[s.th, { width: 30, textAlign: 'right' }]}>Chefe</Text>
-            <Text style={[s.th, { width: 32, textAlign: 'right' }]}>Lid.sup.</Text>
-            <Text style={[s.th, { width: 30, textAlign: 'right' }]}>Pares</Text>
-            <Text style={[s.th, { width: 32, textAlign: 'right', marginRight: 8 }]}>Equipe</Text>
-            <View style={{ flexDirection: 'row', backgroundColor: C.cream, paddingVertical: 1 }}>
-              <Text style={[s.th, { width: 26, textAlign: 'right', color: C.light }]}>Auto</Text>
-              {hasClient && <Text style={[s.th, { width: 30, textAlign: 'right', color: C.light }]}>Cli.int.</Text>}
+          {/* Cabeçalho em dois níveis, como no modelo. */}
+          <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-end', marginBottom: 4 }}>
+            <View style={{ width: Q_COLS.num + Q_PROMPT_W }} />
+            <View style={{ width: Q_COLS.fav + Q_COLS.mean }}>
+              <Text style={groupTh}>Resultado geral</Text>
+              <Text style={[groupTh, { fontFamily: 'Carlito', textTransform: 'none' }]}>(n={geralN})</Text>
             </View>
+            <View style={{ width: groupsW }}>
+              <Text style={groupTh}>Média por grupo, de 1 a 5</Text>
+            </View>
+            {outW > 0 && (
+              <View style={{ width: outW }}>
+                <Text style={[groupTh, { color: OUT_TH }]}>Média, fora do{'\n'}resultado</Text>
+              </View>
+            )}
+          </View>
+          <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-end', borderBottom: `0.75pt solid ${C.borderStrong}`, paddingBottom: 4 }}>
+            <Text style={[colTh, { width: Q_COLS.num, textAlign: 'left' }]}>Nº</Text>
+            <Text style={[colTh, { width: Q_PROMPT_W, textAlign: 'left', paddingLeft: 4 }]}>Pergunta</Text>
+            <Text style={[colTh, { width: Q_COLS.fav }]}>Favorável</Text>
+            <Text style={[colTh, { width: Q_COLS.mean }]}>Média</Text>
+            {groupCols.map(([code, w]) => (
+              <View key={code} style={{ width: w }}>
+                <Text style={colTh}>{GROUP_SHORT[code]}</Text>
+                <Text style={nTh}>n={nOf(code)}</Text>
+              </View>
+            ))}
+            {outCols.map(([code, w]) => (
+              <View key={code} style={{ width: w }}>
+                <Text style={[colTh, { color: OUT_TH }]}>{GROUP_SHORT[code]}</Text>
+                <Text style={[nTh, { color: OUT_TH }]}>n={nOf(code)}</Text>
+              </View>
+            ))}
           </View>
           {chunk.map((r) => {
             const f = faixa(r.fav)
             const byCode = Object.fromEntries(r.groupMeans.map((g) => [g.code, g.mean]))
             return (
-              <View key={r.number} style={[s.tableRow, { paddingTop: 3.5, paddingBottom: 3.5 }]} wrap={false}>
-                <Text style={{ width: 16, fontSize: 7.5, color: C.muted }}>{r.number}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 7.8, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
-                  <Text style={{ fontSize: 6.3, color: C.light }}>{r.compName}</Text>
+              <View key={r.number} style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', borderBottom: `0.75pt solid ${C.border}` }} wrap={false}>
+                <View style={{ width: Q_COLS.num, justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{r.number}</Text>
                 </View>
-                <View style={{ width: 40, alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end', alignSelf: 'center' }}>
-                  <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: f.color, marginRight: 3 }} />
-                  <Text style={{ fontSize: 7.8, fontFamily: 'Carlito-Bold' }}>{fmtPct(r.fav, 1)}</Text>
+                <View style={{ width: Q_PROMPT_W, paddingTop: 5, paddingBottom: 5, paddingLeft: 4, paddingRight: 8 }}>
+                  <Text style={{ fontSize: 9, color: C.text, lineHeight: 1.35 }}>{r.prompt}</Text>
+                  <Text style={{ fontSize: 7.2, color: C.sub, marginTop: 1 }}>{r.compName}</Text>
                 </View>
-                <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8 }}>{fmt(r.mean)}</Text>
-                <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8, color: C.muted }}>{fmt(byCode['manager'] ?? null)}</Text>
-                <Text style={{ width: 32, textAlign: 'right', fontSize: 7.8, color: C.muted }}>{fmt(byCode['manager_superior'] ?? null)}</Text>
-                <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8, color: C.muted }}>{fmt(byCode['peer'] ?? null)}</Text>
-                <Text style={{ width: 32, textAlign: 'right', fontSize: 7.8, color: C.muted, marginRight: 8 }}>{fmt(byCode['subordinate'] ?? null)}</Text>
-                <View style={{ flexDirection: 'row', backgroundColor: C.cream, alignSelf: 'stretch', alignItems: 'center' }}>
-                  <Text style={{ width: 26, textAlign: 'right', fontSize: 7.8, color: C.light }}>{fmt(byCode['self'] ?? null)}</Text>
-                  {hasClient && <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8, color: C.light }}>{fmt(byCode['client'] ?? null)}</Text>}
+                <View style={{ width: Q_COLS.fav, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                  <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: f.dot }} />
+                  <Text style={{ fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{fmtPct(r.fav, 1)}</Text>
                 </View>
+                <View style={{ width: Q_COLS.mean, justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 9, color: C.text, textAlign: 'center' }}>{fmt(r.mean)}</Text>
+                </View>
+                {groupCols.map(([code, w]) => (
+                  <View key={code} style={{ width: w, justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 9, color: C.text, textAlign: 'center' }}>{fmt(byCode[code] ?? null)}</Text>
+                  </View>
+                ))}
+                {outCols.map(([code, w]) => (
+                  <View key={code} style={{ width: w, justifyContent: 'center', backgroundColor: OUT_OF_GERAL_BG }}>
+                    <Text style={{ fontSize: 9, color: C.sub, textAlign: 'center' }}>{fmt(byCode[code] ?? null)}</Text>
+                  </View>
+                ))}
               </View>
             )
           })}
           {pageIdx === chunks.length - 1 && (
-            <View style={s.howToRead}>
+            <View style={s.howToRead} wrap={false}>
               <Text style={s.howToReadTitle}>Como ler</Text>
               <Text style={s.howToReadText}>
-                As duas primeiras colunas são do resultado geral. O ponto colorido antes da favorabilidade
-                indica a faixa: verde para ponto forte, azul para adequado com atenção, laranja para
-                oportunidade de melhoria e vermelho para prioridade. As demais colunas trazem a média de
-                cada grupo, de {getScale('frequency_5_strict').min} a {getScale('frequency_5_strict').max}.
+                As duas primeiras colunas de números são do resultado geral, com os {geralN} avaliadores. O
+                ponto colorido antes da favorabilidade indica a faixa: verde para ponto forte, azul para
+                adequado com atenção, laranja para oportunidade de melhoria e vermelho para prioridade. As
+                demais colunas trazem a média de cada grupo, de {getScale('frequency_5_strict').min} a {getScale('frequency_5_strict').max}.
+                Chefe é o chefe direto. Lid. sup. é a liderança superior. Auto é a autoavaliação. Cli. int.
+                são os clientes internos. O n é o número de pessoas do grupo.
               </Text>
             </View>
           )}
@@ -1731,31 +1895,28 @@ function ValuesPage(props: {
           ` ${joinNames(sharedNames)} também ${sharedNames.length > 1 ? 'são nomes' : 'é nome'} de competência${sharedNames.length > 1 ? 's' : ''}, mas ${sharedNames.length > 1 ? 'reúnem' : 'reúne'} um conjunto diferente de perguntas, e por isso os números são diferentes.`
         )}
       </Text>
-      <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'flex-end' }}>
-        <Text style={{ width: 76, fontSize: 5.8, color: C.light, textAlign: 'center' }}>fora do resultado geral</Text>
-      </View>
       <View style={s.tableHeader}>
-        <Text style={[s.th, { width: 130 }]}>Valor</Text>
+        <Text style={[s.th, { width: 180 }]}>Valor</Text>
         <Text style={[s.th, { flex: 1 }]}>Favorabilidade</Text>
-        <Text style={[s.th, { width: 44, textAlign: 'right' }]}>Favor.</Text>
-        <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Média</Text>
-        <Text style={[s.th, { width: 76, textAlign: 'right', backgroundColor: C.cream, color: C.light }]}>Auto (favor.)</Text>
+        <Text style={[s.th, { width: 52, textAlign: 'right' }]}>Favorável</Text>
+        <Text style={[s.th, { width: 40, textAlign: 'right' }]}>Média</Text>
+        <Text style={[s.th, { width: 82, textAlign: 'center', color: '#7c8187', marginLeft: 8 }]}>Auto (favorável)</Text>
       </View>
       {rows.map((r) => (
-        <View key={r.value} style={s.tableRow}>
-          <View style={{ width: 130 }}>
-            <Text style={[s.td, { fontFamily: 'Carlito-Bold' }]}>Valor {r.value}</Text>
-            {r.numbers.length === 1 && <Text style={{ fontSize: 6.3, color: C.orangeTag }}>Medido por uma única pergunta. Ler com cautela.</Text>}
-            <Text style={{ fontSize: 6, color: C.light }}>perguntas {r.numbers.join(', ')}</Text>
+        <View key={r.value} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', borderBottom: `0.75pt solid ${C.border}` }} wrap={false}>
+          <View style={{ width: 180, paddingTop: 6, paddingBottom: 6, paddingRight: 12 }}>
+            <Text style={{ fontSize: 9.5, fontFamily: 'Carlito-Bold', color: C.text }}>Valor {r.value}</Text>
+            {r.numbers.length === 1 && <Text style={{ fontSize: 8, fontFamily: 'Carlito-Bold', color: '#b4520f', marginTop: 1 }}>Medido por uma única pergunta. Ler com cautela.</Text>}
+            <Text style={{ fontSize: 8, fontFamily: 'Carlito-Bold', color: C.sub, marginTop: 1 }}>perguntas {r.numbers.join(', ')}</Text>
           </View>
-          <View style={{ flex: 1, height: 7, backgroundColor: C.cream, borderRadius: 3, flexDirection: 'row', overflow: 'hidden', marginRight: 4, alignSelf: 'center' }}>
-            <View style={{ width: `${r.fav.favoravel}%`, backgroundColor: C.blue }} />
-            <View style={{ width: `${r.fav.neutro}%`, backgroundColor: '#d1d5db' }} />
-            <View style={{ width: `${r.fav.desfavoravel}%`, backgroundColor: C.red }} />
+          <View style={{ flex: 1, height: 9, backgroundColor: '#f1f0ec', borderRadius: 2, overflow: 'hidden', marginRight: 10 }}>
+            <View style={{ width: `${r.fav.favoravel}%`, height: 9, backgroundColor: C.blue }} />
           </View>
-          <Text style={[s.td, { width: 44, textAlign: 'right', fontFamily: 'Carlito-Bold' }]}>{fmtPct(r.fav.favoravel, 1)}</Text>
-          <Text style={[s.td, { width: 34, textAlign: 'right' }]}>{fmt(r.mean)}</Text>
-          <Text style={[s.td, { width: 76, textAlign: 'right', backgroundColor: C.cream, alignSelf: 'stretch' }]}>{r.selfFavPct != null ? fmtPct(r.selfFavPct, 1) : '—'}</Text>
+          <Text style={{ width: 52, fontSize: 9.5, textAlign: 'right', fontFamily: 'Carlito-Bold', color: C.text }}>{fmtPct(r.fav.favoravel, 1)}</Text>
+          <Text style={{ width: 40, fontSize: 9.5, textAlign: 'right', color: C.text }}>{fmt(r.mean)}</Text>
+          <View style={{ width: 82, alignSelf: 'stretch', justifyContent: 'center', backgroundColor: OUT_OF_GERAL_BG, marginLeft: 8 }}>
+            <Text style={{ fontSize: 9.5, textAlign: 'center', color: C.sub }}>{r.selfFavPct != null ? fmtPct(r.selfFavPct, 1) : '—'}</Text>
+          </View>
         </View>
       ))}
       <View style={s.howToRead}>
@@ -1796,7 +1957,7 @@ function BenchmarkPage(props: {
         A sua média em cada competência ao lado da média do grupo avaliado no mesmo ciclo{cohortN > 0 ? ` (${cohortN} pessoas, você incluído)` : ''}.
       </Text>
       {!hasBenchmark ? (
-        <Text style={{ fontSize: 9, color: C.muted }}>Sem dados de comparação suficientes neste ciclo.</Text>
+        <Text style={{ fontSize: 9.5, color: C.muted }}>Sem dados de comparação suficientes neste ciclo.</Text>
       ) : (
         <>
           <View style={s.tableHeader}>
@@ -1809,14 +1970,14 @@ function BenchmarkPage(props: {
           {rows.map((r) => {
             const rel = r.diff != null && Math.abs(r.diff) >= limiar
             const leitura = !rel ? 'Sem diferença relevante' : r.diff! > 0 ? 'Acima do grupo' : 'Abaixo do grupo'
-            const color = !rel ? C.muted : r.diff! > 0 ? C.blueTag : C.orangeTag
-            const bg = !rel ? C.cream : r.diff! > 0 ? C.blueTagBg : C.orangeTagBg
+            const color = !rel ? C.neutralTag : r.diff! > 0 ? C.blueTag : C.orangeTag
+            const bg = !rel ? C.neutralTagBg : r.diff! > 0 ? C.blueTagBg : C.orangeTagBg
             return (
               <View key={r.name} style={s.tableRow}>
-                <Text style={[s.td, { width: 130, fontFamily: 'Carlito-Bold' }]}>{r.name}</Text>
-                <Text style={[s.td, { width: 50, textAlign: 'right' }]}>{fmt(r.you)}</Text>
-                <Text style={[s.td, { width: 50, textAlign: 'right' }]}>{fmt(r.group)}</Text>
-                <Text style={[s.td, { width: 60, textAlign: 'right', fontFamily: 'Carlito-Bold', marginRight: 8 }]}>{r.diff != null ? `${r.diff >= 0 ? '+' : ''}${fmt(r.diff, 2)}` : '—'}</Text>
+                <Text style={[s.td, { width: 130, fontSize: 9.5, fontFamily: 'Carlito-Bold' }]}>{r.name}</Text>
+                <Text style={[s.td, { width: 50, fontSize: 9.5, textAlign: 'right', fontFamily: 'Carlito-Bold' }]}>{fmt(r.you)}</Text>
+                <Text style={[s.td, { width: 50, fontSize: 9.5, textAlign: 'right' }]}>{fmt(r.group)}</Text>
+                <Text style={[s.td, { width: 60, fontSize: 9.5, textAlign: 'right', fontFamily: 'Carlito-Bold', marginRight: 8 }]}>{r.diff != null ? `${r.diff >= 0 ? '+' : ''}${fmt(r.diff, 2)}` : '—'}</Text>
                 <View style={{ flex: 1, alignItems: 'center' }}>
                   <Text style={[s.badge, { backgroundColor: bg, color, alignSelf: 'center' }]}>{leitura}</Text>
                 </View>
@@ -1856,39 +2017,39 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
       <Text style={s.h1}>Perfil dos avaliadores</Text>
       <Text style={s.intro}>Favorabilidade segundo características de quem respondeu.</Text>
       <View style={s.calloutOrange}>
-        <Text style={s.calloutTitle}>Base diferente do restante do relatório</Text>
         <Text style={s.calloutText}>
+          <Text style={{ fontFamily: 'Carlito-Bold' }}>Base diferente do restante do relatório.</Text>{' '}
           Aqui entram todos os avaliadores com perfil cadastrado, inclusive clientes internos, e só a
           autoavaliação fica de fora. Por isso estes números não são diretamente comparáveis à
           favorabilidade geral, que usa só os avaliadores do resultado geral.
         </Text>
       </View>
       {dims.length === 0 ? (
-        <Text style={{ fontSize: 9, color: C.muted }}>Sem dados de perfil cadastrados para os avaliadores deste ciclo.</Text>
+        <Text style={{ fontSize: 9.5, color: C.muted }}>Sem dados de perfil cadastrados para os avaliadores deste ciclo.</Text>
       ) : (
         <View style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
           {dims.map((dim) => (
-            <View key={dim} style={{ width: 240, backgroundColor: C.cream, borderRadius: 4, padding: 10 }}>
-              <Text style={{ fontSize: 8.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 6 }}>{DEMO_DIM_LABEL[dim] ?? dim}</Text>
-              <View style={{ display: 'flex', flexDirection: 'row', borderBottom: `0.5pt solid ${C.border}`, paddingBottom: 3, marginBottom: 2 }}>
-                <Text style={[s.th, { flex: 1 }]}></Text>
-                <Text style={[s.th, { width: 34, textAlign: 'right' }]}>Pessoas</Text>
-                <Text style={[s.th, { width: 30 }]}></Text>
-                <Text style={[s.th, { width: 38, textAlign: 'right' }]}>Favor.</Text>
-                <Text style={[s.th, { width: 30, textAlign: 'right' }]}>Média</Text>
+            <View key={dim} style={{ width: 240, backgroundColor: C.cream, borderRadius: 6, paddingTop: 13, paddingBottom: 10, paddingLeft: 14, paddingRight: 14 }}>
+              <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 9 }}>{DEMO_DIM_LABEL[dim] ?? dim}</Text>
+              <View style={{ display: 'flex', flexDirection: 'row', borderBottom: `0.75pt solid ${C.borderStrong}`, paddingBottom: 4, marginBottom: 1 }}>
+                <Text style={[s.th, { flex: 1, fontSize: 7 }]}></Text>
+                <Text style={[s.th, { width: 36, textAlign: 'right', fontSize: 7 }]}>Pessoas</Text>
+                <Text style={[s.th, { width: 44 }]}></Text>
+                <Text style={[s.th, { width: 42, textAlign: 'right', fontSize: 7 }]}>Favorável</Text>
+                <Text style={[s.th, { width: 32, textAlign: 'right', fontSize: 7 }]}>Média</Text>
               </View>
               {byDim.get(dim)!.map((g, gi) => {
                 const fav = computeFavorability(g.distribution ?? {}, getScale('frequency_5_strict'))
                 const rows = byDim.get(dim)!
                 return (
-                  <View key={g.value} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', paddingTop: 4, paddingBottom: 4, borderBottom: gi < rows.length - 1 ? `0.5pt solid ${C.border}` : undefined }}>
-                    <Text style={{ flex: 1, fontSize: 7.8 }}>{normalizeDemographicValue(g.value)}</Text>
-                    <Text style={{ width: 34, textAlign: 'right', fontSize: 7.8 }}>{g.respondent_count}</Text>
-                    <View style={{ width: 30, alignItems: 'flex-end' }}>
-                      {fav.total > 0 && <MiniFavBar pct={fav.favoravel} width={26} marginTop={0} />}
+                  <View key={g.value} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', paddingTop: 5, paddingBottom: 5, borderBottom: gi < rows.length - 1 ? `0.75pt solid ${C.border}` : undefined }}>
+                    <Text style={{ flex: 1, fontSize: 9, color: C.text }}>{normalizeDemographicValue(g.value)}</Text>
+                    <Text style={{ width: 36, textAlign: 'right', fontSize: 9, color: C.sub }}>{g.respondent_count}</Text>
+                    <View style={{ width: 44, alignItems: 'flex-end' }}>
+                      {fav.total > 0 && <MiniFavBar pct={fav.favoravel} width={34} marginTop={0} height={4} />}
                     </View>
-                    <Text style={{ width: 38, textAlign: 'right', fontSize: 7.8, fontFamily: 'Carlito-Bold' }}>{fmtPct(fav.total > 0 ? fav.favoravel : null, 1)}</Text>
-                    <Text style={{ width: 30, textAlign: 'right', fontSize: 7.8 }}>{fmt(g.avg_score)}</Text>
+                    <Text style={{ width: 42, textAlign: 'right', fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{fmtPct(fav.total > 0 ? fav.favoravel : null, 1)}</Text>
+                    <Text style={{ width: 32, textAlign: 'right', fontSize: 9, color: C.text }}>{fmt(g.avg_score)}</Text>
                   </View>
                 )
               })}
@@ -1938,23 +2099,23 @@ function GuidePage(props: { personName: string; tenantName: string; cycleLabel: 
         Para quem conduz a conversa. O roteiro pode ser adaptado, mas a ordem ajuda a manter a conversa
         construtiva e focada em desenvolvimento.
       </Text>
-      <Text style={{ fontSize: 8.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 6 }}>Antes da sessão</Text>
-      <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 3 }}>
-        - Ler o relatório inteiro, inclusive a metodologia, e anotar as perguntas que pretende fazer. A Síntese dos dados serve como mapa da conversa.
+      <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 6 }}>Antes da sessão</Text>
+      <Text style={{ fontSize: 9.5, color: C.muted, lineHeight: 1.45, marginBottom: 3 }}>
+        • Ler o relatório inteiro, inclusive a metodologia, e anotar as perguntas que pretende fazer. A Síntese dos dados serve como mapa da conversa.
       </Text>
-      <Text style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 10 }}>
-        - Decidir com a empresa se o participante recebe o relatório antes ou durante a sessão.
+      <Text style={{ fontSize: 9.5, color: C.muted, lineHeight: 1.45, marginBottom: 10 }}>
+        • Decidir com a empresa se o participante recebe o relatório antes ou durante a sessão.
       </Text>
-      <Text style={{ fontSize: 8.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 6 }}>Roteiro sugerido</Text>
+      <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 6 }}>Roteiro sugerido</Text>
       {ROTEIRO.map(([title, desc]) => (
-        <View key={title} style={{ backgroundColor: C.cream, borderRadius: 3, padding: 7, marginBottom: 5 }}>
-          <Text style={{ fontSize: 7.8, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 2 }}>{title}</Text>
-          <Text style={{ fontSize: 7.5, color: C.text, lineHeight: 1.4 }}>{desc}</Text>
+        <View key={title} style={{ backgroundColor: C.cream, borderRadius: 4, paddingTop: 7, paddingBottom: 7, paddingLeft: 10, paddingRight: 10, marginBottom: 5 }} wrap={false}>
+          <Text style={{ fontSize: 9.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 2 }}>{title}</Text>
+          <Text style={{ fontSize: 9, color: C.muted, lineHeight: 1.4 }}>{desc}</Text>
         </View>
       ))}
-      <Text style={{ fontSize: 8.5, fontFamily: 'Carlito-Bold', color: C.navy, marginTop: 6, marginBottom: 6 }}>Cuidados na conversa</Text>
+      <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginTop: 6, marginBottom: 6 }}>Cuidados na conversa</Text>
       {CUIDADOS.map((c, i) => (
-        <Text key={i} style={{ fontSize: 8, color: C.text, lineHeight: 1.5, marginBottom: 3 }}>- {c}</Text>
+        <Text key={i} style={{ fontSize: 9.5, color: C.muted, lineHeight: 1.45, marginBottom: 3 }}>• {c}</Text>
       ))}
     </PageChrome>
   )
@@ -1964,58 +2125,61 @@ function GuidePage(props: { personName: string; tenantName: string; cycleLabel: 
 
 function PlanCheckbox({ label }: { label: string }) {
   return (
-    <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-      <View style={{ width: 8, height: 8, border: `0.75pt solid ${C.muted}`, borderRadius: 1.5 }} />
-      <Text style={{ fontSize: 8, color: C.text }}>{label}</Text>
+    <View style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+      <View style={{ width: 10, height: 10, border: `0.75pt solid ${PLAN_LINE}`, borderRadius: 1.5 }} />
+      <Text style={{ fontSize: 9, color: C.muted }}>{label}</Text>
     </View>
   )
 }
 
+/** Cinza das linhas de preenchimento e assinatura do Plano. */
+const PLAN_LINE = '#99a0a6'
+
 function PlanPage(props: { personName: string; tenantName: string; cycleLabel: string }) {
-  const cols: { title: string; subtitle: string }[] = [
-    { title: 'Comportamento a desenvolver', subtitle: 'pergunta ou competência do relatório' },
-    { title: 'O que vou fazer',              subtitle: 'ações concretas no dia a dia' },
-    { title: 'Quem pode me apoiar',          subtitle: '' },
-    { title: 'Como e quando vou verificar',  subtitle: '' },
+  // Larguras e alturas do modelo: colunas de 26/30/22/22%, cabeçalho de
+  // 54 pt e 4 linhas de 74 pt pra escrever à mão.
+  const cols: { title: string; subtitle: string; width: string }[] = [
+    { title: 'Comportamento a desenvolver', subtitle: 'pergunta ou competência do relatório', width: '26%' },
+    { title: 'O que vou fazer',              subtitle: 'ações concretas no dia a dia',         width: '30%' },
+    { title: 'Quem pode me apoiar',          subtitle: '',                                     width: '22%' },
+    { title: 'Como e quando vou verificar',  subtitle: '',                                     width: '22%' },
   ]
+  const grid = `0.75pt solid ${C.borderStrong}`
   return (
     <PageChrome label="Plano" {...props}>
       <Text style={s.h1}>Plano de desenvolvimento</Text>
       <Text style={s.intro}>Para preencher durante ou logo após a devolutiva. Dois ou três focos bem escolhidos valem mais que uma lista longa.</Text>
-      <View style={{ display: 'flex', flexDirection: 'row', border: `0.75pt solid ${C.border}` }}>
+      <View style={{ display: 'flex', flexDirection: 'row', height: 54, borderTop: grid, borderLeft: grid, borderRight: grid, borderBottom: grid }}>
         {cols.map((c, i) => (
-          <View key={c.title} style={{ width: '25%', backgroundColor: C.cream, padding: 6, borderLeft: i > 0 ? `0.75pt solid ${C.border}` : undefined }}>
-            <Text style={{ fontSize: 7, fontFamily: 'Carlito-Bold', color: C.muted, textTransform: 'uppercase', letterSpacing: 0.3, lineHeight: 1.3 }}>{c.title}</Text>
-            {c.subtitle !== '' && <Text style={{ fontSize: 6, color: C.light, marginTop: 2, lineHeight: 1.3 }}>{c.subtitle}</Text>}
+          <View key={c.title} style={{ width: c.width, backgroundColor: C.cream, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 8, paddingLeft: 6, paddingRight: 6, borderLeft: i > 0 ? grid : undefined }}>
+            <Text style={{ fontSize: 7.8, fontFamily: 'Carlito-Bold', color: C.light, textTransform: 'uppercase', letterSpacing: 0.4, lineHeight: 1.35, textAlign: 'center' }}>{c.title}</Text>
+            {c.subtitle !== '' && <Text style={{ fontSize: 7.8, color: C.light, marginTop: 1, lineHeight: 1.3, textAlign: 'center' }}>{c.subtitle}</Text>}
           </View>
         ))}
       </View>
       {[0, 1, 2, 3].map((i) => (
-        <View key={i} style={{ display: 'flex', flexDirection: 'row', height: 48, borderLeft: `0.75pt solid ${C.border}`, borderRight: `0.75pt solid ${C.border}`, borderBottom: `0.75pt solid ${C.border}` }}>
+        <View key={i} style={{ display: 'flex', flexDirection: 'row', height: 74, borderLeft: grid, borderRight: grid, borderBottom: grid }}>
           {cols.map((c, j) => (
-            <View key={c.title} style={{ width: '25%', borderLeft: j > 0 ? `0.75pt solid ${C.border}` : undefined }} />
+            <View key={c.title} style={{ width: c.width, borderLeft: j > 0 ? grid : undefined }} />
           ))}
         </View>
       ))}
-      <Text style={{ fontSize: 8.5, fontFamily: 'Carlito-Bold', color: C.navy, marginTop: 16, marginBottom: 6 }}>Pontos fortes que vou usar a meu favor</Text>
-      <View style={{ height: 60, border: `0.75pt solid ${C.border}`, borderRadius: 3 }} />
-      <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginTop: 18 }}>
-        <View>
-          <Text style={{ fontSize: 7.5, color: C.muted }}>Próxima conversa de acompanhamento</Text>
-          <View style={{ width: 160, borderBottom: `0.5pt solid ${C.text}`, marginTop: 16 }} />
-        </View>
-        <View style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <Text style={{ fontSize: 7.5, color: C.muted }}>Plano compartilhado com o chefe direto</Text>
-          <View style={{ display: 'flex', flexDirection: 'row', gap: 14 }}>
-            <PlanCheckbox label="sim" />
-            <PlanCheckbox label="não" />
-          </View>
+      <Text style={[s.sectionLabel, { marginTop: 14 }]}>Pontos fortes que vou usar a meu favor</Text>
+      <View style={{ height: 85, border: grid, borderRadius: 4 }} />
+      <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-end', marginTop: 16 }}>
+        <Text style={{ width: 130, fontSize: 9, color: C.muted, lineHeight: 1.4 }}>Próxima conversa de{'\n'}acompanhamento</Text>
+        <View style={{ width: 107, borderBottom: `0.75pt solid ${PLAN_LINE}`, marginBottom: 4 }} />
+        <View style={{ flex: 1 }} />
+        <Text style={{ width: 130, fontSize: 9, color: C.muted, lineHeight: 1.4 }}>Plano compartilhado com o{'\n'}chefe direto</Text>
+        <View style={{ display: 'flex', flexDirection: 'row', gap: 22 }}>
+          <PlanCheckbox label="sim" />
+          <PlanCheckbox label="não" />
         </View>
       </View>
-      <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginTop: 34 }}>
-        <View style={{ width: 150, borderTop: `0.5pt solid ${C.text}`, paddingTop: 3 }}><Text style={{ fontSize: 7.5, color: C.muted }}>Participante</Text></View>
-        <View style={{ width: 150, borderTop: `0.5pt solid ${C.text}`, paddingTop: 3 }}><Text style={{ fontSize: 7.5, color: C.muted }}>Responsável pela devolutiva</Text></View>
-        <View style={{ width: 100, borderTop: `0.5pt solid ${C.text}`, paddingTop: 3 }}><Text style={{ fontSize: 7.5, color: C.muted }}>Data</Text></View>
+      <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginTop: 40 }}>
+        <View style={{ width: 172, borderTop: `0.75pt solid ${PLAN_LINE}`, paddingTop: 5 }}><Text style={{ fontSize: 8.5, color: C.light }}>Participante</Text></View>
+        <View style={{ width: 172, borderTop: `0.75pt solid ${PLAN_LINE}`, paddingTop: 5 }}><Text style={{ fontSize: 8.5, color: C.light }}>Responsável pela devolutiva</Text></View>
+        <View style={{ width: 104, borderTop: `0.75pt solid ${PLAN_LINE}`, paddingTop: 5 }}><Text style={{ fontSize: 8.5, color: C.light }}>Data</Text></View>
       </View>
     </PageChrome>
   )
@@ -2030,8 +2194,8 @@ function MethodologyPage(props: {
   const { scale, nMinimum, reliability } = props
   const r = reliability
   const Block = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <Text style={{ fontSize: 7.8, color: C.text, lineHeight: 1.5, marginBottom: 6 }}>
-      <Text style={{ fontFamily: 'Carlito-Bold' }}>{title}. </Text>{children}
+    <Text style={{ fontSize: 9, color: C.muted, lineHeight: 1.45, marginBottom: 8 }}>
+      <Text style={{ fontFamily: 'Carlito-Bold', color: C.text }}>{title}. </Text>{children}
     </Text>
   )
   return (
