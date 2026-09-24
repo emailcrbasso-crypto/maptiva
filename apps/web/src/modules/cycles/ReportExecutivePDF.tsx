@@ -12,7 +12,7 @@
  *
  * Cada página do modelo é uma página fixa aqui (sem fluxo automático de
  * conteúdo entre páginas), exceto "Resultado por pergunta", que pagina as 33
- * perguntas manualmente em blocos de 11.
+ * perguntas manualmente em blocos de até 11 (ver paginateQuestions).
  */
 
 import { Document, Page, Text, View, StyleSheet, Svg, Line, Circle, Polygon, Defs, LinearGradient, Stop, Rect, Font } from '@react-pdf/renderer'
@@ -125,21 +125,37 @@ export interface ReportExecutivePDFProps {
 
 const GERAL_CODES = ['manager', 'manager_superior', 'peer', 'subordinate']
 
-/** Teto de perguntas por página em "Resultado por pergunta" — usado pra
- * calcular quantas páginas físicas a seção ocupa (e numerar o Sumário
- * certo). 9 garante que cada bloco caiba inteiro mesmo com prompts longos
- * e as colunas Auto/Cli. int. As páginas em si usam chunkEvenly, que
- * distribui as perguntas de forma equilibrada dentro desse teto — pra não
- * sobrar uma última página bem mais vazia que as outras. */
-const QUESTIONS_PER_PAGE = 9
+/** Teto de perguntas por página em "Resultado por pergunta". 11 deixa as
+ * 33 perguntas do modelo em 3 páginas, como no relatório de referência. */
+const QUESTIONS_PER_PAGE = 11
 
-/** Divide `items` em blocos de no máximo `maxPerPage`, mas distribuindo o
- * total de forma equilibrada entre as páginas (em vez de encher as
- * primeiras e deixar a última quase vazia). Ex.: 33 itens, teto 9 → 4
- * páginas de 9/8/8/8 em vez de 9/9/9/6. */
-function chunkEvenly<T>(items: T[], maxPerPage: number): T[][] {
-  if (items.length === 0) return []
-  const numPages = Math.ceil(items.length / maxPerPage)
+/** Altura útil (pt) pras linhas da tabela de "Resultado por pergunta",
+ * descontados margens, cabeçalho da página e cabeçalho da tabela. A
+ * primeira página perde ainda o título e a introdução, e a última o quadro
+ * "Como ler". Valores conservadores: uma página que estoura cria uma página
+ * física a mais e desalinha a numeração do Sumário. */
+const Q_ROWS_BUDGET = 660
+const Q_FIRST_PAGE_EXTRA = 65
+const Q_LAST_PAGE_EXTRA = 90
+/** Caracteres por linha do texto da pergunta na coluna "Pergunta" (7,8pt),
+ * arredondado pra baixo pra estimar a quebra com folga. */
+const Q_PROMPT_CHARS_PER_LINE = 56
+
+/** Altura estimada (pt) de uma linha da tabela: padding + linhas do prompt
+ * + nome da competência. */
+function estimateQRowHeight(prompt: string): number {
+  let lines = 1, len = 0
+  for (const word of prompt.split(/\s+/)) {
+    if (len > 0 && len + 1 + word.length > Q_PROMPT_CHARS_PER_LINE) { lines++; len = word.length }
+    else len += (len > 0 ? 1 : 0) + word.length
+  }
+  return 16 + lines * 10.2
+}
+
+/** Divide `items` em exatamente `numPages` blocos, distribuindo o total de
+ * forma equilibrada (em vez de encher as primeiras páginas e deixar a
+ * última quase vazia). Ex.: 30 itens em 3 páginas → 10/10/10. */
+function chunkIntoPages<T>(items: T[], numPages: number): T[][] {
   const base = Math.floor(items.length / numPages)
   const remainder = items.length - base * numPages
   const chunks: T[][] = []
@@ -151,6 +167,26 @@ function chunkEvenly<T>(items: T[], maxPerPage: number): T[][] {
   }
   return chunks
 }
+
+/** Paginação de "Resultado por pergunta": o menor número de páginas (a
+ * partir de ⌈n/11⌉) em que a divisão equilibrada cabe na altura estimada
+ * de cada página. Usada tanto pelas páginas quanto pelo Sumário, pra que a
+ * numeração bata com o documento. */
+function paginateQuestions(qRows: QRow[]): QRow[][] {
+  if (qRows.length === 0) return []
+  for (let numPages = Math.ceil(qRows.length / QUESTIONS_PER_PAGE); numPages <= qRows.length; numPages++) {
+    const chunks = chunkIntoPages(qRows, numPages)
+    const fits = chunks.every((chunk, i) => {
+      const budget = Q_ROWS_BUDGET
+        - (i === 0 ? Q_FIRST_PAGE_EXTRA : 0)
+        - (i === chunks.length - 1 ? Q_LAST_PAGE_EXTRA : 0)
+      return chunk.reduce((h, r) => h + estimateQRowHeight(r.prompt), 0) <= budget
+    })
+    if (fits) return chunks
+  }
+  return qRows.map((r) => [r])
+}
+
 const GROUP_ORDER  = ['self', 'manager', 'manager_superior', 'peer', 'subordinate', 'client']
 const GROUP_LABEL: Record<string, string> = {
   self:             'Autoavaliação',
@@ -1176,13 +1212,16 @@ function PerspectivePage(props: {
 
 // ─── Dumbbell mini-chart ────────────────────────────────────────────────────
 
-function Dumbbell({ width, aFrac, bFrac, diffColor }: { width: number; aFrac: number; bFrac: number; diffColor: string }) {
+function Dumbbell({ width, aFrac, bFrac, diffColor, ticks = [] }: { width: number; aFrac: number; bFrac: number; diffColor: string; ticks?: number[] }) {
   const h = 12
   const ax = Math.max(3, Math.min(width - 3, aFrac * width))
   const bx = Math.max(3, Math.min(width - 3, bFrac * width))
   const y = h / 2
   return (
     <Svg width={width} height={h}>
+      {ticks.map((f) => (
+        <Line key={f} x1={f * width} y1={0} x2={f * width} y2={h} stroke={C.border} strokeWidth={0.5} />
+      ))}
       <Line x1={Math.min(ax, bx)} y1={y} x2={Math.max(ax, bx)} y2={y} stroke={diffColor} strokeWidth={1.2} />
       <Circle cx={bx} cy={y} r={3} fill={C.blue} />
       <Polygon points={`${ax},${y - 3.6} ${ax + 3.6},${y} ${ax},${y + 3.6} ${ax - 3.6},${y}`} fill={C.orange} />
@@ -1192,18 +1231,19 @@ function Dumbbell({ width, aFrac, bFrac, diffColor }: { width: number; aFrac: nu
 
 // ─── 8. Autopercepção ───────────────────────────────────────────────────────
 
-function SelfPerceptionRadar({ ranked, domainMin, domainMax, size = 122 }: {
+function SelfPerceptionRadar({ ranked, domainMin, domainMax, r = 68 }: {
   ranked: { id: string; name: string; selfMean: number; mean: number }[]
-  domainMin: number; domainMax: number; size?: number
+  domainMin: number; domainMax: number; r?: number
 }) {
   const N = ranked.length
   if (N < 3) return null
 
-  const canvasPad = 36
-  const canvas = size + canvasPad * 2
-  const cx = canvas / 2, cy = canvas / 2
-  const r = size * 0.32
-  const labelR = size * 0.46
+  // Rótulos colados na borda do radar (como no modelo), com folga lateral
+  // pros nomes das competências e só um respiro em cima/embaixo.
+  const labelR = r + 9
+  const width = (labelR + 58) * 2
+  const height = (labelR + 8) * 2
+  const cx = width / 2, cy = height / 2
   const RINGS = 4
 
   const axisAngle = (i: number) => (2 * Math.PI * i / N) - Math.PI / 2
@@ -1230,7 +1270,7 @@ function SelfPerceptionRadar({ ranked, domainMin, domainMax, size = 122 }: {
   })
 
   return (
-    <Svg width={canvas} height={canvas}>
+    <Svg width={width} height={height}>
       {gridPolys.map((pts, gi) => (
         <Polygon key={`g${gi}`} points={pts} fill="none" stroke="#e5e7eb" strokeWidth={0.5} />
       ))}
@@ -1282,16 +1322,6 @@ function SelfPerceptionPage(props: {
         A sua autoavaliação comparada com a média dos avaliadores do resultado geral, em cada
         competência. Na favorabilidade geral, você se avaliou em {props.selfFavPct != null ? fmtPct(props.selfFavPct, 1) : '—'} e os avaliadores em {fmtPct(props.geralFavPct, 1)}.
       </Text>
-      <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 2 }}>
-        <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <Svg width={8} height={8}><Polygon points="4,0.5 7.5,4 4,7.5 0.5,4" fill={C.orange} /></Svg>
-          <Text style={{ fontSize: 7.5, color: C.muted }}>Autoavaliação</Text>
-        </View>
-        <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <Svg width={8} height={8}><Circle cx={4} cy={4} r={3.4} fill={C.blue} /></Svg>
-          <Text style={{ fontSize: 7.5, color: C.muted }}>Avaliadores</Text>
-        </View>
-      </View>
       <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 6 }} wrap={false}>
         <SelfPerceptionRadar
           ranked={ranked.map((c) => ({ id: c.id, name: c.name, selfMean: c.selfMean!, mean: c.mean! }))}
@@ -1303,12 +1333,24 @@ function SelfPerceptionPage(props: {
           const abaixo = ranked.filter((c) => round2(c.mean!) - round2(c.selfMean!) >= readingThreshold).length
           const alinhado = ranked.length - acima - abaixo
           return (
-            <View style={{ flex: 1, backgroundColor: C.cream, borderLeft: `3pt solid ${C.blue}`, borderRadius: 3, padding: 8 }}>
-              <Text style={{ fontSize: 7.8, color: C.text, lineHeight: 1.4 }}>
-                Em {acima} competência{acima !== 1 ? 's' : ''} a sua autoavaliação ficou acima da visão dos avaliadores por{' '}
-                {fmt(readingThreshold, 1)} ponto ou mais. Em {alinhado} as duas visões estão alinhadas, e em {abaixo} você se
-                avaliou abaixo do que os avaliadores observam.
-              </Text>
+            <View style={{ flex: 1 }}>
+              <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Svg width={8} height={8}><Polygon points="4,0.5 7.5,4 4,7.5 0.5,4" fill={C.orange} /></Svg>
+                  <Text style={{ fontSize: 7.5, color: C.muted }}>Autoavaliação</Text>
+                </View>
+                <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Svg width={8} height={8}><Circle cx={4} cy={4} r={3.4} fill={C.blue} /></Svg>
+                  <Text style={{ fontSize: 7.5, color: C.muted }}>Avaliadores</Text>
+                </View>
+              </View>
+              <View style={{ backgroundColor: C.cream, borderLeft: `3pt solid ${C.blue}`, borderRadius: 3, padding: 8 }}>
+                <Text style={{ fontSize: 7.8, color: C.text, lineHeight: 1.5 }}>
+                  Em {acima} competência{acima !== 1 ? 's' : ''} a sua autoavaliação ficou acima da visão dos avaliadores por{' '}
+                  {fmt(readingThreshold, 1)} ponto ou mais. Em {alinhado} as duas visões estão alinhadas, e em {abaixo} você se
+                  avaliou abaixo do que os avaliadores observam.
+                </Text>
+              </View>
             </View>
           )
         })()}
@@ -1490,6 +1532,9 @@ function HighlightsPage(props: {
 
 // ─── 10. Divergência ─────────────────────────────────────────────────────────
 
+/** Largura do eixo 0–100% dos dumbbells, compartilhada com a escala do cabeçalho. */
+const DIVERGENCE_TRACK = 200
+
 function DivergencePage(props: {
   personName: string; tenantName: string; cycleLabel: string
   divergence: DivergenceRow[]; nMinimum: number; relDetailFav: RelationshipDetailFavorabilityRow[]
@@ -1515,6 +1560,20 @@ function DivergencePage(props: {
           <Text style={{ fontSize: 7.5, color: C.muted }}>Grupo menos favorável</Text>
         </View>
       </View>
+      <View style={[s.tableHeader, { alignItems: 'flex-end' }]}>
+        <Text style={[s.th, { width: 18 }]}>Nº</Text>
+        <Text style={[s.th, { width: 190 }]}>Pergunta</Text>
+        <View style={{ flex: 1, alignItems: 'center' }}>
+          <View style={{ width: DIVERGENCE_TRACK, height: 8, position: 'relative' }}>
+            {[0, 25, 50, 75, 100].map((pct) => (
+              <Text key={pct} style={[s.th, { position: 'absolute', left: (pct / 100) * DIVERGENCE_TRACK - 12, width: 24, textAlign: 'center', fontFamily: 'Inter', textTransform: 'none' }]}>
+                {pct}%
+              </Text>
+            ))}
+          </View>
+        </View>
+        <Text style={[s.th, { width: 42, textAlign: 'right' }]}>Distância (p.p.)</Text>
+      </View>
       {sorted.map((r) => (
         <View key={r.question_number} style={s.tableRow}>
           <Text style={{ width: 18, fontSize: 8, fontFamily: 'Inter-Bold', color: C.navy }}>{r.question_number}</Text>
@@ -1523,8 +1582,8 @@ function DivergencePage(props: {
             <Text style={{ fontSize: 6.3, color: C.light }}>{r.dimension_name}</Text>
           </View>
           <View style={{ flex: 1, alignItems: 'center' }}>
-            <Dumbbell width={200} aFrac={(r.lowest_pct ?? 0) / 100} bFrac={(r.highest_pct ?? 0) / 100} diffColor={C.light} />
-            <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', width: 200, marginTop: 2 }}>
+            <Dumbbell width={DIVERGENCE_TRACK} aFrac={(r.lowest_pct ?? 0) / 100} bFrac={(r.highest_pct ?? 0) / 100} diffColor={C.light} ticks={[0.25, 0.5, 0.75]} />
+            <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', width: DIVERGENCE_TRACK, marginTop: 2 }}>
               <Text style={{ fontSize: 6.3, color: C.red }}>{r.lowest_groups.map((g) => GROUP_LABEL[g] ?? g).join(' e ')} {fmtPct(r.lowest_pct, 1)}</Text>
               <Text style={{ fontSize: 6.3, color: C.blue }}>{r.highest_groups.map((g) => GROUP_LABEL[g] ?? g).join(' e ')} {fmtPct(r.highest_pct, 1)}</Text>
             </View>
@@ -1554,7 +1613,7 @@ function QuestionsPages(props: {
   qRows: QRow[]; nMinimum: number; groups: GroupAgg[]
 }) {
   const { qRows, groups } = props
-  const chunks = chunkEvenly(qRows, QUESTIONS_PER_PAGE)
+  const chunks = paginateQuestions(qRows)
   const hasClient = (groups.find((g) => g.code === 'client')?.n ?? 0) > 0
 
   return (
@@ -1590,7 +1649,7 @@ function QuestionsPages(props: {
             const f = faixa(r.fav)
             const byCode = Object.fromEntries(r.groupMeans.map((g) => [g.code, g.mean]))
             return (
-              <View key={r.number} style={s.tableRow} wrap={false}>
+              <View key={r.number} style={[s.tableRow, { paddingTop: 3.5, paddingBottom: 3.5 }]} wrap={false}>
                 <Text style={{ width: 16, fontSize: 7.5, color: C.muted }}>{r.number}</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 7.8, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
@@ -2072,7 +2131,7 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
   const geralFav = computeFavorability(geralDist, scale)
   const selfFav = groupList.find((g) => g.code === 'self')?.fav.favoravel ?? null
   const hasValues = Object.keys(questionValueNames).length > 0
-  const questionsPages = Math.max(1, Math.ceil(qRows.length / QUESTIONS_PER_PAGE))
+  const questionsPages = Math.max(1, paginateQuestions(qRows).length)
 
   const chrome = { personName, tenantName, cycleLabel, variant }
 
