@@ -15,7 +15,14 @@
  * perguntas manualmente em blocos de 11.
  */
 
-import { Document, Page, Text, View, StyleSheet, Svg, Line, Circle, Polygon } from '@react-pdf/renderer'
+import { Document, Page, Text, View, StyleSheet, Svg, Line, Circle, Polygon, Font } from '@react-pdf/renderer'
+
+// react-pdf hifeniza automaticamente em quebra de linha, mas não conhece as
+// regras do português e corta em lugares errados ("favor-abilidade",
+// "refer-ência"). Desativa a hifenização — o texto quebra só em espaços,
+// o que deixa a margem direita um pouco mais irregular, mas sem palavras
+// cortadas de forma incorreta.
+Font.registerHyphenationCallback((word) => [word])
 import {
   type CompetencyRow,
   type QuestionScoreRow,
@@ -99,6 +106,11 @@ export interface ReportExecutivePDFProps {
 // ─── Grupos do "resultado geral" ───────────────────────────────────────────────
 
 const GERAL_CODES = ['manager', 'manager_superior', 'peer', 'subordinate']
+
+/** Perguntas por página em "Resultado por pergunta" — usado ali e no
+ * Sumário (pra numerar as páginas corretamente). 9 garante que cada bloco
+ * caiba inteiro mesmo com prompts longos e as colunas Auto/Cli. int. */
+const QUESTIONS_PER_PAGE = 9
 const GROUP_ORDER  = ['self', 'manager', 'manager_superior', 'peer', 'subordinate', 'client']
 const GROUP_LABEL: Record<string, string> = {
   self:             'Autoavaliação',
@@ -138,10 +150,23 @@ const SEXO_LABEL: Record<string, string> = { F: 'Feminino', M: 'Masculino' }
 function normalizeDemographicValue(value: string): string {
   const mapped = SEXO_LABEL[value.toUpperCase()]
   if (mapped && value.length <= 2) return mapped
-  const hasLowercase = /[a-zà-öø-ÿ]/.test(value)
-  if (hasLowercase) return value
-  const lower = value.toLocaleLowerCase('pt-BR')
+  // "de 1 à 3 anos" é erro de crase do cadastro (não há regência que peça
+  // "à" antes de número) — corrige independente do resto do valor já vir
+  // bem formatado ou não.
+  const fixedCrase = value.replace(/\bà\b/g, 'a').replace(/\bÀ\b/g, 'A')
+  const hasLowercase = /[a-zà-öø-ÿ]/.test(fixedCrase)
+  if (hasLowercase) return fixedCrase
+  const lower = fixedCrase.toLocaleLowerCase('pt-BR')
   return lower.charAt(0).toLocaleUpperCase('pt-BR') + lower.slice(1)
+}
+
+/** "Tempo de casa" vem em faixas ("Menos de 1 ano", "De 1 a 3 anos"...) que a
+ * ordenação alfabética do banco embaralha — ordena pelo primeiro número da
+ * faixa (e faixas sem número, tipo "Menos de 1 ano", ficam primeiro). */
+function tempoDeCasaSortKey(value: string): number {
+  if (/menos/i.test(value)) return -1
+  const match = value.match(/\d+/)
+  return match ? Number(match[0]) : 999
 }
 
 function fmt(v: number | null | undefined, digits = 2): string {
@@ -261,6 +286,11 @@ const s = StyleSheet.create({
 function PageChrome({
   label, personName, tenantName, cycleLabel, children,
 }: { label: string; personName: string; tenantName: string; cycleLabel: string; children: React.ReactNode }) {
+  // cycleLabel é o nome interno do ciclo (ex.: "Flexmetal 2026 v2 — Avaliação
+  // 360° (por Competência)") — usado no cabeçalho/topo pra quem administra,
+  // mas não deve vazar pro rodapé do documento do participante. O rodapé usa
+  // só o ano, extraído do próprio nome do ciclo.
+  const cycleYear = cycleLabel.match(/\d{4}/)?.[0] ?? ''
   return (
     <Page size="A4" style={s.page}>
       <View style={s.header}>
@@ -269,7 +299,7 @@ function PageChrome({
       </View>
       {children}
       <View style={s.footer}>
-        <Text style={s.footerText}>{personName} · {cycleLabel} {tenantName}</Text>
+        <Text style={s.footerText}>{personName} · Avaliação 360° {tenantName}{cycleYear ? ` ${cycleYear}` : ''}</Text>
         <Text style={s.footerText} render={({ pageNumber, totalPages }) => `CR BASSO Educação Corporativa · Confidencial · ${pageNumber} / ${totalPages}`} />
       </View>
     </Page>
@@ -352,15 +382,29 @@ const TOC_ITEMS = [
   ['Metodologia e glossário',          'Todas as regras de cálculo, com exemplos'],
 ]
 
-function TOCPage(props: { personName: string; tenantName: string; cycleLabel: string; hasValues: boolean }) {
+function TOCPage(props: { personName: string; tenantName: string; cycleLabel: string; hasValues: boolean; questionsPages: number }) {
   const items = props.hasValues ? TOC_ITEMS : TOC_ITEMS.filter((i) => i[0] !== 'Valores organizacionais')
+  // Numeração fixa: capa(1) + sumário(2) + como ler(3) = 3 páginas antes
+  // daqui. Cada item de TOC_ITEMS mapeia pra um número de páginas físicas
+  // no documento — só "Resultado por pergunta" varia (uma página por bloco
+  // de 9 perguntas).
+  const PAGE_COUNTS: Record<string, number> = {
+    'Como ler este relatório': 1, 'Visão geral': 1, 'Síntese dos dados': 1,
+    'Resultado por competência': 1, 'Competências por perspectiva': 2, 'Autopercepção': 1,
+    'Destaques': 1, 'Onde as perspectivas divergem': 1, 'Resultado por pergunta': props.questionsPages,
+    'Valores organizacionais': 1, 'Comparação com o grupo de gestores': 1, 'Perfil dos avaliadores': 1,
+    'Guia para a devolutiva': 1, 'Plano de desenvolvimento': 1, 'Metodologia e glossário': 1,
+  }
+  let page = 3
+  const pageNumbers = items.map(([title]) => { const start = page + 1; page += PAGE_COUNTS[title] ?? 1; return start })
   return (
     <PageChrome label="Sumário" {...props}>
       <Text style={s.h1}>Sumário</Text>
-      {items.map(([title, desc]) => (
-        <View key={title} style={{ display: 'flex', flexDirection: 'row', paddingTop: 8, paddingBottom: 8, borderBottom: `0.5pt solid ${C.border}` }}>
+      {items.map(([title, desc], i) => (
+        <View key={title} style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', paddingTop: 8, paddingBottom: 8, borderBottom: `0.5pt solid ${C.border}` }}>
           <Text style={{ width: 160, fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.text }}>{title}</Text>
           <Text style={{ flex: 1, fontSize: 8.5, color: C.muted }}>{desc}</Text>
+          <Text style={{ width: 20, fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.text, textAlign: 'right' }}>{pageNumbers[i]}</Text>
         </View>
       ))}
       <View style={s.callout}>
@@ -466,6 +510,7 @@ function HowToReadPage(props: {
       })}
       <Text style={{ fontSize: 8, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
         Foram {nFormularios} formulários. {geral} avaliadores formam o resultado geral{cliInt > 0 ? `, ${cliInt} clientes internos aparecem para comparação` : ''} e 1 é a sua autoavaliação.
+        {cliInt > 0 && ' Os clientes internos não entram no resultado geral porque não fazem parte da sua linha de comando nem do seu nível, e essa regra vale igualmente para todos os gestores avaliados.'}
       </Text>
       <View style={s.callout}>
         <Text style={s.calloutTitle}>Como ler as diferenças</Text>
@@ -486,8 +531,8 @@ const GROUP_DESC: Record<string, string> = {
   manager: 'O seu superior imediato. Aparece sozinho, em grupo próprio.',
   manager_superior: 'Quem está acima do seu chefe direto, na mesma linha de comando.',
   peer: 'Pessoas do mesmo nível hierárquico que o seu, de qualquer área.',
-  subordinate: 'Pessoas que respondem diretamente (ou indiretamente) a você.',
-  client: 'Pessoas fora da sua linha de comando e de outro nível, de qualquer área.',
+  subordinate: 'Pessoas que respondem diretamente a você.',
+  client: 'Pessoas fora da sua linha de comando e de outro nível, de qualquer área, inclusive gestores de outras áreas com cargo acima do seu.',
 }
 
 // ─── 4. Visão geral ─────────────────────────────────────────────────────────
@@ -540,11 +585,17 @@ function OverviewPage(props: {
           <View style={s.card}>
             <Text style={s.cardLabel}>Sua autoavaliação</Text>
             <Text style={s.cardMid}>{selfFav != null ? fmtPct(selfFav, 1) : '—'}</Text>
-            {selfFav != null && (
-              <Text style={{ fontSize: 7, color: C.muted, marginTop: 3 }}>
-                {selfFav - geralFav.favoravel >= 0 ? '+' : ''}{fmt(selfFav - geralFav.favoravel, 1)} p.p. em relação à favorabilidade geral
-              </Text>
-            )}
+            {selfFav != null && (() => {
+              // Subtrai os valores já arredondados a 1 casa (os mesmos impressos
+              // na página), não os precisos — pro leitor conseguir refazer a
+              // conta com os números que vê e chegar no mesmo resultado.
+              const diffPp = Math.round(selfFav * 10) / 10 - Math.round(geralFav.favoravel * 10) / 10
+              return (
+                <Text style={{ fontSize: 7, color: C.muted, marginTop: 3 }}>
+                  {diffPp >= 0 ? '+' : ''}{fmt(diffPp, 1)} p.p. em relação à favorabilidade geral
+                </Text>
+              )
+            })()}
           </View>
         </View>
       </View>
@@ -730,7 +781,7 @@ function buildSynthesisBullets(
       .filter((x) => x.n > 0)
       .sort((a, b) => b.n - a.n)
     const desc = byGroup.map((x) => `${x.n} de ${GROUP_LABEL[x.code]}`).join(' e ')
-    bullets.push(`O resultado geral tem ${desfavTotal} respostas ${scale.min} ou ${scale.min + 1}, de ${respTotal}. Dessas, ${desc}.`)
+    bullets.push(`O resultado geral tem ${desfavTotal} ${desfavTotal === 1 ? 'resposta' : 'respostas'} ${scale.min} ou ${scale.min + 1}, de ${respTotal}. Dessas, ${desc}.`)
   }
 
   for (const code of ['manager', 'manager_superior']) {
@@ -741,7 +792,7 @@ function buildSynthesisBullets(
     const favN = Object.entries(g.dist).filter(([k]) => Number(k) >= scale.max - 1).reduce((s2, [, v]) => s2 + v, 0)
     const neuN = total - favN - Object.entries(g.dist).filter(([k]) => Number(k) <= scale.min + 1).reduce((s2, [, v]) => s2 + v, 0)
     const desN = total - favN - neuN
-    bullets.push(`${GROUP_LABEL[code]}, uma única pessoa, marcou ${favN} respostas ${scale.max - 1} ou ${scale.max}, ${neuN} respostas intermediárias e ${desN} respostas ${scale.min} ou ${scale.min + 1}, nas ${total} perguntas.`)
+    bullets.push(`${GROUP_LABEL[code]}, uma única pessoa, marcou ${favN} ${favN === 1 ? 'resposta' : 'respostas'} ${scale.max - 1} ou ${scale.max}, ${neuN} ${neuN === 1 ? 'resposta intermediária' : 'respostas intermediárias'} e ${desN} ${desN === 1 ? 'resposta' : 'respostas'} ${scale.min} ou ${scale.min + 1}, nas ${total} perguntas.`)
   }
 
   return bullets
@@ -873,7 +924,7 @@ function PerspectivePage(props: {
   comps: CompAgg[]; questionScores: QuestionScoreRow[]; groups: GroupAgg[]
 }) {
   const { comps, questionScores, groups } = props
-  const ranked = [...comps].sort((a, b) => b.fav.favoravel - a.fav.favoravel)
+  const ranked = [...comps].sort((a, b) => b.fav.favoravel - a.fav.favoravel || (b.mean ?? 0) - (a.mean ?? 0))
   const geralN = groups.filter((g) => GERAL_ENTRA[g.code]).reduce((s2, g) => s2 + g.n, 0)
   const cols = PERSPECTIVE_COL_ORDER.filter((c) => c === 'geral' ? geralN > 0 : (groups.find((g) => g.code === c)?.n ?? 0) > 0)
 
@@ -930,7 +981,7 @@ function PerspectivePage(props: {
             Cada linha é uma competência e cada coluna um grupo de avaliadores. Quanto mais escuro o azul,
             maior a favorabilidade. A coluna Geral reúne os avaliadores do resultado geral. As colunas em
             cinza, Auto e Cli. int., aparecem só para comparação. Em grupos de uma pessoa, o percentual só
-            pode assumir poucos valores (0%, 33,3%, 50%...), e 0% não significa nota zero — vale ler esses
+            pode assumir poucos valores (0%, 33,3%, 50%...), e 0% não significa nota zero. Vale ler esses
             grupos junto com a média.
           </Text>
         </View>
@@ -1058,7 +1109,7 @@ function SelfPerceptionPage(props: {
         <Text style={s.howToReadText}>
           O losango laranja é a sua autoavaliação e o círculo azul é a média dos avaliadores. A diferença
           é a sua média menos a dos avaliadores; quando positiva, você se vê melhor do que os outros veem.
-          A leitura usa o limiar de {fmt(readingThreshold, 1)} ponto. Uma autoavaliação acima não é um erro — é um convite
+          A leitura usa o limiar de {fmt(readingThreshold, 1)} ponto. Uma autoavaliação acima não é um erro. É um convite
           para entender o que os outros ainda não enxergam, ou o que você ainda não percebeu.
         </Text>
       </View>
@@ -1185,7 +1236,7 @@ function HighlightsPage(props: {
         <Text style={s.howToReadText}>
           À direita, a favorabilidade da pergunta entre os avaliadores do resultado geral e, abaixo, a
           média. O texto cinza traz a média de cada grupo. A ordem segue a favorabilidade. Mais espaço
-          para evoluir não quer dizer resultado ruim — são os comportamentos menos observados entre os seus.
+          para evoluir não quer dizer resultado ruim. São os comportamentos menos observados entre os seus.
         </Text>
       </View>
     </PageChrome>
@@ -1243,7 +1294,7 @@ function DivergencePage(props: {
           vermelho é a do grupo que menos reconhece, com o nome e o percentual de cada um abaixo do
           símbolo. Quando dois grupos empatam, os dois aparecem. A distância é a diferença entre os dois
           percentuais, em pontos percentuais (p.p.). Chefe direto e liderança superior ficam de fora por
-          serem uma pessoa cada. Divergência não aponta erro de ninguém — mostra onde grupos diferentes
+          serem uma pessoa cada. Divergência não aponta erro de ninguém. Mostra onde grupos diferentes
           vivem experiências diferentes com você.
         </Text>
       </View>
@@ -1258,13 +1309,8 @@ function QuestionsPages(props: {
   qRows: QRow[]; nMinimum: number; groups: GroupAgg[]
 }) {
   const { qRows, groups } = props
-  // 11 caberia matematicamente em 3 páginas (33/11), mas com as colunas
-  // Auto/Cli.int. o texto da pergunta quebra em mais linhas e a última
-  // chunk estourava a página sem cabeçalho de tabela na continuação —
-  // 9 garante folga mesmo em perguntas com prompt longo.
-  const perPage = 9
   const chunks: QRow[][] = []
-  for (let i = 0; i < qRows.length; i += perPage) chunks.push(qRows.slice(i, i + perPage))
+  for (let i = 0; i < qRows.length; i += QUESTIONS_PER_PAGE) chunks.push(qRows.slice(i, i + QUESTIONS_PER_PAGE))
   const hasClient = (groups.find((g) => g.code === 'client')?.n ?? 0) > 0
 
   return (
@@ -1483,6 +1529,8 @@ const DEMO_DIM_LABEL: Record<string, string> = { sexo: 'Sexo', geracao: 'Geraç�
 function ProfilePage(props: { personName: string; tenantName: string; cycleLabel: string; demographics: DemographicGroup[] }) {
   const byDim = new Map<string, DemographicGroup[]>()
   for (const g of props.demographics) { if (g.dimension === 'nivel_detalhe') continue; const arr = byDim.get(g.dimension) ?? []; arr.push(g); byDim.set(g.dimension, arr) }
+  const tempoCasaRows = byDim.get('tempo_casa')
+  if (tempoCasaRows) tempoCasaRows.sort((a, b) => tempoDeCasaSortKey(a.value) - tempoDeCasaSortKey(b.value))
   const dims = [...byDim.keys()]
   const totalPessoas = dims.length > 0 ? byDim.get(dims[0])!.reduce((s2, g) => s2 + g.respondent_count, 0) : 0
 
@@ -1546,11 +1594,11 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
 const ROTEIRO = [
   ['1. Combinar o propósito', 'O relatório mostra percepções e não é avaliação de desempenho. O objetivo é escolher poucos pontos para desenvolver. As respostas aparecem agrupadas. As exceções são o chefe direto e a liderança superior, que são uma pessoa cada e aparecem em grupo próprio.'],
   ['2. Explicar como ler', 'Percorrer a página "Como ler este relatório", em especial favorabilidade, quem entra no resultado geral e o limiar de leitura.'],
-  ['3. Visão geral', 'Apresentar a favorabilidade geral, o quadro "Cuidado na leitura" e o resultado de cada grupo. Pergunta possível: o que mais chama a sua atenção nestes números?'],
-  ['4. Pontos fortes', 'Resultado por competência e Destaques. Pergunta possível: em que situações esses comportamentos aparecem com mais força, e como usar isso a seu favor?'],
-  ['5. Autopercepção', 'Competências em que a autoavaliação ficou acima ou abaixo dos avaliadores. Pergunta possível: o que você faz nessas competências que as outras pessoas talvez não vejam, e o que elas podem estar vendo que você não vê?'],
-  ['6. Diferenças entre grupos', 'Competências por perspectiva e Onde as perspectivas divergem, incluindo o chefe direto, que aparece nas tabelas por grupo. Pergunta possível: em que situações você trabalha com cada um desses grupos, e o que muda na sua forma de agir?'],
-  ['7. Escolher de 2 a 3 focos', 'De preferência perguntas específicas da página Resultado por pergunta. Registrar no Plano de desenvolvimento, com data de acompanhamento. Pergunta possível: qual mudança de comportamento as pessoas notariam primeiro?'],
+  ['3. Visão geral', 'Apresentar a favorabilidade geral, o quadro "Cuidado na leitura" e o resultado de cada grupo. Pergunta possível. O que mais chama a sua atenção nestes números?'],
+  ['4. Pontos fortes', 'Resultado por competência e Destaques. Pergunta possível. Em que situações esses comportamentos aparecem com mais força, e como usar isso a seu favor?'],
+  ['5. Autopercepção', 'Competências em que a autoavaliação ficou acima ou abaixo dos avaliadores. Pergunta possível. O que você faz nessas competências que as outras pessoas talvez não vejam, e o que elas podem estar vendo que você não vê?'],
+  ['6. Diferenças entre grupos', 'Competências por perspectiva e Onde as perspectivas divergem, incluindo o chefe direto, que aparece nas tabelas por grupo. Pergunta possível. Em que situações você trabalha com cada um desses grupos, e o que muda na sua forma de agir?'],
+  ['7. Escolher de 2 a 3 focos', 'De preferência perguntas específicas da página Resultado por pergunta. Registrar no Plano de desenvolvimento, com data de acompanhamento. Pergunta possível. Qual mudança de comportamento as pessoas notariam primeiro?'],
 ]
 
 const CUIDADOS = [
@@ -1669,9 +1717,9 @@ function MethodologyPage(props: {
     <PageChrome label="Metodologia" {...props}>
       <Text style={s.h1}>Metodologia e glossário</Text>
       <Block title="Origem dos dados">
-        Respostas coletadas pela plataforma Maptiva nos formulários de avaliação 360° e de autoavaliação
-        da {props.tenantName}. Todos os números deste relatório são calculados diretamente a partir das
-        respostas originais — nenhuma foi acrescentada, alterada ou estimada.
+        Respostas coletadas nos formulários de avaliação 360° e de autoavaliação da {props.tenantName}.
+        Todos os números deste relatório são calculados diretamente a partir das respostas originais,
+        sem nenhuma resposta acrescentada, alterada ou estimada.
       </Block>
       <Block title="Instrumento">
         Perguntas fechadas de frequência de comportamento, organizadas em {props.nComp} competências. O
@@ -1686,8 +1734,10 @@ function MethodologyPage(props: {
         vale o mesmo. Autoavaliação e clientes internos não entram.
       </Block>
       <Block title="Grupos de avaliadores">
-        Chefe direto, liderança superior e equipe seguem a linha de comando do organograma. Pares e
-        clientes internos são definidos pelo nível hierárquico e pela área.
+        Chefe direto, liderança superior e equipe seguem a linha de comando do organograma. Pares são
+        pessoas do mesmo nível hierárquico que o participante, de qualquer área. Clientes internos são
+        pessoas fora da linha de comando e de outro nível, de qualquer área, inclusive gestores de
+        outras áreas com cargo acima do dele.
       </Block>
       <Block title="Margem e limiar de leitura">
         {r ? (
@@ -1759,13 +1809,14 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
   const geralFav = computeFavorability(geralDist, scale)
   const selfFav = groupList.find((g) => g.code === 'self')?.fav.favoravel ?? null
   const hasValues = Object.keys(questionValueNames).length > 0
+  const questionsPages = Math.max(1, Math.ceil(qRows.length / QUESTIONS_PER_PAGE))
 
   const chrome = { personName, tenantName, cycleLabel }
 
   return (
     <Document title={`Relatório Executivo — ${personName}`} author="CR BASSO Educação Corporativa" subject={cycleLabel} creator="Maptiva">
       <CoverPage personName={personName} personRole={personRole} tenantName={tenantName} cycleLabel={cycleLabel} issuedAt={issuedAt} nAvaliadores={nAvaliadores} nFormularios={nFormularios} />
-      <TOCPage {...chrome} hasValues={hasValues} />
+      <TOCPage {...chrome} hasValues={hasValues} questionsPages={questionsPages} />
       <HowToReadPage {...chrome} scale={scale} groups={groupList} nFormularios={nFormularios} limiar={readingThreshold} margem={margem} nQuestions={qRows.length} nComp={competencies.length} />
       <OverviewPage {...chrome} groups={groupList} benchmark={benchmark} benchmarkOverall={benchmarkOverall} reliability={reliability} />
       <SynthesisPage {...chrome} groups={groupList} comps={comps} divergence={divergence} reliability={reliability} benchmark={benchmark} benchmarkOverall={benchmarkOverall} scale={scale} readingThreshold={readingThreshold} />
