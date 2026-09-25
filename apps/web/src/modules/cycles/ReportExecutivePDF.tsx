@@ -12,7 +12,7 @@
  *
  * Cada página do modelo é uma página fixa aqui (sem fluxo automático de
  * conteúdo entre páginas), exceto "Resultado por pergunta", que pagina as 33
- * perguntas manualmente em blocos de até 11 (ver paginateQuestions).
+ * perguntas manualmente em blocos de até 11 (ver layoutQuestions).
  */
 
 import { Document, Page, Text, View, StyleSheet, Svg, Line, Circle, Polygon, Font } from '@react-pdf/renderer'
@@ -188,11 +188,91 @@ function questionColumns(groups: GroupAgg[]) {
   return { groupCols, outCols, promptW: Q_TABLE_W - used }
 }
 
+/** Larguras da Carlito Regular (milésimos do corpo), extraídas da fonte com
+ * fontkit, para estimar a quebra de linha do texto das perguntas. */
+const CARLITO_WIDTHS: Map<string, number> = new Map(([
+  ["'", 221],
+  [" ", 226],
+  ["ilí", 229],
+  ["j", 239],
+  [",’", 250],
+  [".IÍ", 252],
+  [":;", 268],
+  ["()", 303],
+  ["f", 305],
+  ["-", 306],
+  ["J", 319],
+  ["!", 326],
+  ["t", 335],
+  ["r", 349],
+  ["/", 386],
+  ["s", 391],
+  ["z", 395],
+  ["\"", 401],
+  ["“”", 418],
+  ["L", 420],
+  ["cç", 423],
+  ["x", 433],
+  ["v", 452],
+  ["y", 453],
+  ["k", 455],
+  ["FS", 459],
+  ["?", 463],
+  ["Z", 468],
+  ["g", 471],
+  ["aàáâã", 479],
+  ["TY", 487],
+  ["EÉÊ", 488],
+  ["*+eéê–", 498],
+  ["0123456789", 507],
+  ["P", 517],
+  ["X", 519],
+  ["K", 520],
+  ["bdhnpquú", 525],
+  ["oóôõ", 527],
+  ["CÇ", 533],
+  ["R", 543],
+  ["B", 544],
+  ["V", 567],
+  ["AÀÁÂÃ", 579],
+  ["D", 615],
+  ["H", 623],
+  ["G", 631],
+  ["UÚ", 642],
+  ["N", 646],
+  ["OÓÔÕ", 662],
+  ["Q", 673],
+  ["%w", 715],
+  ["m", 799],
+  ["M", 855],
+  ["W", 890],
+  ["—", 905],
+] as [string, number][]).flatMap(([chars, w]) => [...chars].map((ch) => [ch, w] as [string, number])))
+
+function textWidthPt(text: string, size: number): number {
+  let w = 0
+  for (const ch of text) w += CARLITO_WIDTHS.get(ch) ?? 520
+  return (w / 1000) * size
+}
+
+/** Linhas que um texto ocupa numa largura, quebrando por palavra. */
+function wrappedLines(text: string, size: number, width: number): number {
+  const space = textWidthPt(' ', size)
+  let lines = 1, used = 0
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const ww = textWidthPt(word, size)
+    if (used > 0 && used + space + ww > width) { lines++; used = ww }
+    else used += (used > 0 ? space : 0) + ww
+  }
+  return lines
+}
+
 /** Altura estimada (pt) de uma linha da tabela: padding + linhas do prompt
- * (texto a 9 pt, 0,47 da fonte por caractere, calibrado contra a quebra real
- * da Carlito) + nome da competência. */
+ * (texto a 9 pt com entrelinha de 11,7 pt) + nome da competência. A largura
+ * útil é a coluna menos os 12 pt de padding; o react-pdf aceita uma linha
+ * até ~2,5 pt mais longa (medido: 158,4 pt numa largura de 156). */
 function estimateQRowHeight(prompt: string, promptW: number): number {
-  return 21 + estimateLines(prompt, Math.floor((promptW - 8) / (9 * 0.47))) * 12.15
+  return 19 + wrappedLines(prompt, 9, promptW - 12 + 2.5) * 11.7
 }
 
 /** Divide `items` em exatamente `numPages` blocos, distribuindo o total de
@@ -215,7 +295,21 @@ function chunkIntoPages<T>(items: T[], numPages: number): T[][] {
  * partir de ⌈n/11⌉) em que a divisão equilibrada cabe na altura estimada
  * de cada página. Usada tanto pelas páginas quanto pelo Sumário, pra que a
  * numeração bata com o documento. */
-function paginateQuestions(qRows: QRow[], promptW: number): QRow[][] {
+/** Divisão do modelo: 1–10 com o Como ler na primeira página, 11–21 e o
+ * resto (até 22–33). Vale quando cabe pela estimativa de altura; senão,
+ * paginateQuestionsBalanced reparte por igual e põe o Como ler no fim. */
+function layoutQuestions(qRows: QRow[], promptW: number): { chunks: QRow[][]; howToPage: number } {
+  const h = (chunk: QRow[]) => chunk.reduce((acc, r) => acc + estimateQRowHeight(r.prompt, promptW), 0)
+  if (qRows.length > 21 && qRows.length <= 33) {
+    const chunks = [qRows.slice(0, 10), qRows.slice(10, 21), qRows.slice(21)]
+    const budgets = [Q_ROWS_BUDGET - Q_FIRST_PAGE_EXTRA - Q_LAST_PAGE_EXTRA, Q_ROWS_BUDGET, Q_ROWS_BUDGET]
+    if (chunks.every((c, i) => h(c) <= budgets[i])) return { chunks, howToPage: 0 }
+  }
+  const chunks = paginateQuestionsBalanced(qRows, promptW)
+  return { chunks, howToPage: chunks.length - 1 }
+}
+
+function paginateQuestionsBalanced(qRows: QRow[], promptW: number): QRow[][] {
   if (qRows.length === 0) return []
   for (let numPages = Math.ceil(qRows.length / QUESTIONS_PER_PAGE); numPages <= qRows.length; numPages++) {
     const chunks = chunkIntoPages(qRows, numPages)
@@ -321,6 +415,14 @@ function fmt(v: number | null | undefined, digits = 2): string {
   if (v == null || Number.isNaN(v)) return '—'
   return v.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 }
+function fmtInt(v: number): string { return v.toLocaleString('pt-BR') }
+
+/** "vieram do grupo de pares", "todas da equipe indireta". */
+const GROUP_FROM: Record<string, string> = {
+  self: 'da autoavaliação', manager: 'do chefe direto', manager_superior: 'da liderança superior', peer: 'do grupo de pares',
+  subordinate: 'da equipe', subordinate_indirect: 'da equipe indireta', client: 'dos clientes internos',
+}
+
 function fmtPct(v: number | null | undefined, digits = 1): string {
   if (v == null || Number.isNaN(v)) return '—'
   return `${v.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`
@@ -708,7 +810,7 @@ function HowToReadPage(props: {
         if (!g || g.n === 0) return null
         const entra = GERAL_ENTRA[code]
         return (
-          <View key={code} style={s.tableRow}>
+          <View key={code} style={[s.tableRow, { paddingTop: 4.5, paddingBottom: 4.5 }]}>
             <Text style={[s.td, { width: 96, fontSize: 9.5, fontFamily: 'Carlito-Bold' }]}>{GROUP_LABEL[code]}</Text>
             <Text style={[s.td, { width: 38, fontSize: 9.5, color: C.sub, textAlign: 'right', marginRight: 14 }]}>{g.n}</Text>
             <View style={{ width: 58, marginRight: 14 }}>
@@ -720,11 +822,11 @@ function HowToReadPage(props: {
           </View>
         )
       })}
-      <Text style={{ fontSize: 8.8, color: C.sub, marginTop: 8, lineHeight: 1.45 }}>
-        Foram {nFormularios} formulários. {geral} avaliadores formam o resultado geral{cliInt > 0 ? `, ${cliInt} clientes internos aparecem para comparação` : ''} e 1 é a sua autoavaliação.
+      <Text style={{ fontSize: 8.8, color: C.sub, marginTop: 6, lineHeight: 1.4 }}>
+        Foram {nFormularios} formulários. {geral} avaliadores formam o resultado geral{cliInt > 0 ? `, ${cliInt === 1 ? '1 cliente interno aparece' : `${cliInt} clientes internos aparecem`} para comparação` : ''} e 1 é a sua autoavaliação.
         {cliInt > 0 && ' Os clientes internos não entram no resultado geral porque não fazem parte da sua linha de comando nem do seu nível, e essa regra vale igualmente para todos os gestores avaliados.'}
       </Text>
-      <View style={s.callout}>
+      <View style={[s.callout, { marginTop: 8, marginBottom: 0, paddingTop: 8, paddingBottom: 8 }]}>
         <Text style={s.calloutText}>
           <Text style={{ fontFamily: 'Carlito-Bold' }}>Como ler as diferenças.</Text>{' '}
           Diferenças de média menores que {fmt(limiar, 1)} ponto na escala de {scale.min} a {scale.max} não devem ser lidas
@@ -744,7 +846,7 @@ const GROUP_DESC: Record<string, string> = {
   manager_superior: 'Quem está acima do seu chefe direto, na mesma linha de comando.',
   peer: 'Pessoas do mesmo nível hierárquico que o seu, de qualquer área.',
   subordinate: 'Pessoas que respondem diretamente a você.',
-  [INDIRECT_TEAM]: 'Pessoas da sua linha de comando abaixo da sua equipe direta, de segundo nível ou mais.',
+  [INDIRECT_TEAM]: 'Pessoas da sua linha de comando, abaixo da sua equipe direta.',
   client: 'Pessoas fora da sua linha de comando e de outro nível, de qualquer área, inclusive gestores de outras áreas com cargo acima do seu.',
 }
 
@@ -753,7 +855,7 @@ const GROUP_DESC: Record<string, string> = {
 function OverviewPage(props: {
   personName: string; tenantName: string; cycleLabel: string
   groups: GroupAgg[]; benchmark: BenchmarkMap | undefined; benchmarkOverall: BenchmarkOverall | null; reliability: ReliabilityInfo | null
-  mandatoryNote: string | null
+  mandatoryNote: string | null; nQuestions: number
 }) {
   const { groups, benchmark, reliability } = props
   const geralRows = groups.filter((g) => GERAL_ENTRA[g.code])
@@ -797,7 +899,7 @@ function OverviewPage(props: {
           <Text style={[s.cardLabel, { fontSize: 8.5 }]}>Favorabilidade geral</Text>
           <Text style={{ fontSize: 46, fontFamily: 'Carlito-Bold', color: C.navy, marginTop: 2 }}>{fmtPct(geralFav.favoravel, 1)}</Text>
           <Text style={{ fontSize: 9.5, color: C.muted, marginTop: 6, lineHeight: 1.4 }}>
-            {Math.round(geralFav.favoravel / 100 * geralResp)} das {geralResp} respostas dos {geralN} avaliadores foram {scale.max - 1} ou {scale.max}.
+            {fmtInt(Math.round(geralFav.favoravel / 100 * geralResp))} das {fmtInt(geralResp)} respostas dos {geralN} avaliadores foram {scale.max - 1} ou {scale.max}.
           </Text>
           <View style={{ marginTop: 12, height: 10, backgroundColor: C.cream, borderRadius: 2, flexDirection: 'row', overflow: 'hidden' }}>
             <View style={{ width: `${geralFav.favoravel}%`, backgroundColor: C.blue }} />
@@ -823,7 +925,7 @@ function OverviewPage(props: {
           <View style={ov.tile}>
             <Text style={s.cardLabel}>Média geral</Text>
             <Text style={ov.value}>{fmt(geralMean)}</Text>
-            <Text style={ov.desc}>{`na escala de ${scale.min} a ${scale.max}, calculada com as mesmas ${geralResp} respostas`}</Text>
+            <Text style={ov.desc}>{`na escala de ${scale.min} a ${scale.max}, calculada com as mesmas ${fmtInt(geralResp)} respostas`}</Text>
           </View>
           <View style={ov.tile}>
             <Text style={s.cardLabel}>{bm != null && bm.participant_count > 0 ? `Em relação aos ${bm.participant_count} gestores` : 'Em relação ao grupo comparativo'}</Text>
@@ -863,7 +965,7 @@ function OverviewPage(props: {
             {reliability ? (
               <>
                 <Text style={[ov.category, { color: C.navy }]}>{tierLabel(reliability.tier)}</Text>
-                <Text style={ov.desc}>{reliabilityReason(reliability)}</Text>
+                <Text style={ov.desc}>{reliabilityReason(reliability, props.nQuestions)}</Text>
               </>
             ) : <Text style={[ov.category, { color: C.muted }]}>—</Text>}
           </View>
@@ -875,16 +977,12 @@ function OverviewPage(props: {
         <View style={s.calloutOrange}>
           <Text style={s.calloutText}>
             <Text style={{ fontFamily: 'Carlito-Bold' }}>Cuidado na leitura.</Text>{' '}
-            Com {reliability.n_avaliadores} avaliadores no resultado geral, diferenças pequenas podem ser efeito
-            do acaso. Por isso o relatório só trata como diferença real o que passa do limiar de leitura de{' '}
-            {fmt(reliability.limiar_leitura, 1)} ponto.
+            {/* Como no modelo: a ressalva obrigatória da base, quando existe, abre o quadro. */}
+            {props.mandatoryNote
+              ? `${props.mandatoryNote} Diferenças pequenas podem ser efeito do acaso.`
+              : `Com ${reliability.n_avaliadores} avaliadores no resultado geral, diferenças pequenas podem ser efeito do acaso.`}
+            {` Por isso o relatório só trata como diferença real a de ${fmt(reliability.limiar_leitura, 1)} ponto ou mais, que é o limiar de leitura.`}
           </Text>
-          {props.mandatoryNote && (
-            <Text style={[s.calloutText, { marginTop: 4 }]}>
-              <Text style={{ fontFamily: 'Carlito-Bold' }}>Ressalva deste resultado.</Text>{' '}
-              {props.mandatoryNote}
-            </Text>
-          )}
         </View>
       )}
 
@@ -902,10 +1000,10 @@ function OverviewPage(props: {
         const g = groups.find((x) => x.code === code)
         if (!g || g.n === 0) return null
         return (
-          <View key={code} style={s.tableRow}>
+          <View key={code} style={[s.tableRow, { paddingTop: 4.5, paddingBottom: 4.5 }]}>
             <View style={{ width: 104 }}>
               <Text style={[s.td, { fontSize: 9.5, fontFamily: 'Carlito-Bold' }]}>{GROUP_LABEL[code]}</Text>
-              {!GERAL_ENTRA[code] && <Text style={[s.badge, { fontSize: 7.3, backgroundColor: C.neutralTagBg, color: C.neutralTag, alignSelf: 'flex-start', marginTop: 3 }]}>não entra</Text>}
+              {!GERAL_ENTRA[code] && <Text style={[s.badge, { fontSize: 7.3, backgroundColor: C.neutralTagBg, color: C.neutralTag, alignSelf: 'flex-start', marginTop: 2 }]}>não entra</Text>}
             </View>
             <Text style={[s.td, { width: 40, fontSize: 9.5, color: C.sub, textAlign: 'right', marginRight: 10 }]}>{g.n}</Text>
             <View style={{ flex: 1, height: 9, backgroundColor: '#f1f0ec', borderRadius: 2, flexDirection: 'row', overflow: 'hidden', marginRight: 6 }}>
@@ -952,21 +1050,22 @@ const ov = StyleSheet.create({
 
 function tierLabel(t: string): string { return t === 'bom' ? 'Bom' : t === 'atencao' ? 'Atenção' : 'Frágil' }
 
-function reliabilityReason(r: ReliabilityInfo): string {
+function reliabilityReason(r: ReliabilityInfo, nQuestions: number): string {
   const reasons: string[] = []
+  const indif = `${r.n_indiferenciados} ${r.n_indiferenciados === 1 ? 'formulário veio' : 'formulários vieram'} com a mesma marcação nas ${nQuestions} perguntas`
   if (r.tier === 'fragil') {
     if (r.n_grupos < 3) reasons.push(`há só ${r.n_grupos} ${r.n_grupos === 1 ? 'grupo' : 'grupos'} no resultado geral`)
-    if (r.n_avaliadores < 15) reasons.push(`há ${r.n_avaliadores} avaliadores, menos que os 15 mínimos`)
+    if (r.n_avaliadores < 15) reasons.push(`há ${r.n_avaliadores} avaliadores no resultado geral, menos que os 15 mínimos`)
   } else if (r.tier === 'atencao') {
     if (!r.has_chefe) reasons.push('falta chefe direto')
     if (!r.has_pares) reasons.push('faltam pares')
     if (r.max_group_share_pct >= 75) reasons.push(`um grupo concentra ${fmtPct(r.max_group_share_pct, 0)} dos avaliadores`)
-    if (r.n_indiferenciados >= 3) reasons.push(`há ${r.n_indiferenciados} formulários com a mesma marcação em todas as perguntas`)
-    if (r.n_avaliadores < 20) reasons.push(`há ${r.n_avaliadores} avaliadores, menos que os 20 adotados como referência`)
+    if (r.n_avaliadores < 20) reasons.push(`há ${r.n_avaliadores} avaliadores no resultado geral, menos que os 20 adotados como referência neste projeto`)
+    if (r.n_indiferenciados >= 3) reasons.push(indif)
   } else {
-    return `porque há ${r.n_avaliadores} avaliadores no resultado geral, com chefe direto e pares presentes, e nenhum grupo concentrando mais de ${fmtPct(r.max_group_share_pct, 0)} das respostas. Os níveis são bom, atenção e frágil.`
+    return 'porque nenhum dos critérios de alerta foi atingido. Os níveis são bom, atenção e frágil.'
   }
-  return `porque ${reasons.join(', ')}. Os níveis são bom, atenção e frágil.`
+  return `porque ${joinNames(reasons)}. Os níveis são bom, atenção e frágil.`
 }
 
 // ─── 5. Síntese dos dados ───────────────────────────────────────────────────
@@ -1003,13 +1102,25 @@ function buildSynthesisBullets(
   const ranked = [...comps].sort((a, b) => b.fav.favoravel - a.fav.favoravel || (b.mean ?? 0) - (a.mean ?? 0))
   if (ranked.length >= 3) {
     const top3 = ranked.slice(0, 3), bottom3 = [...ranked].reverse().slice(0, 3)
+    // Empate na fronteira da lista: quem entrou e por quê (desempate pela média).
+    const favKey = (c: CompAgg) => Math.round(c.fav.favoravel * 10)
+    const tieNote = (list: CompAgg[], rest: CompAgg[], why: string): string => {
+      const last = list[list.length - 1]
+      const tied = rest.filter((c) => favKey(c) === favKey(last))
+      return tied.length > 0
+        ? ` ${last.name} está empatada com ${joinNames(tied.map((c) => c.name))} em ${fmtPct(last.fav.favoravel, 1)} e entra na lista pela ${why} média.`
+        : ''
+    }
     bullets.push(
-      `As competências mais reconhecidas são ${joinNames(top3.map((c) => c.name))}. As competências com mais espaço para evoluir são ${joinNames(bottom3.map((c) => c.name))}.`
+      `As competências mais reconhecidas são ${joinNames(top3.map((c) => c.name))}. As competências com mais espaço para evoluir são ${joinNames(bottom3.map((c) => c.name))}.` +
+      tieNote(bottom3, [...ranked].reverse().slice(3), 'menor') +
+      tieNote(top3, ranked.slice(3), 'maior')
     )
   }
 
-  const acima = comps.filter((c) => c.selfMean != null && c.mean != null && round2(c.selfMean) - round2(c.mean) >= readingThreshold).map((c) => c.name)
-  const abaixo = comps.filter((c) => c.selfMean != null && c.mean != null && round2(c.mean) - round2(c.selfMean) >= readingThreshold).map((c) => c.name)
+  const selfDiff = (c: CompAgg) => round2(c.selfMean!) - round2(c.mean!)
+  const acima = comps.filter((c) => c.selfMean != null && c.mean != null && selfDiff(c) > 0 && reachesThreshold(selfDiff(c), readingThreshold)).map((c) => c.name)
+  const abaixo = comps.filter((c) => c.selfMean != null && c.mean != null && selfDiff(c) < 0 && reachesThreshold(selfDiff(c), readingThreshold)).map((c) => c.name)
   if (acima.length > 0 || abaixo.length > 0) {
     bullets.push(
       `A sua autoavaliação ficou acima da visão dos avaliadores em ${acima.length > 0 ? joinNames(acima) : 'nenhuma competência'}` +
@@ -1017,12 +1128,23 @@ function buildSynthesisBullets(
     )
   }
 
-  const sortedDiv = [...divergence].sort((a, b) => b.amplitude_points - a.amplitude_points)
+  const sortedDiv = sortDivergence(divergence)
   if (sortedDiv.length >= 3) {
-    const top3 = sortedDiv.slice(0, 3)
-    bullets.push(
-      `As maiores divergências entre grupos estão nas perguntas ${joinNumbers(top3.map((q) => q.question_number))}, todas com distância de ${fmt(divergenceDistance(top3[2]), 1)} pontos percentuais ou mais.`
-    )
+    const d3 = divergenceDistance(sortedDiv[2])
+    const before = sortedDiv.filter((q) => divergenceDistance(q) > d3)
+    const tied = sortedDiv.filter((q) => divergenceDistance(q) === d3)
+    const pp = (d: number) => `${fmt(d, 1)} pontos percentuais`
+    if (before.length + tied.length === 3) {
+      bullets.push(`As maiores divergências entre grupos estão nas perguntas ${joinNumbers(sortedDiv.slice(0, 3).map((q) => q.question_number))}, todas com distância de ${pp(d3)} ou mais.`)
+    } else if (before.length > 0) {
+      const minBefore = divergenceDistance(before[before.length - 1])
+      bullets.push(
+        `As maiores divergências entre grupos estão ${before.length === 1 ? 'na pergunta' : 'nas perguntas'} ${joinNumbers(before.map((q) => q.question_number))}, com distância de ${pp(minBefore)}${before.length === 1 ? '' : ' ou mais'}. ` +
+        `Em seguida, ${tied.length} perguntas empatam com ${pp(d3)} (${joinNumbers(tied.map((q) => q.question_number).sort((a, b) => a - b))}).`
+      )
+    } else {
+      bullets.push(`As maiores divergências entre grupos estão em ${tied.length} perguntas empatadas com ${pp(d3)} (${joinNumbers(tied.map((q) => q.question_number).sort((a, b) => a - b))}).`)
+    }
   }
   if (sortedDiv.length >= 3) {
     const top10 = sortedDiv.slice(0, Math.min(10, sortedDiv.length))
@@ -1042,8 +1164,10 @@ function buildSynthesisBullets(
       .map((g) => ({ code: g.code, n: Object.entries(g.dist).filter(([k]) => Number(k) <= scale.min + 1).reduce((s2, [, v]) => s2 + v, 0) }))
       .filter((x) => x.n > 0)
       .sort((a, b) => b.n - a.n)
-    const desc = byGroup.map((x) => `${x.n} de ${GROUP_LABEL[x.code].toLowerCase()}`).join(' e ')
-    bullets.push(`O resultado geral tem ${desfavTotal} ${desfavTotal === 1 ? 'resposta' : 'respostas'} ${scale.min} ou ${scale.min + 1}, de ${respTotal}. Dessas, ${desc}.`)
+    const head = `O resultado geral tem ${fmtInt(desfavTotal)} ${desfavTotal === 1 ? 'resposta' : 'respostas'} ${scale.min} ou ${scale.min + 1}, de ${fmtInt(respTotal)}`
+    bullets.push(byGroup.length === 1
+      ? `${head}, ${desfavTotal === 1 ? 'que veio' : 'todas'} ${GROUP_FROM[byGroup[0].code]}.`
+      : `${head}. Dessas, ${joinNames(byGroup.map((x) => `${x.n} ${x.n === 1 ? 'veio' : 'vieram'} ${GROUP_FROM[x.code]}`))}.`)
   }
 
   for (const code of ['manager', 'manager_superior']) {
@@ -1596,7 +1720,7 @@ function HighlightsPage(props: {
     const shown = new Set(top5Set.map((r) => r.number))
     const tied = list.filter((r) => r.fav === cutoffFav && !shown.has(r.number)).sort((a, b) => a.number - b.number)
     if (tied.length === 0) return null
-    return `Outras ${tied.length} pergunta${tied.length !== 1 ? 's' : ''} também ${tied.length !== 1 ? 'têm' : 'tem'} ${fmtPct(cutoffFav, 1)} de favorabilidade (${tied.map((r) => r.number).join(', ')}) e ${tied.length !== 1 ? 'ficaram' : 'ficou'} fora da lista pelo critério de desempate.`
+    return `${tied.length === 1 ? 'Outra pergunta' : `Outras ${tied.length} perguntas`} também ${tied.length !== 1 ? 'têm' : 'tem'} ${fmtPct(cutoffFav, 1)} de favorabilidade (${tied.map((r) => r.number).join(', ')}) e ${tied.length !== 1 ? 'ficaram' : 'ficou'} fora da lista pelo critério de desempate.`
   }
   const top5Footnote = tieFootnote(ranked, top5)
   const bottom5Footnote = tieFootnote(bottomRanked, bottom5)
@@ -1733,11 +1857,19 @@ function divergenceDistance(r: DivergenceRow): number {
   return Math.round((r1(r.highest_pct) - r1(r.lowest_pct)) * 10) / 10
 }
 
+/** Ordem da aba DIVERGENCIA do BD: amplitude com os percentuais em duas
+ * casas (100 − 83,33 = 16,67 fica à frente de 83,33 − 66,67 = 16,66) e,
+ * no empate, o número da pergunta. */
+function sortDivergence(rows: DivergenceRow[]): DivergenceRow[] {
+  const rank = (r: DivergenceRow) => Math.round((r.highest_pct ?? 0) * 100) - Math.round((r.lowest_pct ?? 0) * 100)
+  return [...rows].sort((a, b) => rank(b) - rank(a) || a.question_number - b.question_number)
+}
+
 function DivergencePage(props: {
   personName: string; tenantName: string; cycleLabel: string
   divergence: DivergenceRow[]; nMinimum: number; relDetailFav: RelationshipDetailFavorabilityRow[]
 }) {
-  const sorted = [...props.divergence].sort((a, b) => b.amplitude_points - a.amplitude_points).slice(0, 10)
+  const sorted = sortDivergence(props.divergence).slice(0, 10)
   const L = divergenceLayout(sorted)
   const eligibleCodes = [...new Set(props.relDetailFav.filter((r) => (r.rater_count ?? 0) >= props.nMinimum).map((r) => groupKey(r.relationship_code, r.relationship_detail)))]
 
@@ -1820,7 +1952,7 @@ function QuestionsPages(props: {
 }) {
   const { qRows, groups } = props
   const { groupCols, outCols, promptW: Q_PROMPT_W } = questionColumns(groups)
-  const chunks = paginateQuestions(qRows, Q_PROMPT_W)
+  const { chunks, howToPage } = layoutQuestions(qRows, Q_PROMPT_W)
   const nOf = (code: string) => groups.find((g) => g.code === code)?.n ?? 0
   const geralN = groups.filter((g) => GERAL_ENTRA[g.code]).reduce((s2, g) => s2 + g.n, 0)
   const outW = outCols.reduce((w, [, cw]) => w + cw, 0)
@@ -1880,8 +2012,8 @@ function QuestionsPages(props: {
                 <View style={{ width: Q_COLS.num, justifyContent: 'center' }}>
                   <Text style={{ fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{r.number}</Text>
                 </View>
-                <View style={{ width: Q_PROMPT_W, paddingTop: 5, paddingBottom: 5, paddingLeft: 4, paddingRight: 8 }}>
-                  <Text style={{ fontSize: 9, color: C.text, lineHeight: 1.35 }}>{r.prompt}</Text>
+                <View style={{ width: Q_PROMPT_W, paddingTop: 4, paddingBottom: 4, paddingLeft: 4, paddingRight: 8 }}>
+                  <Text style={{ fontSize: 9, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
                   <Text style={{ fontSize: 7.2, color: C.sub, marginTop: 1 }}>{r.compName}</Text>
                 </View>
                 <View style={{ width: Q_COLS.fav, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
@@ -1904,7 +2036,7 @@ function QuestionsPages(props: {
               </View>
             )
           })}
-          {pageIdx === chunks.length - 1 && (
+          {pageIdx === howToPage && (
             <View style={s.howToRead} wrap={false}>
               <Text style={s.howToReadTitle}>Como ler</Text>
               <Text style={s.howToReadText}>
@@ -2072,7 +2204,7 @@ function BenchmarkPage(props: {
 // ─── 16. Perfil dos avaliadores ─────────────────────────────────────────────
 
 const DEMO_DIM_LABEL: Record<string, string> = { sexo: 'Sexo', geracao: 'Geração', cargo: 'Tipo de cargo', tempo_casa: 'Tempo de casa', nivel_detalhe: 'Nível detalhado' }
-const DEMO_DIM_ORDER = ['sexo', 'geracao', 'tempo_casa', 'cargo']
+const DEMO_DIM_ORDER = ['cargo', 'geracao', 'sexo', 'tempo_casa']
 
 /** Rótulo e ordem de exibição de cada valor do cadastro (aba DOMINIOS do
  * BD). Valores com o mesmo rótulo são juntados num recorte só — os turnos
@@ -2125,12 +2257,17 @@ function buildProfile(demographics: DemographicGroup[]): Map<string, ProfileRow[
   return out
 }
 
-function ProfilePage(props: { personName: string; tenantName: string; cycleLabel: string; demographics: DemographicGroup[]; nMinimum: number }) {
+function ProfilePage(props: { personName: string; tenantName: string; cycleLabel: string; demographics: DemographicGroup[]; nMinimum: number; groups: GroupAgg[] }) {
   const byDim = buildProfile(props.demographics)
   const dims = [...byDim.keys()]
   const totalPessoas = Math.max(0, ...dims.map((d) => byDim.get(d)!.reduce((s2, g) => s2 + g.n, 0)))
   const anySmall = dims.some((d) => byDim.get(d)!.some((g) => g.n < props.nMinimum))
   const scale = getScale('frequency_5_strict')
+  const geral = props.groups.filter((g) => GERAL_ENTRA[g.code])
+  const geralN = geral.reduce((s2, g) => s2 + g.n, 0)
+  const geralFav = computeFavorability(mergeDistributions(geral.map((g) => g.dist)), scale)
+  const nClientes = props.groups.find((g) => g.code === 'client')?.n ?? 0
+  const nTodos = props.groups.filter((g) => g.code !== 'self').reduce((s2, g) => s2 + g.n, 0)
 
   return (
     <PageChrome label="Perfil" {...props}>
@@ -2139,9 +2276,7 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
       <View style={s.calloutOrange}>
         <Text style={s.calloutText}>
           <Text style={{ fontFamily: 'Carlito-Bold' }}>Base diferente do restante do relatório.</Text>{' '}
-          Aqui entram todos os avaliadores com perfil cadastrado, inclusive clientes internos, e só a
-          autoavaliação fica de fora. Por isso estes números não são diretamente comparáveis à
-          favorabilidade geral, que usa só os avaliadores do resultado geral.
+          {`Aqui entram todos os ${nTodos} avaliadores${nClientes > 0 ? `, inclusive ${nClientes === 1 ? 'o cliente interno' : `os ${nClientes} clientes internos`},` : ''} e só a autoavaliação fica de fora. Por isso estes números não são comparáveis com a favorabilidade geral de ${fmtPct(geralFav.favoravel, 1)}, que usa só os ${geralN} avaliadores do resultado geral.`}
         </Text>
       </View>
       {dims.length === 0 ? (
@@ -2164,16 +2299,20 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
                 const small = g.n < props.nMinimum
                 return (
                   <View key={g.value} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', paddingTop: 5, paddingBottom: 5, borderBottom: gi < rows.length - 1 ? `0.75pt solid ${C.border}` : undefined }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 9, color: C.text }}>{g.value}</Text>
-                      {small && <Text style={[s.badge, { fontSize: 6.8, backgroundColor: C.orangeTagBg, color: C.orangeTag, alignSelf: 'flex-start', marginTop: 2 }]}>poucas pessoas</Text>}
-                    </View>
+                    <Text style={{ flex: 1, fontSize: 9, color: C.text }}>{g.value}</Text>
                     <Text style={{ width: 36, textAlign: 'right', fontSize: 9, color: C.sub }}>{g.n}</Text>
-                    <View style={{ width: 44, alignItems: 'flex-end' }}>
-                      {fav.total > 0 && <MiniFavBar pct={fav.favoravel} width={34} marginTop={0} height={4} />}
-                    </View>
-                    <Text style={{ width: 42, textAlign: 'right', fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{fmtPct(fav.total > 0 ? fav.favoravel : null, 1)}</Text>
-                    <Text style={{ width: 32, textAlign: 'right', fontSize: 9, color: C.text }}>{fmt(g.mean)}</Text>
+                    {small ? (
+                      // Recorte pequeno: só o número de pessoas, sem percentual e média (anonimato).
+                      <Text style={{ width: 118, textAlign: 'right', fontSize: 8, color: C.light }}>menos de {props.nMinimum} pessoas, não exibido</Text>
+                    ) : (
+                      <>
+                        <View style={{ width: 44, alignItems: 'flex-end' }}>
+                          {fav.total > 0 && <MiniFavBar pct={fav.favoravel} width={34} marginTop={0} height={4} />}
+                        </View>
+                        <Text style={{ width: 42, textAlign: 'right', fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{fmtPct(fav.total > 0 ? fav.favoravel : null, 1)}</Text>
+                        <Text style={{ width: 32, textAlign: 'right', fontSize: 9, color: C.text }}>{fmt(g.mean)}</Text>
+                      </>
+                    )}
                   </View>
                 )
               })}
@@ -2188,8 +2327,9 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
           porcentagem de respostas favoráveis e a média vai de {scale.min} a {scale.max}, calculadas com todas as
           respostas de cada recorte. Os perfis vêm do cadastro enviado pela empresa.
           {anySmall
-            ? ` A etiqueta poucas pessoas marca recortes com menos de ${props.nMinimum} avaliadores. Leia esses números com cautela: com tão poucas pessoas, uma resposta muda muito o resultado. Não tente descobrir quem respondeu.`
+            ? ` Recortes com menos de ${props.nMinimum} pessoas aparecem só com o número de pessoas, sem percentual e média, para proteger o anonimato.`
             : ''}
+          {' '}Estes recortes ajudam a levantar perguntas na conversa, e não devem ser usados para tentar identificar quem respondeu.
         </Text>
       </View>
     </PageChrome>
@@ -2235,7 +2375,7 @@ function GuideBullet({ children }: { children: React.ReactNode }) {
   )
 }
 
-function GuidePage(props: { personName: string; tenantName: string; cycleLabel: string; scale: ScaleDefinition; limiar: number }) {
+function GuidePage(props: { personName: string; tenantName: string; cycleLabel: string; scale: ScaleDefinition; limiar: number; hasNote: boolean }) {
   const sectionTitle = { fontSize: 11.5, fontFamily: 'Carlito-Bold', color: C.text, marginBottom: 7 }
   return (
     <PageChrome label="Guia da devolutiva" {...props}>
@@ -2266,7 +2406,11 @@ function GuidePage(props: { personName: string; tenantName: string; cycleLabel: 
         </View>
       ))}
       <Text style={[sectionTitle, { marginTop: 8 }]}>Cuidados na conversa</Text>
-      {buildCuidados(props.scale, props.limiar).map((c) => <GuideBullet key={c}>{c}</GuideBullet>)}
+      {[
+        // Ressalva obrigatória da base: a instrução "Citar essa ressalva na devolutiva" vem para cá.
+        ...(props.hasNote ? ['Citar na devolutiva a ressalva do quadro Cuidado na leitura, na Visão geral.'] : []),
+        ...buildCuidados(props.scale, props.limiar),
+      ].map((c) => <GuideBullet key={c}>{c}</GuideBullet>)}
     </PageChrome>
   )
 }
@@ -2392,7 +2536,7 @@ function MethodologyPage(props: {
         ou mais formulários com a mesma marcação em todas as perguntas, ou quando há menos de 20
         avaliadores. Bom nos demais casos. Os limites de 15 e 20 avaliadores foram adotados como
         referência de estabilidade do resultado.
-        {r && ` Aqui o resultado fica em ${tierLabel(r.tier).toLowerCase()} ${reliabilityReason(r).replace('Os níveis são bom, atenção e frágil.', '').trim()}`}
+        {r && ` Aqui o resultado fica em ${tierLabel(r.tier).toLowerCase()} ${reliabilityReason(r, props.nQuestions).replace('Os níveis são bom, atenção e frágil.', '').trim()}`}
       </Block>
       <Block title="Respostas indiferenciadas">
         Formulário com a mesma marcação em todas as perguntas. Não afeta o resultado geral por si só, só
@@ -2431,10 +2575,10 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
     competencies, questionScores, questionValueNames, relDetailFav, divergence,
     demographics, benchmark, benchmarkOverall, reliability, nMinimum, mandatoryNote,
   } = props
-  // "Citar essa ressalva na devolutiva" é instrução para o condutor; na
-  // versão do participante a ressalva aparece sem ela.
+  // "Citar essa ressalva na devolutiva" é instrução para o condutor: sai do
+  // texto e, na versão do condutor, volta como lembrete no fim do quadro.
   const note = mandatoryNote?.trim()
-    ? (variant === 'participant' ? mandatoryNote.replace(/\s*Citar essa ressalva na devolutiva\.?\s*/i, ' ').trim() : mandatoryNote.trim())
+    ? mandatoryNote.replace(/\s*Citar essa ressalva na devolutiva\.?\s*/i, ' ').trim() || null
     : null
   const scale = getScale(scaleId)
   const groups = aggregateByCode(relDetailFav, scale)
@@ -2452,7 +2596,7 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
   const geralFav = computeFavorability(geralDist, scale)
   const selfFav = groupList.find((g) => g.code === 'self')?.fav.favoravel ?? null
   const hasValues = Object.keys(questionValueNames).length > 0
-  const questionsPages = Math.max(1, paginateQuestions(qRows, questionColumns(groupList).promptW).length)
+  const questionsPages = Math.max(1, layoutQuestions(qRows, questionColumns(groupList).promptW).chunks.length)
 
   const chrome = { personName, tenantName, cycleLabel, variant }
 
@@ -2466,7 +2610,7 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
       <CoverPage personName={personName} personRole={personRole} tenantName={tenantName} cycleLabel={cycleLabel} issuedAt={issuedAt} nAvaliadores={nAvaliadores} nFormularios={nFormularios} variant={variant} />
       <TOCPage {...chrome} hasValues={hasValues} questionsPages={questionsPages} nComp={comps.length} nQuestions={qRows.length} cohortN={(benchmarkOverall ?? estimateBenchmarkOverall(benchmark))?.participant_count ?? 0} />
       <HowToReadPage {...chrome} scale={scale} groups={groupList} nFormularios={nFormularios} limiar={readingThreshold} margem={margem} nQuestions={qRows.length} nComp={competencies.length} />
-      <OverviewPage {...chrome} groups={groupList} benchmark={benchmark} benchmarkOverall={benchmarkOverall} reliability={reliability} mandatoryNote={note} />
+      <OverviewPage {...chrome} groups={groupList} benchmark={benchmark} benchmarkOverall={benchmarkOverall} reliability={reliability} mandatoryNote={note} nQuestions={qRows.length} />
       <SynthesisPage {...chrome} groups={groupList} comps={comps} divergence={divergence} reliability={reliability} benchmark={benchmark} benchmarkOverall={benchmarkOverall} scale={scale} readingThreshold={readingThreshold} />
       <CompetencyResultsPage {...chrome} comps={comps} scale={scale} n={nAvaliadores} benchmark={benchmark} />
       <PerspectivePage {...chrome} comps={comps} questionScores={questionScores} groups={groupList} />
@@ -2476,8 +2620,8 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
       <QuestionsPages {...chrome} qRows={qRows} nMinimum={nMinimum} groups={groupList} />
       {hasValues && <ValuesPage {...chrome} qRows={qRows} questionValueNames={questionValueNames} questionScores={questionScores} scale={scale} competencies={competencies} />}
       <BenchmarkPage {...chrome} comps={comps} benchmark={benchmark} limiar={readingThreshold} />
-      <ProfilePage {...chrome} demographics={demographics} nMinimum={nMinimum} />
-      {variant === 'executive' && <GuidePage {...chrome} scale={scale} limiar={readingThreshold} />}
+      <ProfilePage {...chrome} demographics={demographics} nMinimum={nMinimum} groups={groupList} />
+      {variant === 'executive' && <GuidePage {...chrome} scale={scale} limiar={readingThreshold} hasNote={note != null} />}
       <PlanPage {...chrome} />
       <MethodologyPage {...chrome} scale={scale} nMinimum={nMinimum} reliability={reliability} nComp={competencies.length} nQuestions={qRows.length} />
     </Document>
