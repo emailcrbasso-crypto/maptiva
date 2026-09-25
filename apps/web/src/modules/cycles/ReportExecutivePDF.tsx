@@ -110,9 +110,10 @@ export interface BenchmarkOverall {
 }
 
 export interface ReportExecutivePDFProps {
-  /** "executive" (padrão) leva a marca CR BASSO e a página Guia para a
-   * devolutiva, pra quem conduz a conversa. "participant" leva a marca do
-   * tenant, sem o Guia — versão que o próprio avaliado recebe. */
+  /** "executive" (padrão) é a versão do condutor da devolutiva: traz a
+   * página Guia para a devolutiva e se identifica como tal na capa e no
+   * rodapé. "participant" é a versão que o próprio avaliado recebe, sem o
+   * Guia. As duas levam a marca do tenant, como nos modelos de referência. */
   variant?:        'executive' | 'participant'
   personName:      string
   personRole?:     string | null
@@ -413,7 +414,7 @@ function PageChrome({
       <View style={s.footer} fixed>
         <Text style={s.footerText}>{personName} · Avaliação 360° {tenantName}{cycleYear ? ` ${cycleYear}` : ''}</Text>
         {variant === 'executive' ? (
-          <Text style={s.footerText} render={({ pageNumber, totalPages }) => `CR BASSO Educação Corporativa · Confidencial · ${pageNumber} / ${totalPages}`} />
+          <Text style={s.footerText} render={({ pageNumber, totalPages }) => `Versão do condutor · Confidencial · ${pageNumber} / ${totalPages}`} />
         ) : (
           <Text style={s.footerText} render={({ pageNumber, totalPages }) => `Confidencial · ${pageNumber} / ${totalPages}`} />
         )}
@@ -437,6 +438,9 @@ const cs = StyleSheet.create({
   rule:       { position: 'absolute', top: 347, left: 57, width: 51, height: 0.8, backgroundColor: C.white, opacity: 0.6 },
   name:       { position: 'absolute', top: 364, left: 57, fontSize: 22, fontFamily: 'Carlito-Bold', color: C.white },
   role:       { position: 'absolute', top: 400, left: 57, fontSize: 12, color: C.white, opacity: 0.9 },
+  // Selo da versão executiva, com contorno branco (como no modelo).
+  versionBadge:     { position: 'absolute', top: 436, left: 57, height: 21, border: `0.75pt solid ${C.white}`, borderRadius: 3, justifyContent: 'center', paddingLeft: 9, paddingRight: 8 },
+  versionBadgeText: { fontSize: 8.5, color: C.white, letterSpacing: 1.2, textTransform: 'uppercase' },
   accentBar:  { position: 'absolute', top: 530, left: 57, height: 8, width: 113, backgroundColor: C.orange },
   metaRow:    { position: 'absolute', top: 576, left: 57, right: 57, display: 'flex', flexDirection: 'row' },
   metaCol:    { width: 125 },
@@ -459,17 +463,16 @@ function CoverPage({
     <Page size="A4" style={cs.page}>
       <View style={cs.band} />
       <View style={cs.bandBody}>
-        {variant === 'executive' ? (
-          <Text style={cs.brand}><Text style={cs.brandBold}>CR BASSO</Text>  Educação Corporativa</Text>
-        ) : (
-          <Text style={cs.brand}><Text style={cs.brandBold}>{tenantName.toUpperCase()}</Text></Text>
-        )}
+        <Text style={cs.brand}><Text style={cs.brandBold}>{tenantName.toUpperCase()}</Text></Text>
       </View>
       <Text style={cs.kicker}>Avaliação 360°{cycleYear ? ` · Ciclo ${cycleYear}` : ''}</Text>
       <Text style={cs.title}>Relatório individual{'\n'}de feedback</Text>
       <View style={cs.rule} />
       <Text style={cs.name}>{personName}</Text>
       {personRole && <Text style={cs.role}>{personRole}</Text>}
+      {variant === 'executive' && (
+        <View style={cs.versionBadge}><Text style={cs.versionBadgeText}>Versão do condutor da devolutiva</Text></View>
+      )}
       <View style={cs.accentBar} />
       <View style={cs.metaRow}>
         <View style={cs.metaCol}><Text style={cs.metaLabel}>Empresa</Text><Text style={cs.metaValue}>{tenantName}</Text></View>
@@ -478,9 +481,9 @@ function CoverPage({
         <View style={cs.metaCol}><Text style={cs.metaLabel}>Emissão</Text><Text style={cs.metaValue}>{issued}</Text></View>
       </View>
       {variant === 'executive' ? (
-        <Text style={cs.disclaimer}>
-          Documento confidencial. Uso exclusivo do participante e de quem conduz a devolutiva. Os
-          {' '}{nAvaliadores} avaliadores são os que formam o resultado geral. Os {nFormularios} formulários
+        <Text style={[cs.disclaimer, { top: 736 }]}>
+          Documento confidencial. Versão completa, para uso de quem conduz a devolutiva, com o guia da
+          conversa. Os {nAvaliadores} avaliadores são os que formam o resultado geral. Os {nFormularios} formulários
           incluem também clientes internos e a autoavaliação. Os resultados refletem percepções de
           comportamento e servem como ponto de partida para uma conversa de desenvolvimento.
         </Text>
@@ -502,21 +505,30 @@ const TOC_ITEMS = [
   ['Como ler este relatório',          'Escala, números, quem avaliou e como ler diferenças'],
   ['Visão geral',                      'O resultado geral e o resultado de cada grupo de avaliadores'],
   ['Síntese dos dados',                'Os fatos principais do relatório, em uma página'],
-  ['Resultado por competência',        'As competências em ordem de favorabilidade'],
+  ['Resultado por competência',        'As {nComp} competências em ordem de favorabilidade'],
   ['Competências por perspectiva',     'Como cada grupo de avaliadores enxerga cada competência'],
   ['Autopercepção',                    'A sua visão comparada com a dos avaliadores'],
   ['Destaques',                        'Comportamentos mais reconhecidos e com mais espaço para evoluir'],
   ['Onde as perspectivas divergem',    'Perguntas em que os grupos veem você de forma diferente'],
-  ['Resultado por pergunta',           'Todas as perguntas, uma a uma'],
-  ['Valores organizacionais',          'As perguntas agrupadas pelos valores da empresa'],
-  ['Comparação com o grupo de gestores', 'A sua média ao lado da média do grupo avaliado no ciclo'],
+  ['Resultado por pergunta',           'As {nQuestions} perguntas, uma a uma'],
+  ['Valores organizacionais',          'As perguntas agrupadas pelos valores da {tenant}'],
+  ['Comparação com o grupo de gestores', 'A sua média ao lado da média {cohort}'],
   ['Perfil dos avaliadores',           'Resultado por características de quem respondeu'],
   ['Guia para a devolutiva',           'Roteiro, perguntas sugeridas e cuidados, para quem conduz'],
   ['Plano de desenvolvimento',         'Espaço para registrar os compromissos'],
   ['Metodologia e glossário',          'Todas as regras de cálculo, com exemplos'],
 ]
 
-function TOCPage(props: { personName: string; tenantName: string; cycleLabel: string; variant?: 'executive' | 'participant'; hasValues: boolean; questionsPages: number }) {
+/** Preenche os números do relatório nas descrições do Sumário. */
+function fillTocDesc(template: string, p: { tenantName: string; nComp: number; nQuestions: number; cohortN: number }): string {
+  return template
+    .replace('{nComp}', String(p.nComp))
+    .replace('{nQuestions}', String(p.nQuestions))
+    .replace('{tenant}', p.tenantName)
+    .replace('{cohort}', p.cohortN > 0 ? `dos ${p.cohortN} gestores` : 'do grupo avaliado no ciclo')
+}
+
+function TOCPage(props: { personName: string; tenantName: string; cycleLabel: string; variant?: 'executive' | 'participant'; hasValues: boolean; questionsPages: number; nComp: number; nQuestions: number; cohortN: number }) {
   const isParticipant = props.variant === 'participant'
   const items = TOC_ITEMS
     .filter((i) => props.hasValues || i[0] !== 'Valores organizacionais')
@@ -537,10 +549,10 @@ function TOCPage(props: { personName: string; tenantName: string; cycleLabel: st
   return (
     <PageChrome label="Sumário" {...props}>
       <Text style={s.h1}>Sumário</Text>
-      {items.map(([title, desc], i) => (
+      {items.map(([title, template], i) => (
         <View key={title} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', paddingTop: 7.5, paddingBottom: 7.5, paddingLeft: 5, paddingRight: 5, borderBottom: `0.75pt solid ${C.border}` }}>
           <Text style={{ width: 160, fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.text, paddingRight: 8 }}>{title}</Text>
-          <Text style={{ flex: 1, fontSize: 10.5, color: C.sub, lineHeight: 1.35 }}>{desc}</Text>
+          <Text style={{ flex: 1, fontSize: 10.5, color: C.sub, lineHeight: 1.35 }}>{fillTocDesc(template, props)}</Text>
           <Text style={{ width: 24, fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.text, textAlign: 'right' }}>{pageNumbers[i]}</Text>
         </View>
       ))}
@@ -557,7 +569,7 @@ function TOCPage(props: { personName: string; tenantName: string; cycleLabel: st
         <View style={[s.callout, { marginTop: 16 }]}>
           <Text style={s.calloutText}>
             <Text style={{ fontFamily: 'Carlito-Bold' }}>Para quem conduz a devolutiva.</Text>{' '}
-            Cada página traz um quadro Como ler, que explica o gráfico ou a tabela. As regras de cálculo
+            Cada página tem um quadro Como ler, que explica o gráfico ou a tabela. As regras de cálculo
             estão em Metodologia e glossário, ao final. Recomenda-se ler o relatório inteiro antes da
             conversa e usar o Guia para a devolutiva como roteiro.
           </Text>
@@ -2073,50 +2085,75 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
 
 // ─── 17. Guia para a devolutiva ─────────────────────────────────────────────
 
-const ROTEIRO = [
-  ['1. Combinar o propósito', 'O relatório mostra percepções e não é avaliação de desempenho. O objetivo é escolher poucos pontos para desenvolver. As respostas aparecem agrupadas. As exceções são o chefe direto e a liderança superior, que são uma pessoa cada e aparecem em grupo próprio.'],
-  ['2. Explicar como ler', 'Percorrer a página "Como ler este relatório", em especial favorabilidade, quem entra no resultado geral e o limiar de leitura.'],
-  ['3. Visão geral', 'Apresentar a favorabilidade geral, o quadro "Cuidado na leitura" e o resultado de cada grupo. Pergunta possível. O que mais chama a sua atenção nestes números?'],
-  ['4. Pontos fortes', 'Resultado por competência e Destaques. Pergunta possível. Em que situações esses comportamentos aparecem com mais força, e como usar isso a seu favor?'],
-  ['5. Autopercepção', 'Competências em que a autoavaliação ficou acima ou abaixo dos avaliadores. Pergunta possível. O que você faz nessas competências que as outras pessoas talvez não vejam, e o que elas podem estar vendo que você não vê?'],
-  ['6. Diferenças entre grupos', 'Competências por perspectiva e Onde as perspectivas divergem, incluindo o chefe direto, que aparece nas tabelas por grupo. Pergunta possível. Em que situações você trabalha com cada um desses grupos, e o que muda na sua forma de agir?'],
-  ['7. Escolher de 2 a 3 focos', 'De preferência perguntas específicas da página Resultado por pergunta. Registrar no Plano de desenvolvimento, com data de acompanhamento. Pergunta possível. Qual mudança de comportamento as pessoas notariam primeiro?'],
-]
+interface RoteiroStep { title: string; desc: string; question?: string }
 
-const CUIDADOS = [
-  'Não tentar descobrir quem respondeu o quê. Chefe direto e liderança superior são uma pessoa cada e aparecem em grupo próprio, e por isso merecem cuidado redobrado.',
-  'Quando a favorabilidade de um grupo é baixa, olhar as colunas neutro e desfavorável da Visão geral. Respostas intermediárias indicam comportamento visto só ocasionalmente, o que é diferente de respostas baixas.',
-  'Diferenças menores que o limiar de leitura não indicam diferença real e não precisam de explicação.',
-  'Clientes internos e autoavaliação aparecem para comparação e não fazem parte do resultado geral.',
-  'Falar de comportamentos observáveis, que são o que as perguntas medem, e não de traços de personalidade.',
-]
+function buildRoteiro(limiar: number): RoteiroStep[] {
+  return [
+    { title: '1. Combinar o propósito', desc: 'O relatório mostra percepções e não é avaliação de desempenho. O objetivo é escolher poucos pontos para desenvolver. As respostas aparecem agrupadas. As exceções são o chefe direto e a liderança superior, que são uma pessoa cada e aparecem em grupo próprio.' },
+    { title: '2. Explicar como ler', desc: `Percorrer a página Como ler este relatório, em especial favorabilidade, quem entra no resultado geral e o limiar de leitura de ${fmt(limiar, 1)} ponto.` },
+    { title: '3. Visão geral', desc: 'Apresentar a favorabilidade geral, o quadro Cuidado na leitura e o resultado de cada grupo.', question: 'O que mais chama a sua atenção nestes números?' },
+    { title: '4. Pontos fortes', desc: 'Resultado por competência e Destaques.', question: 'Em que situações esses comportamentos aparecem com mais força, e como usar isso a seu favor?' },
+    { title: '5. Autopercepção', desc: 'Competências em que a autoavaliação ficou acima ou abaixo dos avaliadores.', question: 'O que você faz nessas competências que as outras pessoas talvez não vejam, e o que elas podem estar vendo que você não vê?' },
+    { title: '6. Diferenças entre grupos', desc: 'Competências por perspectiva e Onde as perspectivas divergem, incluindo o chefe direto, que aparece nas tabelas por grupo.', question: 'Em que situações você trabalha com cada um desses grupos, e o que muda na sua forma de agir?' },
+    { title: '7. Escolher de 2 a 3 focos', desc: 'De preferência perguntas específicas da página Resultado por pergunta. Registrar no Plano de desenvolvimento, com data de acompanhamento.', question: 'Qual mudança de comportamento as pessoas notariam primeiro?' },
+  ]
+}
 
-function GuidePage(props: { personName: string; tenantName: string; cycleLabel: string }) {
+function buildCuidados(scale: ScaleDefinition, limiar: number): string[] {
+  const neutral = scale.max - 2
+  const low = `${scale.min} e ${scale.min + 1}`
+  return [
+    'Não tentar descobrir quem respondeu o quê. Chefe direto e liderança superior são uma pessoa cada e aparecem em grupo próprio, e por isso merecem cuidado redobrado.',
+    `Quando a favorabilidade de um grupo é baixa, olhar as colunas neutro e desfavorável da Visão geral. Respostas ${neutral} indicam comportamento visto só ocasionalmente, o que é diferente de respostas ${low}.`,
+    ...(scale.allowNa ? [] : [`Como não havia opção de não observado, parte das respostas ${neutral} pode indicar pouca convivência com o comportamento, e não a sua ausência.`]),
+    `Diferenças menores que ${fmt(limiar, 1)} ponto não indicam diferença real e não precisam de explicação.`,
+    'Clientes internos e autoavaliação aparecem para comparação e não fazem parte do resultado geral.',
+    'Não comparar com ciclos anteriores. O questionário e a forma de avaliar podem ter mudado.',
+    'Falar de comportamentos observáveis, que são o que as perguntas medem, e não de traços de personalidade.',
+  ]
+}
+
+function GuideBullet({ children }: { children: React.ReactNode }) {
+  return (
+    <View style={{ display: 'flex', flexDirection: 'row', marginBottom: 3 }}>
+      <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: C.muted, marginLeft: 4, marginRight: 7, marginTop: 5 }} />
+      <Text style={{ flex: 1, fontSize: 8.9, color: C.muted, lineHeight: 1.4 }}>{children}</Text>
+    </View>
+  )
+}
+
+function GuidePage(props: { personName: string; tenantName: string; cycleLabel: string; scale: ScaleDefinition; limiar: number }) {
+  const sectionTitle = { fontSize: 11.5, fontFamily: 'Carlito-Bold', color: C.text, marginBottom: 7 }
   return (
     <PageChrome label="Guia da devolutiva" {...props}>
       <Text style={s.h1}>Guia para a devolutiva</Text>
-      <Text style={s.intro}>
+      <Text style={[s.intro, { marginBottom: 10 }]}>
         Para quem conduz a conversa. O roteiro pode ser adaptado, mas a ordem ajuda a manter a conversa
         construtiva e focada em desenvolvimento.
       </Text>
-      <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 6 }}>Antes da sessão</Text>
-      <Text style={{ fontSize: 9.5, color: C.muted, lineHeight: 1.45, marginBottom: 3 }}>
-        • Ler o relatório inteiro, inclusive a metodologia, e anotar as perguntas que pretende fazer. A Síntese dos dados serve como mapa da conversa.
-      </Text>
-      <Text style={{ fontSize: 9.5, color: C.muted, lineHeight: 1.45, marginBottom: 10 }}>
-        • Decidir com a empresa se o participante recebe o relatório antes ou durante a sessão.
-      </Text>
-      <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 6 }}>Roteiro sugerido</Text>
-      {ROTEIRO.map(([title, desc]) => (
-        <View key={title} style={{ backgroundColor: C.cream, borderRadius: 4, paddingTop: 7, paddingBottom: 7, paddingLeft: 10, paddingRight: 10, marginBottom: 5 }} wrap={false}>
-          <Text style={{ fontSize: 9.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 2 }}>{title}</Text>
-          <Text style={{ fontSize: 9, color: C.muted, lineHeight: 1.4 }}>{desc}</Text>
+      <Text style={sectionTitle}>Antes da sessão</Text>
+      <GuideBullet>
+        Ler o relatório inteiro, inclusive a metodologia, e anotar as perguntas que pretende fazer. A Síntese dos dados serve como mapa da conversa.
+      </GuideBullet>
+      <GuideBullet>
+        Decidir com a empresa se o participante recebe o relatório antes ou durante a sessão. O relatório foi escrito para ser lido pelos dois.
+      </GuideBullet>
+      <Text style={[sectionTitle, { marginTop: 8 }]}>Roteiro sugerido</Text>
+      {/* Título do passo à esquerda e descrição à direita; a pergunta
+          sugerida vem em azul numa linha própria, como no modelo. */}
+      {buildRoteiro(props.limiar).map((step) => (
+        <View key={step.title} style={{ display: 'flex', flexDirection: 'row', backgroundColor: C.cream, borderRadius: 4, paddingTop: 5, paddingBottom: 6, paddingLeft: 9, paddingRight: 9, marginBottom: 4 }} wrap={false}>
+          <Text style={{ width: 124, fontSize: 8.9, fontFamily: 'Carlito-Bold', color: C.navy }}>{step.title}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 8.9, color: C.muted, lineHeight: 1.4 }}>{step.desc}</Text>
+            {step.question && (
+              <Text style={{ fontSize: 8.9, color: C.blueTag, lineHeight: 1.4, marginTop: 3 }}>Pergunta possível. {step.question}</Text>
+            )}
+          </View>
         </View>
       ))}
-      <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginTop: 6, marginBottom: 6 }}>Cuidados na conversa</Text>
-      {CUIDADOS.map((c, i) => (
-        <Text key={i} style={{ fontSize: 9.5, color: C.muted, lineHeight: 1.45, marginBottom: 3 }}>• {c}</Text>
-      ))}
+      <Text style={[sectionTitle, { marginTop: 8 }]}>Cuidados na conversa</Text>
+      {buildCuidados(props.scale, props.limiar).map((c) => <GuideBullet key={c}>{c}</GuideBullet>)}
     </PageChrome>
   )
 }
@@ -2309,7 +2346,7 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
       creator="Maptiva"
     >
       <CoverPage personName={personName} personRole={personRole} tenantName={tenantName} cycleLabel={cycleLabel} issuedAt={issuedAt} nAvaliadores={nAvaliadores} nFormularios={nFormularios} variant={variant} />
-      <TOCPage {...chrome} hasValues={hasValues} questionsPages={questionsPages} />
+      <TOCPage {...chrome} hasValues={hasValues} questionsPages={questionsPages} nComp={comps.length} nQuestions={qRows.length} cohortN={(benchmarkOverall ?? estimateBenchmarkOverall(benchmark))?.participant_count ?? 0} />
       <HowToReadPage {...chrome} scale={scale} groups={groupList} nFormularios={nFormularios} limiar={readingThreshold} margem={margem} nQuestions={qRows.length} nComp={competencies.length} />
       <OverviewPage {...chrome} groups={groupList} benchmark={benchmark} benchmarkOverall={benchmarkOverall} reliability={reliability} />
       <SynthesisPage {...chrome} groups={groupList} comps={comps} divergence={divergence} reliability={reliability} benchmark={benchmark} benchmarkOverall={benchmarkOverall} scale={scale} readingThreshold={readingThreshold} />
@@ -2322,7 +2359,7 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
       {hasValues && <ValuesPage {...chrome} qRows={qRows} questionValueNames={questionValueNames} questionScores={questionScores} scale={scale} competencies={competencies} />}
       <BenchmarkPage {...chrome} comps={comps} benchmark={benchmark} limiar={readingThreshold} />
       <ProfilePage {...chrome} demographics={demographics} />
-      {variant === 'executive' && <GuidePage {...chrome} />}
+      {variant === 'executive' && <GuidePage {...chrome} scale={scale} limiar={readingThreshold} />}
       <PlanPage {...chrome} />
       <MethodologyPage {...chrome} scale={scale} nMinimum={nMinimum} reliability={reliability} nComp={competencies.length} nQuestions={qRows.length} />
     </Document>
