@@ -140,6 +140,17 @@ const NEUTRAL_BAR = '#cfccc4'
 
 const GERAL_CODES = ['manager', 'manager_superior', 'peer', 'subordinate']
 
+/** Equipe indireta é um grupo próprio (regra do BD: "Nenhum grupo é
+ * fundido"). No banco ela é relationship_code 'subordinate' com
+ * relationship_detail 'Indireto'; no relatório vira o grupo sintético
+ * 'subordinate_indirect' — o mesmo código que get_participant_question_
+ * divergence e get_participant_reliability devolvem (migration 0109). */
+const INDIRECT_TEAM = 'subordinate_indirect'
+function groupKey(code: string, detail: string | null | undefined): string {
+  return code === 'subordinate' && detail === 'Indireto' ? INDIRECT_TEAM : code
+}
+
+
 /** Teto de perguntas por página em "Resultado por pergunta". O modelo de
  * referência usa de 10 a 12 por página (33 perguntas em 3 páginas). */
 const QUESTIONS_PER_PAGE = 12
@@ -155,15 +166,30 @@ const QUESTIONS_PER_PAGE = 12
 const Q_ROWS_BUDGET = 655
 const Q_FIRST_PAGE_EXTRA = 30
 const Q_LAST_PAGE_EXTRA = 100
-/** Largura da coluna "Pergunta" (pt) e caracteres por linha do texto a 9 pt
- * (0,47 da fonte por caractere, calibrado contra a quebra real da Carlito). */
-const Q_PROMPT_W = 200
-const Q_PROMPT_CHARS_PER_LINE = Math.floor((Q_PROMPT_W - 8) / (9 * 0.47))
+/** Colunas de "Resultado por pergunta" (larguras do modelo). A coluna
+ * "Pergunta" fica com o que sobra da largura útil (493 pt): 200 pt com os
+ * grupos do modelo, menos quando o painel tem colunas extras (ex.: Equipe
+ * indireta), mais quando tem menos grupos. */
+const Q_COLS = {
+  num: 17, fav: 47, mean: 31.5,
+  groups: [['manager', 28], ['manager_superior', 37.5], ['peer', 28], ['subordinate', 32], [INDIRECT_TEAM, 32]] as [string, number][],
+  out: [['self', 31], ['client', 41]] as [string, number][],
+}
+const Q_TABLE_W = 493
+
+function questionColumns(groups: GroupAgg[]) {
+  const present = (code: string) => (groups.find((g) => g.code === code)?.n ?? 0) > 0
+  const groupCols = Q_COLS.groups.filter(([code]) => present(code))
+  const outCols = Q_COLS.out.filter(([code]) => present(code))
+  const used = Q_COLS.num + Q_COLS.fav + Q_COLS.mean + [...groupCols, ...outCols].reduce((w, [, cw]) => w + cw, 0)
+  return { groupCols, outCols, promptW: Q_TABLE_W - used }
+}
 
 /** Altura estimada (pt) de uma linha da tabela: padding + linhas do prompt
- * + nome da competência. */
-function estimateQRowHeight(prompt: string): number {
-  return 21 + estimateLines(prompt, Q_PROMPT_CHARS_PER_LINE) * 12.15
+ * (texto a 9 pt, 0,47 da fonte por caractere, calibrado contra a quebra real
+ * da Carlito) + nome da competência. */
+function estimateQRowHeight(prompt: string, promptW: number): number {
+  return 21 + estimateLines(prompt, Math.floor((promptW - 8) / (9 * 0.47))) * 12.15
 }
 
 /** Divide `items` em exatamente `numPages` blocos, distribuindo o total de
@@ -186,7 +212,7 @@ function chunkIntoPages<T>(items: T[], numPages: number): T[][] {
  * partir de ⌈n/11⌉) em que a divisão equilibrada cabe na altura estimada
  * de cada página. Usada tanto pelas páginas quanto pelo Sumário, pra que a
  * numeração bata com o documento. */
-function paginateQuestions(qRows: QRow[]): QRow[][] {
+function paginateQuestions(qRows: QRow[], promptW: number): QRow[][] {
   if (qRows.length === 0) return []
   for (let numPages = Math.ceil(qRows.length / QUESTIONS_PER_PAGE); numPages <= qRows.length; numPages++) {
     const chunks = chunkIntoPages(qRows, numPages)
@@ -194,27 +220,28 @@ function paginateQuestions(qRows: QRow[]): QRow[][] {
       const budget = Q_ROWS_BUDGET
         - (i === 0 ? Q_FIRST_PAGE_EXTRA : 0)
         - (i === chunks.length - 1 ? Q_LAST_PAGE_EXTRA : 0)
-      return chunk.reduce((h, r) => h + estimateQRowHeight(r.prompt), 0) <= budget
+      return chunk.reduce((h, r) => h + estimateQRowHeight(r.prompt, promptW), 0) <= budget
     })
     if (fits) return chunks
   }
   return qRows.map((r) => [r])
 }
 
-const GROUP_ORDER  = ['self', 'manager', 'manager_superior', 'peer', 'subordinate', 'client']
+const GROUP_ORDER  = ['self', 'manager', 'manager_superior', 'peer', 'subordinate', INDIRECT_TEAM, 'client']
 const GROUP_LABEL: Record<string, string> = {
   self:             'Autoavaliação',
   manager:          'Chefe direto',
   manager_superior: 'Liderança superior',
   peer:             'Pares',
   subordinate:      'Equipe',
+  [INDIRECT_TEAM]:  'Equipe indireta',
   client:           'Clientes internos',
 }
 const GROUP_SHORT: Record<string, string> = {
-  manager: 'Chefe', manager_superior: 'Lid. sup.', peer: 'Pares', subordinate: 'Equipe', self: 'Auto', client: 'Cli. int.',
+  manager: 'Chefe', manager_superior: 'Lid. sup.', peer: 'Pares', subordinate: 'Equipe', [INDIRECT_TEAM]: 'Eq. ind.', self: 'Auto', client: 'Cli. int.',
 }
 const GERAL_ENTRA: Record<string, boolean> = {
-  self: false, manager: true, manager_superior: true, peer: true, subordinate: true, client: false,
+  self: false, manager: true, manager_superior: true, peer: true, subordinate: true, [INDIRECT_TEAM]: true, client: false,
 }
 
 function MiniFavBar({ pct, width = 50, marginTop = 2, height = 3 }: { pct: number; width?: number; marginTop?: number; height?: number }) {
@@ -288,10 +315,11 @@ function fmtPct(v: number | null | undefined, digits = 1): string {
 
 interface GroupAgg { code: string; n: number; dist: Record<string, number>; fav: Favorability; mean: number | null }
 
-/** Agrupa relDetailFav por relationship_code (funde os detalhes, ex.: Equipe Direta+Indireta). */
+/** Agrupa relDetailFav por grupo do relatório (groupKey): junta os detalhes
+ * de um mesmo grupo, mas mantém Equipe e Equipe indireta separadas. */
 function aggregateByCode(rows: RelationshipDetailFavorabilityRow[], scale: ScaleDefinition): Record<string, GroupAgg> {
   const byCode: Record<string, RelationshipDetailFavorabilityRow[]> = {}
-  for (const r of rows) { (byCode[r.relationship_code] ??= []).push(r) }
+  for (const r of rows) { (byCode[groupKey(r.relationship_code, r.relationship_detail)] ??= []).push(r) }
   const out: Record<string, GroupAgg> = {}
   for (const [code, list] of Object.entries(byCode)) {
     const n = list.reduce((s, r) => s + (r.rater_count ?? 0), 0)
@@ -703,6 +731,7 @@ const GROUP_DESC: Record<string, string> = {
   manager_superior: 'Quem está acima do seu chefe direto, na mesma linha de comando.',
   peer: 'Pessoas do mesmo nível hierárquico que o seu, de qualquer área.',
   subordinate: 'Pessoas que respondem diretamente a você.',
+  [INDIRECT_TEAM]: 'Pessoas da sua linha de comando abaixo da sua equipe direta, de segundo nível ou mais.',
   client: 'Pessoas fora da sua linha de comando e de outro nível, de qualquer área, inclusive gestores de outras áreas com cargo acima do seu.',
 }
 
@@ -771,7 +800,7 @@ function OverviewPage(props: {
           </View>
           {inclLabels.length > 0 && (
             <Text style={{ fontSize: 9, color: C.muted, marginTop: 14, paddingTop: 12, borderTop: `0.75pt solid ${C.border}`, lineHeight: 1.45 }}>
-              Entram neste número {joinWithE(inclLabels)}.{exclLabels.length > 0 ? ` Ficam de fora ${joinWithE(exclLabels)}.` : ''}
+              {`Entram neste número ${joinWithE(inclLabels)}.${exclLabels.length > 0 ? ` Ficam de fora ${joinWithE(exclLabels)}.` : ''}`}
             </Text>
           )}
         </View>
@@ -906,7 +935,7 @@ function tierLabel(t: string): string { return t === 'bom' ? 'Bom' : t === 'aten
 function reliabilityReason(r: ReliabilityInfo): string {
   const reasons: string[] = []
   if (r.tier === 'fragil') {
-    if (r.n_grupos < 3) reasons.push(`há só ${r.n_grupos} grupo(s) no resultado geral`)
+    if (r.n_grupos < 3) reasons.push(`há só ${r.n_grupos} ${r.n_grupos === 1 ? 'grupo' : 'grupos'} no resultado geral`)
     if (r.n_avaliadores < 15) reasons.push(`há ${r.n_avaliadores} avaliadores, menos que os 15 mínimos`)
   } else if (r.tier === 'atencao') {
     if (!r.has_chefe) reasons.push('falta chefe direto')
@@ -1171,7 +1200,7 @@ function HeatLegend() {
   )
 }
 
-const PERSPECTIVE_COL_ORDER = ['geral', 'manager', 'manager_superior', 'peer', 'subordinate', 'self', 'client']
+const PERSPECTIVE_COL_ORDER = ['geral', 'manager', 'manager_superior', 'peer', 'subordinate', INDIRECT_TEAM, 'self', 'client']
 const PERSPECTIVE_COL_LABEL: Record<string, string> = { geral: 'Geral', ...GROUP_SHORT }
 const PERSPECTIVE_NAME_W = 121
 /** Espaço branco que separa a coluna Geral das colunas por grupo. */
@@ -1207,7 +1236,7 @@ function PerspectivePage(props: {
 
   function cell(comp: CompAgg, code: string): { pct: number | null; mean: number | null } {
     if (code === 'geral') return { pct: comp.fav.total > 0 ? comp.fav.favoravel : null, mean: comp.mean }
-    const rows = questionScores.filter((r) => r.competency_id === comp.id && r.relationship_code === code)
+    const rows = questionScores.filter((r) => r.competency_id === comp.id && groupKey(r.relationship_code, r.relationship_detail) === code)
     const dist = mergeDistributions(rows.map((r) => r.score_distribution))
     const scale = getScale('frequency_5_strict')
     const fav = computeFavorability(dist, scale)
@@ -1516,8 +1545,8 @@ function buildQRows(questionScores: QuestionScoreRow[], competencies: Competency
     const dist = mergeDistributions(geralRows.map((r) => r.score_distribution))
     const fav = computeFavorability(dist, scale)
     if (fav.total === 0) continue
-    const groupMeans = ['manager', 'manager_superior', 'peer', 'subordinate', 'self', 'client'].map((code) => ({
-      code, mean: meanFromDist(mergeDistributions(rows.filter((r) => r.relationship_code === code).map((r) => r.score_distribution))),
+    const groupMeans = ['manager', 'manager_superior', 'peer', 'subordinate', INDIRECT_TEAM, 'self', 'client'].map((code) => ({
+      code, mean: meanFromDist(mergeDistributions(rows.filter((r) => groupKey(r.relationship_code, r.relationship_detail) === code).map((r) => r.score_distribution))),
     }))
     out.push({
       number: orderIdx + 1, prompt: rows[0].prompt, compName: compById[rows[0].competency_id ?? ''] ?? '',
@@ -1552,7 +1581,7 @@ function HighlightsPage(props: {
 
   function GroupMeansText({ row }: { row: QRow }) {
     const text = row.groupMeans
-      .filter((g) => GERAL_CODES.includes(g.code) && g.mean != null)
+      .filter((g) => GERAL_ENTRA[g.code] && g.mean != null)
       .map((g) => `${GROUP_SHORT[g.code]} ${fmt(g.mean)}`).join(' · ')
     return <Text style={{ fontSize: 8, color: C.sub, marginTop: 1 }}>{row.compName} · média por grupo, {text}</Text>
   }
@@ -1675,7 +1704,7 @@ function DivergencePage(props: {
 }) {
   const sorted = [...props.divergence].sort((a, b) => b.amplitude_points - a.amplitude_points).slice(0, 10)
   const L = divergenceLayout(sorted)
-  const eligibleCodes = [...new Set(props.relDetailFav.filter((r) => (r.rater_count ?? 0) >= props.nMinimum).map((r) => r.relationship_code))]
+  const eligibleCodes = [...new Set(props.relDetailFav.filter((r) => (r.rater_count ?? 0) >= props.nMinimum).map((r) => groupKey(r.relationship_code, r.relationship_detail)))]
 
   return (
     <PageChrome label="Divergências" {...props}>
@@ -1749,23 +1778,16 @@ function DivergencePage(props: {
 
 // ─── 11-13. Resultado por pergunta ──────────────────────────────────────────
 
-/** Colunas de "Resultado por pergunta" (larguras do modelo). */
-const Q_COLS = {
-  num: 17, fav: 47, mean: 31.5,
-  groups: [['manager', 28], ['manager_superior', 37.5], ['peer', 28], ['subordinate', 32]] as [string, number][],
-  out: [['self', 31], ['client', 41]] as [string, number][],
-}
 
 function QuestionsPages(props: {
   personName: string; tenantName: string; cycleLabel: string
   qRows: QRow[]; nMinimum: number; groups: GroupAgg[]
 }) {
   const { qRows, groups } = props
-  const chunks = paginateQuestions(qRows)
+  const { groupCols, outCols, promptW: Q_PROMPT_W } = questionColumns(groups)
+  const chunks = paginateQuestions(qRows, Q_PROMPT_W)
   const nOf = (code: string) => groups.find((g) => g.code === code)?.n ?? 0
   const geralN = groups.filter((g) => GERAL_ENTRA[g.code]).reduce((s2, g) => s2 + g.n, 0)
-  const groupCols = Q_COLS.groups.filter(([code]) => nOf(code) > 0)
-  const outCols = Q_COLS.out.filter(([code]) => nOf(code) > 0)
   const outW = outCols.reduce((w, [, cw]) => w + cw, 0)
   const groupsW = groupCols.reduce((w, [, cw]) => w + cw, 0)
   const groupTh = { fontSize: 6.8, fontFamily: 'Carlito-Bold', color: C.light, textTransform: 'uppercase' as const, letterSpacing: 0.4, textAlign: 'center' as const }
@@ -2334,7 +2356,7 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
   const geralFav = computeFavorability(geralDist, scale)
   const selfFav = groupList.find((g) => g.code === 'self')?.fav.favoravel ?? null
   const hasValues = Object.keys(questionValueNames).length > 0
-  const questionsPages = Math.max(1, paginateQuestions(qRows).length)
+  const questionsPages = Math.max(1, paginateQuestions(qRows, questionColumns(groupList).promptW).length)
 
   const chrome = { personName, tenantName, cycleLabel, variant }
 

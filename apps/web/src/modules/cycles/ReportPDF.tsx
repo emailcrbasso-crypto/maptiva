@@ -1233,10 +1233,16 @@ function DivergenceSectionPDF({ rows, relOverrides }: { rows: DivergenceRow[] | 
   if (!rows || rows.length === 0) return null
   const sorted = [...rows].sort((a, b) => b.amplitude_points - a.amplitude_points)
   // relOverrides é indexado por "code|detail" (ex.: 'subordinate|Direto'); a
-  // Divergência só tem o code (sem detail), então casa com a primeira chave
-  // que começa com "code|" em vez de exigir o detail exato.
+  // Divergência só tem o code (sem detail). A Equipe indireta vem como o
+  // código próprio 'subordinate_indirect' (migration 0109) e a Equipe como
+  // 'subordinate', que casa com o detail Direto quando existir; os demais
+  // casam com a primeira chave que começa com "code|".
   const groupLabel = (code: string) => {
-    const key = relOverrides && Object.keys(relOverrides).find((k) => k.startsWith(`${code}|`))
+    if (code === 'subordinate_indirect') {
+      return relOverrides?.['subordinate|Indireto'] ?? REL_DETAIL_LABEL['subordinate|Indireto'] ?? 'Equipe indireta'
+    }
+    const keys = relOverrides ? Object.keys(relOverrides) : []
+    const key = (code === 'subordinate' && keys.includes('subordinate|Direto')) ? 'subordinate|Direto' : keys.find((k) => k.startsWith(`${code}|`))
     return (key ? relOverrides![key] : undefined) ?? REL_LABEL[code] ?? code
   }
 
