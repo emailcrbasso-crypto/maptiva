@@ -55,6 +55,8 @@ export function MyReportPage() {
   const [reliability,    setReliability]    = useState<ReliabilityInfo | null>(null)
   const [benchmarkOverall, setBenchmarkOverall] = useState<BenchmarkOverall | null>(null)
   const [demographics,     setDemographics]     = useState<DemographicGroup[]>([])
+  // Perfil do Relatório Executivo: todos os recortes, inclusive os pequenos (0110)
+  const [demoProfile, setDemoProfile] = useState<DemographicGroup[] | null>(null)
   const [loading,          setLoading]          = useState(true)
   const [errorCode,      setErrorCode]      = useState<string | null>(null)
   const [pdfLoading,     setPdfLoading]     = useState(false)
@@ -163,6 +165,11 @@ export function MyReportPage() {
         p_cp_id:    d.cp_id,
       })
       if (Array.isArray(demoData)) setDemographics(demoData as DemographicGroup[])
+      const { data: demoProfileData } = await supabase.rpc('get_participant_demographic_profile', {
+        p_cycle_id: id,
+        p_cp_id:    d.cp_id,
+      })
+      if (Array.isArray(demoProfileData)) setDemoProfile(demoProfileData as DemographicGroup[])
 
       // Benchmark (best-effort)
       const { data: bmData } = await supabase.rpc('get_cycle_benchmark', { p_cycle_id: id })
@@ -282,11 +289,12 @@ export function MyReportPage() {
           questionValueNames={questionValueNames}
           relDetailFav={relDetailFav ?? []}
           divergence={divergence ?? []}
-          demographics={demographics}
+          demographics={demoProfile ?? demographics}
           benchmark={benchmark}
           reliability={reliability}
           benchmarkOverall={benchmarkOverall}
           nMinimum={nMinimum ?? 3}
+          mandatoryNote={reportNotes?.reliability_mandatory_note ?? null}
         />
       ).toBlob()
       const url = URL.createObjectURL(blob)

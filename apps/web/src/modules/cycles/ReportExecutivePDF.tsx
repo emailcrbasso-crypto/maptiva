@@ -7,7 +7,7 @@
  * relatório existente — é gerado a partir dos mesmos dados (get_participant_report,
  * get_question_scores, get_participant_relationship_favorability,
  * get_participant_question_divergence, get_cycle_benchmark,
- * get_participant_demographic_breakdown), mais get_participant_reliability
+ * get_participant_demographic_profile — 0110, com fallback para get_participant_demographic_breakdown), mais get_participant_reliability
  * (migration 0103/0104) e questions.value_name (migration 0102).
  *
  * Cada página do modelo é uma página fixa aqui (sem fluxo automático de
@@ -131,6 +131,9 @@ export interface ReportExecutivePDFProps {
   benchmarkOverall: BenchmarkOverall | null
   reliability:     ReliabilityInfo | null
   nMinimum:        number
+  /** participant_report_notes.reliability_mandatory_note — ressalva que a
+   * base exige citar no relatório (ex.: painel sem chefe e sem pares). */
+  mandatoryNote?:  string | null
 }
 
 /** Cinza da parte neutra nas barras de distribuição. */
@@ -270,6 +273,16 @@ function meanFromDist(dist: Record<string, number> | null | undefined): number |
 }
 
 function round2(v: number): number { return Math.round(v * 100) / 100 }
+
+/** Compara em centésimos para que +0,30 conte como atingir o limiar de 0,3 (sem ruído de ponto flutuante). */
+function reachesThreshold(diff: number, threshold: number): boolean {
+  return Math.round(Math.abs(diff) * 100) >= Math.round(threshold * 100)
+}
+
+/** Remove espaços duplicados que vêm do cadastro das perguntas. */
+function cleanPrompt(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
 
 const SEXO_LABEL: Record<string, string> = { F: 'Feminino', M: 'Masculino' }
 
@@ -740,6 +753,7 @@ const GROUP_DESC: Record<string, string> = {
 function OverviewPage(props: {
   personName: string; tenantName: string; cycleLabel: string
   groups: GroupAgg[]; benchmark: BenchmarkMap | undefined; benchmarkOverall: BenchmarkOverall | null; reliability: ReliabilityInfo | null
+  mandatoryNote: string | null
 }) {
   const { groups, benchmark, reliability } = props
   const geralRows = groups.filter((g) => GERAL_ENTRA[g.code])
@@ -755,7 +769,7 @@ function OverviewPage(props: {
   const groupMean = bm?.score_avg ?? null
   const margem = reliability?.margem ?? 0.26
   const diff = groupMean != null && geralMean != null ? round2(geralMean) - round2(groupMean) : null
-  const diffRelevant = diff != null && Math.abs(diff) >= margem
+  const diffRelevant = diff != null && reachesThreshold(diff, margem)
 
   const inclLabels = GROUP_ORDER
     .filter((code) => GERAL_ENTRA[code])
@@ -865,6 +879,12 @@ function OverviewPage(props: {
             do acaso. Por isso o relatório só trata como diferença real o que passa do limiar de leitura de{' '}
             {fmt(reliability.limiar_leitura, 1)} ponto.
           </Text>
+          {props.mandatoryNote && (
+            <Text style={[s.calloutText, { marginTop: 4 }]}>
+              <Text style={{ fontFamily: 'Carlito-Bold' }}>Ressalva deste resultado.</Text>{' '}
+              {props.mandatoryNote}
+            </Text>
+          )}
         </View>
       )}
 
@@ -968,7 +988,7 @@ function buildSynthesisBullets(
   bullets.push(
     `A favorabilidade geral é de ${fmtPct(geralFav.favoravel, 1)}, na faixa ${faixaInfo.label.toLowerCase()}, com média ${fmt(geralMean)}.` +
     (diff != null
-      ? ` Em relação à média do grupo comparativo, ${Math.abs(diff) >= margem ? `você está ${diff > 0 ? 'acima' : 'abaixo'}, com diferença de ${fmt(Math.abs(diff), 2)}.` : 'não há diferença relevante.'}`
+      ? ` Em relação à média do grupo comparativo, ${reachesThreshold(diff, margem) ? `você está ${diff > 0 ? 'acima' : 'abaixo'}, com diferença de ${fmt(Math.abs(diff), 2)}.` : 'não há diferença relevante.'}`
       : '')
   )
 
@@ -1001,7 +1021,7 @@ function buildSynthesisBullets(
   if (sortedDiv.length >= 3) {
     const top3 = sortedDiv.slice(0, 3)
     bullets.push(
-      `As maiores divergências entre grupos estão nas perguntas ${joinNumbers(top3.map((q) => q.question_number))}, todas com distância de ${fmt(top3[2].amplitude_points, 1)} pontos percentuais ou mais.`
+      `As maiores divergências entre grupos estão nas perguntas ${joinNumbers(top3.map((q) => q.question_number))}, todas com distância de ${fmt(divergenceDistance(top3[2]), 1)} pontos percentuais ou mais.`
     )
   }
   if (sortedDiv.length >= 3) {
@@ -1494,7 +1514,7 @@ function SelfPerceptionPage(props: {
       </View>
       {ranked.map((c) => {
         const diff = round2(c.selfMean!) - round2(c.mean!)
-        const rel = Math.abs(diff) >= readingThreshold
+        const rel = reachesThreshold(diff, readingThreshold)
         const leitura = !rel ? 'Alinhado' : diff > 0 ? 'Autoavaliação acima' : 'Autoavaliação abaixo'
         const color = !rel ? C.neutralTag : diff > 0 ? C.orangeTag : C.blueTag
         const bg = !rel ? C.neutralTagBg : diff > 0 ? C.orangeTagBg : C.blueTagBg
@@ -1533,7 +1553,7 @@ function SelfPerceptionPage(props: {
 
 // ─── 9. Destaques ────────────────────────────────────────────────────────────
 
-interface QRow { number: number; prompt: string; compName: string; fav: number; mean: number | null; groupMeans: { code: string; mean: number | null }[] }
+interface QRow { number: number; prompt: string; compName: string; fav: number; desf: number; mean: number | null; groupMeans: { code: string; mean: number | null }[] }
 
 function buildQRows(questionScores: QuestionScoreRow[], competencies: CompetencyRow[], scale: ScaleDefinition): QRow[] {
   const compById = Object.fromEntries(competencies.map((c) => [c.id, c.name]))
@@ -1549,8 +1569,8 @@ function buildQRows(questionScores: QuestionScoreRow[], competencies: Competency
       code, mean: meanFromDist(mergeDistributions(rows.filter((r) => groupKey(r.relationship_code, r.relationship_detail) === code).map((r) => r.score_distribution))),
     }))
     out.push({
-      number: orderIdx + 1, prompt: rows[0].prompt, compName: compById[rows[0].competency_id ?? ''] ?? '',
-      fav: fav.favoravel, mean: meanFromDist(dist), groupMeans,
+      number: orderIdx + 1, prompt: cleanPrompt(rows[0].prompt), compName: compById[rows[0].competency_id ?? ''] ?? '',
+      fav: fav.favoravel, desf: fav.desfavoravel, mean: meanFromDist(dist), groupMeans,
     })
   }
   return out.sort((a, b) => a.number - b.number)
@@ -1563,9 +1583,11 @@ function HighlightsPage(props: {
   const { comps, qRows } = props
   const rankedComps = [...comps].sort((a, b) => b.fav.favoravel - a.fav.favoravel || (b.mean ?? 0) - (a.mean ?? 0))
   const top3Comp = rankedComps.slice(0, 3), bottom3Comp = [...rankedComps].reverse().slice(0, 3)
-  const ranked = [...qRows].sort((a, b) => b.fav - a.fav || (b.mean ?? 0) - (a.mean ?? 0))
+  // Desempate (PARAMETROS): 1º favorabilidade, 2º média, 3º menor desfavorabilidade, 4º menor número.
+  // A lista de baixo é o espelho: menor favorabilidade, menor média, maior desfavorabilidade.
+  const ranked = [...qRows].sort((a, b) => b.fav - a.fav || (b.mean ?? 0) - (a.mean ?? 0) || a.desf - b.desf || a.number - b.number)
   const top5 = ranked.slice(0, 5)
-  const bottomRanked = [...ranked].sort((a, b) => a.fav - b.fav || (a.mean ?? 0) - (b.mean ?? 0))
+  const bottomRanked = [...ranked].sort((a, b) => a.fav - b.fav || (a.mean ?? 0) - (b.mean ?? 0) || b.desf - a.desf || a.number - b.number)
   const bottom5 = bottomRanked.slice(0, 5)
 
   function tieFootnote(list: QRow[], top5Set: QRow[]): string | null {
@@ -1590,19 +1612,19 @@ function HighlightsPage(props: {
     <PageChrome label="Destaques" {...props}>
       <Text style={s.h1}>Destaques</Text>
       <View style={{ display: 'flex', flexDirection: 'row', gap: 14, marginBottom: 12 }}>
-        <View style={{ flex: 1, borderTop: `3pt solid ${C.green}`, backgroundColor: C.cream, borderRadius: 3, paddingTop: 12, paddingBottom: 8, paddingLeft: 14, paddingRight: 14 }}>
-          <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 10 }}>Competências mais reconhecidas</Text>
+        <View style={{ flex: 1, borderTop: `3pt solid ${C.green}`, backgroundColor: C.cream, borderRadius: 3, paddingTop: 10, paddingBottom: 5, paddingLeft: 14, paddingRight: 14 }}>
+          <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 8 }}>Competências mais reconhecidas</Text>
           {top3Comp.map((c) => (
-            <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <Text style={{ fontSize: 10, fontFamily: 'Carlito-Bold' }}>{c.name}</Text>
               <Text style={{ fontSize: 9, color: C.muted }}>{fmtPct(c.fav.favoravel, 1)} · média {fmt(c.mean)}</Text>
             </View>
           ))}
         </View>
-        <View style={{ flex: 1, borderTop: `3pt solid ${C.orange}`, backgroundColor: C.cream, borderRadius: 3, paddingTop: 12, paddingBottom: 8, paddingLeft: 14, paddingRight: 14 }}>
-          <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 10 }}>Competências com mais espaço para evoluir</Text>
+        <View style={{ flex: 1, borderTop: `3pt solid ${C.orange}`, backgroundColor: C.cream, borderRadius: 3, paddingTop: 10, paddingBottom: 5, paddingLeft: 14, paddingRight: 14 }}>
+          <Text style={{ fontSize: 10.5, fontFamily: 'Carlito-Bold', color: C.navy, marginBottom: 8 }}>Competências com mais espaço para evoluir</Text>
           {bottom3Comp.map((c) => (
-            <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <View key={c.id} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <Text style={{ fontSize: 10, fontFamily: 'Carlito-Bold' }}>{c.name}</Text>
               <Text style={{ fontSize: 9, color: C.muted }}>{fmtPct(c.fav.favoravel, 1)} · média {fmt(c.mean)}</Text>
             </View>
@@ -1612,7 +1634,7 @@ function HighlightsPage(props: {
 
       <Text style={s.sectionLabel}>Os 5 comportamentos mais reconhecidos</Text>
       {top5.map((r) => (
-        <View key={r.number} style={[s.tableRow, { paddingTop: 4.5, paddingBottom: 4.5 }]} wrap={false}>
+        <View key={r.number} style={[s.tableRow, { paddingTop: 3.5, paddingBottom: 3.5 }]} wrap={false}>
           <Text style={{ width: 26, fontSize: 13, fontFamily: 'Carlito-Bold', color: C.navy, textAlign: 'center', marginRight: 8 }}>{r.number}</Text>
           <View style={{ flex: 1, paddingRight: 12 }}>
             <Text style={{ fontSize: 9.2, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
@@ -1633,7 +1655,7 @@ function HighlightsPage(props: {
 
       <Text style={[s.sectionLabel, { marginTop: 10 }]}>Os 5 comportamentos com mais espaço para evoluir</Text>
       {bottom5.map((r) => (
-        <View key={r.number} style={[s.tableRow, { paddingTop: 4.5, paddingBottom: 4.5 }]} wrap={false}>
+        <View key={r.number} style={[s.tableRow, { paddingTop: 3.5, paddingBottom: 3.5 }]} wrap={false}>
           <Text style={{ width: 26, fontSize: 13, fontFamily: 'Carlito-Bold', color: C.navy, textAlign: 'center', marginRight: 8 }}>{r.number}</Text>
           <View style={{ flex: 1, paddingRight: 12 }}>
             <Text style={{ fontSize: 9.2, color: C.text, lineHeight: 1.3 }}>{r.prompt}</Text>
@@ -1692,10 +1714,23 @@ function divergenceLayout(rows: DivergenceRow[]): DivergenceLayout {
   const ROWS_BUDGET = 510
   const height = (l: DivergenceLayout) => rows.reduce((h, r) => {
     const cpl = Math.floor((l.promptW - 8) / (l.fontSize * 0.47))
-    const text = estimateLines(r.question_prompt, cpl) * l.lineH + l.catSize * 1.4
-    return h + Math.max(text, 30) + 9
+    const text = estimateLines(cleanPrompt(r.question_prompt), cpl) * l.lineH + l.catSize * 1.4
+    // Os dois rótulos dividem a largura do eixo; se não couberem juntos, quebram em duas linhas.
+    const labelChars = divergenceLabel(r.lowest_groups, r.lowest_pct).length + divergenceLabel(r.highest_groups, r.highest_pct).length
+    const labelLines = labelChars + 2 > Math.floor(l.track / (8 * 0.47)) ? 2 : 1
+    return h + Math.max(text, 21 + labelLines * 9.5) + 9
   }, 0)
   return height(full) <= ROWS_BUDGET ? full : dense
+}
+
+function divergenceLabel(groups: string[], pct: number | null): string {
+  return `${groups.map((g) => GROUP_LABEL[g] ?? g).join(' e ')} ${fmtPct(pct, 1)}`
+}
+
+/** Distância a partir dos percentuais já arredondados, para bater com o que está impresso (100,0 − 45,5 = 54,5). */
+function divergenceDistance(r: DivergenceRow): number {
+  const r1 = (v: number | null) => Math.round((v ?? 0) * 10) / 10
+  return Math.round((r1(r.highest_pct) - r1(r.lowest_pct)) * 10) / 10
 }
 
 function DivergencePage(props: {
@@ -1742,7 +1777,7 @@ function DivergencePage(props: {
         <View key={r.question_number} style={[s.tableRow, { paddingTop: 4, paddingBottom: 4 }]} wrap={false}>
           <Text style={{ width: 20, fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{r.question_number}</Text>
           <View style={{ width: L.promptW, paddingRight: 8 }}>
-            <Text style={{ fontSize: L.fontSize, color: C.text, lineHeight: L.lineH / L.fontSize }}>{r.question_prompt}</Text>
+            <Text style={{ fontSize: L.fontSize, color: C.text, lineHeight: L.lineH / L.fontSize }}>{cleanPrompt(r.question_prompt)}</Text>
             <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 }}>
               <Text style={{ fontSize: L.catSize, color: C.sub }}>{r.dimension_name}</Text>
               {[...r.lowest_groups, ...r.highest_groups].includes('client') && (
@@ -1752,12 +1787,12 @@ function DivergencePage(props: {
           </View>
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Dumbbell width={L.track} aFrac={(r.lowest_pct ?? 0) / 100} bFrac={(r.highest_pct ?? 0) / 100} aColor={DIVERGENCE_LOW} ticks={[0, 0.25, 0.5, 0.75, 1]} />
-            <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', width: L.track, marginTop: 1.5 }}>
-              <Text style={{ fontSize: 8, color: C.muted }}>{r.lowest_groups.map((g) => GROUP_LABEL[g] ?? g).join(' e ')} {fmtPct(r.lowest_pct, 1)}</Text>
-              <Text style={{ fontSize: 8, color: C.muted }}>{r.highest_groups.map((g) => GROUP_LABEL[g] ?? g).join(' e ')} {fmtPct(r.highest_pct, 1)}</Text>
+            <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: 6, width: L.track, marginTop: 1.5 }}>
+              <Text style={{ flexShrink: 1, fontSize: 8, color: C.muted, lineHeight: 1.15 }}>{divergenceLabel(r.lowest_groups, r.lowest_pct)}</Text>
+              <Text style={{ flexShrink: 1, fontSize: 8, color: C.muted, lineHeight: 1.15, textAlign: 'right' }}>{divergenceLabel(r.highest_groups, r.highest_pct)}</Text>
             </View>
           </View>
-          <Text style={{ width: 50, textAlign: 'right', fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{fmt(r.amplitude_points, 1)}</Text>
+          <Text style={{ width: 50, textAlign: 'right', fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{fmt(divergenceDistance(r), 1)}</Text>
         </View>
       ))}
       <View style={s.howToRead}>
@@ -2002,7 +2037,7 @@ function BenchmarkPage(props: {
             <Text style={[s.th, { flex: 1, textAlign: 'center' }]}>Leitura</Text>
           </View>
           {rows.map((r) => {
-            const rel = r.diff != null && Math.abs(r.diff) >= limiar
+            const rel = r.diff != null && reachesThreshold(r.diff, limiar)
             const leitura = !rel ? 'Sem diferença relevante' : r.diff! > 0 ? 'Acima do grupo' : 'Abaixo do grupo'
             const color = !rel ? C.neutralTag : r.diff! > 0 ? C.blueTag : C.orangeTag
             const bg = !rel ? C.neutralTagBg : r.diff! > 0 ? C.blueTagBg : C.orangeTagBg
@@ -2037,14 +2072,65 @@ function BenchmarkPage(props: {
 // ─── 16. Perfil dos avaliadores ─────────────────────────────────────────────
 
 const DEMO_DIM_LABEL: Record<string, string> = { sexo: 'Sexo', geracao: 'Geração', cargo: 'Tipo de cargo', tempo_casa: 'Tempo de casa', nivel_detalhe: 'Nível detalhado' }
+const DEMO_DIM_ORDER = ['sexo', 'geracao', 'tempo_casa', 'cargo']
 
-function ProfilePage(props: { personName: string; tenantName: string; cycleLabel: string; demographics: DemographicGroup[] }) {
-  const byDim = new Map<string, DemographicGroup[]>()
-  for (const g of props.demographics) { if (g.dimension === 'nivel_detalhe') continue; const arr = byDim.get(g.dimension) ?? []; arr.push(g); byDim.set(g.dimension, arr) }
-  const tempoCasaRows = byDim.get('tempo_casa')
-  if (tempoCasaRows) tempoCasaRows.sort((a, b) => tempoDeCasaSortKey(a.value) - tempoDeCasaSortKey(b.value))
+/** Rótulo e ordem de exibição de cada valor do cadastro (aba DOMINIOS do
+ * BD). Valores com o mesmo rótulo são juntados num recorte só — os turnos
+ * "Operacional A" e "Operacional B" viram "Operacional". A chave é o valor
+ * em maiúsculas, sem crase e com espaços simples. */
+const DEMO_VALUE_CANON: Record<string, Record<string, [string, number]>> = {
+  sexo: { M: ['Masculino', 1], F: ['Feminino', 2] },
+  geracao: {
+    'GERAÇÃO Z': ['Geração Z', 1], 'GERAÇÃO Y (MILLENNIAL)': ['Geração Y', 2], 'GERAÇÃO Y': ['Geração Y', 2],
+    'GERAÇÃO X': ['Geração X', 3], 'BABY BOOMER': ['Baby Boomer', 4],
+  },
+  tempo_casa: {
+    'MENOR QUE 1 ANO': ['Menos de 1 ano', 1], 'MENOS DE 1 ANO': ['Menos de 1 ano', 1],
+    'DE 1 A 3 ANOS': ['De 1 a 3 anos', 2], 'DE 3 A 5 ANOS': ['De 3 a 5 anos', 3],
+    'MAIOR QUE 5 ANOS': ['Mais de 5 anos', 4], 'MAIS DE 5 ANOS': ['Mais de 5 anos', 4],
+  },
+  cargo: {
+    'GESTÃO': ['Gestão', 1], 'ADMINISTRATIVO': ['Administrativo', 2],
+    'OPERACIONAL': ['Operacional', 3], 'OPERACIONAL A': ['Operacional', 3], 'OPERACIONAL B': ['Operacional', 3],
+  },
+}
+
+interface ProfileRow { value: string; order: number; n: number; dist: Record<string, number>; mean: number | null }
+
+function canonDemographic(dim: string, value: string): [string, number] {
+  const key = value.toLocaleUpperCase('pt-BR').replace(/\s+/g, ' ').replace(/ À /g, ' A ').trim()
+  if (key === 'NÃO INFORMADO') return ['Não informado', 99]
+  return DEMO_VALUE_CANON[dim]?.[key] ?? [normalizeDemographicValue(value), 50 + (dim === 'tempo_casa' ? tempoDeCasaSortKey(value) : 0)]
+}
+
+/** Junta os recortes com o mesmo rótulo. A média do recorte é a média das
+ * médias individuais dos avaliadores, então juntar é ponderar por pessoa. */
+function buildProfile(demographics: DemographicGroup[]): Map<string, ProfileRow[]> {
+  const byDim = new Map<string, Map<string, ProfileRow>>()
+  for (const g of demographics) {
+    if (g.dimension === 'nivel_detalhe') continue
+    const [label, order] = canonDemographic(g.dimension, g.value)
+    const rows = byDim.get(g.dimension) ?? new Map<string, ProfileRow>()
+    const row = rows.get(label) ?? { value: label, order, n: 0, dist: {}, mean: null }
+    const sum = (row.mean ?? 0) * row.n + (g.avg_score ?? 0) * g.respondent_count
+    row.n += g.respondent_count
+    row.mean = row.n > 0 ? sum / row.n : null
+    row.dist = mergeDistributions([row.dist, g.distribution ?? {}])
+    rows.set(label, row)
+    byDim.set(g.dimension, rows)
+  }
+  const out = new Map<string, ProfileRow[]>()
+  const dims = [...byDim.keys()].sort((a, b) => (DEMO_DIM_ORDER.indexOf(a) + 1 || 99) - (DEMO_DIM_ORDER.indexOf(b) + 1 || 99))
+  for (const dim of dims) out.set(dim, [...byDim.get(dim)!.values()].sort((a, b) => a.order - b.order || a.value.localeCompare(b.value, 'pt-BR')))
+  return out
+}
+
+function ProfilePage(props: { personName: string; tenantName: string; cycleLabel: string; demographics: DemographicGroup[]; nMinimum: number }) {
+  const byDim = buildProfile(props.demographics)
   const dims = [...byDim.keys()]
-  const totalPessoas = dims.length > 0 ? byDim.get(dims[0])!.reduce((s2, g) => s2 + g.respondent_count, 0) : 0
+  const totalPessoas = Math.max(0, ...dims.map((d) => byDim.get(d)!.reduce((s2, g) => s2 + g.n, 0)))
+  const anySmall = dims.some((d) => byDim.get(d)!.some((g) => g.n < props.nMinimum))
+  const scale = getScale('frequency_5_strict')
 
   return (
     <PageChrome label="Perfil" {...props}>
@@ -2073,17 +2159,21 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
                 <Text style={[s.th, { width: 32, textAlign: 'right', fontSize: 7 }]}>Média</Text>
               </View>
               {byDim.get(dim)!.map((g, gi) => {
-                const fav = computeFavorability(g.distribution ?? {}, getScale('frequency_5_strict'))
+                const fav = computeFavorability(g.dist, scale)
                 const rows = byDim.get(dim)!
+                const small = g.n < props.nMinimum
                 return (
                   <View key={g.value} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', paddingTop: 5, paddingBottom: 5, borderBottom: gi < rows.length - 1 ? `0.75pt solid ${C.border}` : undefined }}>
-                    <Text style={{ flex: 1, fontSize: 9, color: C.text }}>{normalizeDemographicValue(g.value)}</Text>
-                    <Text style={{ width: 36, textAlign: 'right', fontSize: 9, color: C.sub }}>{g.respondent_count}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 9, color: C.text }}>{g.value}</Text>
+                      {small && <Text style={[s.badge, { fontSize: 6.8, backgroundColor: C.orangeTagBg, color: C.orangeTag, alignSelf: 'flex-start', marginTop: 2 }]}>poucas pessoas</Text>}
+                    </View>
+                    <Text style={{ width: 36, textAlign: 'right', fontSize: 9, color: C.sub }}>{g.n}</Text>
                     <View style={{ width: 44, alignItems: 'flex-end' }}>
                       {fav.total > 0 && <MiniFavBar pct={fav.favoravel} width={34} marginTop={0} height={4} />}
                     </View>
                     <Text style={{ width: 42, textAlign: 'right', fontSize: 9, fontFamily: 'Carlito-Bold', color: C.text }}>{fmtPct(fav.total > 0 ? fav.favoravel : null, 1)}</Text>
-                    <Text style={{ width: 32, textAlign: 'right', fontSize: 9, color: C.text }}>{fmt(g.avg_score)}</Text>
+                    <Text style={{ width: 32, textAlign: 'right', fontSize: 9, color: C.text }}>{fmt(g.mean)}</Text>
                   </View>
                 )
               })}
@@ -2094,11 +2184,12 @@ function ProfilePage(props: { personName: string; tenantName: string; cycleLabel
       <View style={s.howToRead}>
         <Text style={s.howToReadTitle}>Como ler</Text>
         <Text style={s.howToReadText}>
-          Cada quadro divide os {totalPessoas || 'os'} avaliadores por uma característica, e por isso a soma de
-          pessoas de cada quadro é sempre a mesma. Favorável é a porcentagem de respostas favoráveis e
-          média vai do mínimo ao máximo da escala, calculadas com todas as respostas de cada recorte. Os
-          perfis vêm do cadastro enviado pela empresa. Recortes com poucas pessoas podem ser ocultados
-          para proteger o anonimato.
+          Cada quadro divide os {totalPessoas > 0 ? `${totalPessoas} ` : ''}avaliadores por uma característica. Favorável é a
+          porcentagem de respostas favoráveis e a média vai de {scale.min} a {scale.max}, calculadas com todas as
+          respostas de cada recorte. Os perfis vêm do cadastro enviado pela empresa.
+          {anySmall
+            ? ` A etiqueta poucas pessoas marca recortes com menos de ${props.nMinimum} avaliadores. Leia esses números com cautela: com tão poucas pessoas, uma resposta muda muito o resultado. Não tente descobrir quem respondeu.`
+            : ''}
         </Text>
       </View>
     </PageChrome>
@@ -2338,8 +2429,13 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
   const {
     variant = 'executive', personName, personRole, tenantName, cycleLabel, issuedAt, scaleId,
     competencies, questionScores, questionValueNames, relDetailFav, divergence,
-    demographics, benchmark, benchmarkOverall, reliability, nMinimum,
+    demographics, benchmark, benchmarkOverall, reliability, nMinimum, mandatoryNote,
   } = props
+  // "Citar essa ressalva na devolutiva" é instrução para o condutor; na
+  // versão do participante a ressalva aparece sem ela.
+  const note = mandatoryNote?.trim()
+    ? (variant === 'participant' ? mandatoryNote.replace(/\s*Citar essa ressalva na devolutiva\.?\s*/i, ' ').trim() : mandatoryNote.trim())
+    : null
   const scale = getScale(scaleId)
   const groups = aggregateByCode(relDetailFav, scale)
   const groupList = Object.values(groups)
@@ -2370,7 +2466,7 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
       <CoverPage personName={personName} personRole={personRole} tenantName={tenantName} cycleLabel={cycleLabel} issuedAt={issuedAt} nAvaliadores={nAvaliadores} nFormularios={nFormularios} variant={variant} />
       <TOCPage {...chrome} hasValues={hasValues} questionsPages={questionsPages} nComp={comps.length} nQuestions={qRows.length} cohortN={(benchmarkOverall ?? estimateBenchmarkOverall(benchmark))?.participant_count ?? 0} />
       <HowToReadPage {...chrome} scale={scale} groups={groupList} nFormularios={nFormularios} limiar={readingThreshold} margem={margem} nQuestions={qRows.length} nComp={competencies.length} />
-      <OverviewPage {...chrome} groups={groupList} benchmark={benchmark} benchmarkOverall={benchmarkOverall} reliability={reliability} />
+      <OverviewPage {...chrome} groups={groupList} benchmark={benchmark} benchmarkOverall={benchmarkOverall} reliability={reliability} mandatoryNote={note} />
       <SynthesisPage {...chrome} groups={groupList} comps={comps} divergence={divergence} reliability={reliability} benchmark={benchmark} benchmarkOverall={benchmarkOverall} scale={scale} readingThreshold={readingThreshold} />
       <CompetencyResultsPage {...chrome} comps={comps} scale={scale} n={nAvaliadores} benchmark={benchmark} />
       <PerspectivePage {...chrome} comps={comps} questionScores={questionScores} groups={groupList} />
@@ -2380,7 +2476,7 @@ export function ReportExecutivePDFDocument(props: ReportExecutivePDFProps) {
       <QuestionsPages {...chrome} qRows={qRows} nMinimum={nMinimum} groups={groupList} />
       {hasValues && <ValuesPage {...chrome} qRows={qRows} questionValueNames={questionValueNames} questionScores={questionScores} scale={scale} competencies={competencies} />}
       <BenchmarkPage {...chrome} comps={comps} benchmark={benchmark} limiar={readingThreshold} />
-      <ProfilePage {...chrome} demographics={demographics} />
+      <ProfilePage {...chrome} demographics={demographics} nMinimum={nMinimum} />
       {variant === 'executive' && <GuidePage {...chrome} scale={scale} limiar={readingThreshold} />}
       <PlanPage {...chrome} />
       <MethodologyPage {...chrome} scale={scale} nMinimum={nMinimum} reliability={reliability} nComp={competencies.length} nQuestions={qRows.length} />

@@ -141,6 +141,8 @@ export function ParticipantReportPage() {
   const [competencyWeights, setCompetencyWeights] = useState<{ name: string; weight: number }[] | undefined>(undefined)
   const [nMinimum,          setNMinimum]          = useState<number | undefined>(undefined)
   const [demographics,     setDemographics]     = useState<DemographicGroup[]>([])
+  // Perfil do Relatório Executivo: todos os recortes, inclusive os pequenos (0110)
+  const [demoProfile, setDemoProfile] = useState<DemographicGroup[] | null>(null)
   const [externalComparison, setExternalComparison] = useState<ExternalComparisonRow[]>([])
   const [relDetailFav, setRelDetailFav] = useState<RelationshipDetailFavorabilityRow[] | undefined>(undefined)
   const [compRelFav, setCompRelFav] = useState<CompetencyRelationshipFavorabilityRow[] | undefined>(undefined)
@@ -317,6 +319,11 @@ export function ParticipantReportPage() {
         p_cp_id:    cpId,
       })
       if (Array.isArray(demoData)) setDemographics(demoData as DemographicGroup[])
+      const { data: demoProfileData } = await supabase.rpc('get_participant_demographic_profile', {
+        p_cycle_id: id,
+        p_cp_id:    cpId,
+      })
+      if (Array.isArray(demoProfileData)) setDemoProfile(demoProfileData as DemographicGroup[])
 
       // Favorabilidade detalhada por nível (Pares/Equipe Direto/Indireto — best-effort)
       const { data: relFavData } = await supabase.rpc('get_participant_relationship_favorability', {
@@ -431,11 +438,12 @@ export function ParticipantReportPage() {
           questionValueNames={questionValueNames}
           relDetailFav={relDetailFav ?? []}
           divergence={divergence ?? []}
-          demographics={demographics}
+          demographics={demoProfile ?? demographics}
           benchmark={benchmark}
           reliability={reliability}
           benchmarkOverall={benchmarkOverall}
           nMinimum={nMinimum ?? 3}
+          mandatoryNote={reportNotes?.reliability_mandatory_note ?? null}
         />
       ).toBlob()
       const url = URL.createObjectURL(blob)
@@ -466,11 +474,12 @@ export function ParticipantReportPage() {
           questionValueNames={questionValueNames}
           relDetailFav={relDetailFav ?? []}
           divergence={divergence ?? []}
-          demographics={demographics}
+          demographics={demoProfile ?? demographics}
           benchmark={benchmark}
           reliability={reliability}
           benchmarkOverall={benchmarkOverall}
           nMinimum={nMinimum ?? 3}
+          mandatoryNote={reportNotes?.reliability_mandatory_note ?? null}
         />
       ).toBlob()
       const url = URL.createObjectURL(blob)
