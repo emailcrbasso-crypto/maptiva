@@ -152,13 +152,18 @@ export function BrandingPage() {
       return
     }
 
-    const { error: err } = await supabase
+    // .select() devolve as linhas realmente alteradas: a RLS só permite update
+    // ao perfil owner e, sem permissão, o Postgres não dá erro — só altera 0 linhas.
+    const { data: updated, error: err } = await supabase
       .from('tenants')
       .update(updates)
       .eq('id', branding.id)
+      .select('id')
 
     if (err) {
       setError(err.message)
+    } else if (!updated || updated.length === 0) {
+      setError('Nada foi salvo: só o perfil Owner do tenant pode alterar a identidade (no modo suporte você entra como Admin).')
     } else {
       setSuccess(true)
       await reload() // Refresh TenantContext
