@@ -31,6 +31,12 @@ interface Pergunta {
   /** Instrução/legenda do bloco (ex.: "Avalie o quanto..."), mostrada uma
    * única vez no topo do bloco — não repetir em cada pergunta. */
   bloco_intro?:  string
+  /** Quando true, o cabeçalho do bloco (título + instrução) fica fixo no topo da
+   * tela enquanto as perguntas do bloco rolam por baixo dele. */
+  bloco_fixo?: boolean
+  /** Layout da escala_5: 'lista' (padrão, opções empilhadas) ou 'linha'
+   * (5 botões lado a lado, com o rótulo de cada ponto embaixo). */
+  escala_layout?: 'lista' | 'linha'
   /** Rótulos da escala_5: 'concordancia' (padrão) ou 'frequencia'. */
   escala?:       'concordancia' | 'frequencia'
   /** Só exibe a pergunta quando a resposta de outra pergunta for igual ao valor. */
@@ -59,6 +65,9 @@ interface TokenData {
 
 // ─── Scale labels ─────────────────────────────────────────────────────────────
 
+// Hífen opcional (U+00AD): só aparece se o rótulo precisar quebrar num botão estreito.
+const SOFT_HYPHEN = String.fromCharCode(0xad)
+
 const SCALE_LABELS: Record<'concordancia' | 'frequencia', Record<number, string>> = {
   concordancia: {
     1: 'Discordo totalmente',
@@ -71,7 +80,7 @@ const SCALE_LABELS: Record<'concordancia' | 'frequencia', Record<number, string>
     1: 'Nunca',
     2: 'Raramente',
     3: 'Às vezes',
-    4: 'Frequentemente',
+    4: 'Frequente' + SOFT_HYPHEN + 'mente',
     5: 'Sempre',
   },
 }
@@ -302,7 +311,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
   // Agrupa perguntas consecutivas com o mesmo `bloco` num único bloco visual —
   // cabeçalho e instrução (`bloco_intro`) aparecem uma vez só, no topo do
   // bloco, em vez de repetidos em cada pergunta.
-  type Grupo = { bloco: string | null; intro: string | null; items: { pergunta: Pergunta; idx: number }[] }
+  type Grupo = { bloco: string | null; intro: string | null; fixo: boolean; items: { pergunta: Pergunta; idx: number }[] }
   const grupos: Grupo[] = []
   config.perguntas.forEach((pergunta, idx) => {
     const chave = pergunta.bloco ?? null
@@ -310,7 +319,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
     if (last && last.bloco !== null && last.bloco === chave) {
       last.items.push({ pergunta, idx })
     } else {
-      grupos.push({ bloco: chave, intro: pergunta.bloco_intro ?? null, items: [{ pergunta, idx }] })
+      grupos.push({ bloco: chave, intro: pergunta.bloco_intro ?? null, fixo: !!pergunta.bloco_fixo, items: [{ pergunta, idx }] })
     }
   })
 
@@ -341,8 +350,16 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
         <form onSubmit={handleSubmit} noValidate>
           <div className="space-y-8">
             {grupos.map((grupo, gi) => (
-              <div key={gi} className="bg-white rounded-xl border border-gray-200 p-6">
-                {grupo.bloco && (
+              <div key={gi} className={`bg-white rounded-xl border border-gray-200 ${grupo.fixo ? 'p-4 sm:p-6 -mx-2 sm:mx-0' : 'p-6'}`}>
+                {grupo.bloco && grupo.fixo && (
+                  <div className="sticky top-0 z-10 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 mb-2 px-4 sm:px-6 py-3 rounded-t-xl bg-white/95 backdrop-blur border-b border-gray-200 shadow-sm">
+                    <h2 className="text-[11px] font-semibold uppercase tracking-wide text-gray-700">{grupo.bloco}</h2>
+                    {grupo.intro && (
+                      <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-line leading-snug">{grupo.intro}</p>
+                    )}
+                  </div>
+                )}
+                {grupo.bloco && !grupo.fixo && (
                   <div className="mb-5 pb-4 border-b border-gray-100">
                     <h2 className="text-sm font-semibold text-gray-900">{grupo.bloco}</h2>
                     {grupo.intro && (
@@ -372,7 +389,37 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                 </div>
 
                 {/* Scale 1-5 */}
-                {pergunta.tipo === 'escala_5' && (
+                {pergunta.tipo === 'escala_5' && pergunta.escala_layout === 'linha' && (
+                  <div className="sm:ml-10">
+                    <div role="radiogroup" className="grid grid-cols-5 gap-1.5 sm:gap-2">
+                      {[1, 2, 3, 4, 5].map((val) => {
+                        const on = answers[pergunta.id] === val
+                        return (
+                          <label key={val} className="cursor-pointer">
+                            <input
+                              type="radio"
+                              name={pergunta.id}
+                              value={val}
+                              checked={on}
+                              onChange={() => handleScale(pergunta.id, val)}
+                              className="peer sr-only"
+                            />
+                            <div className={`flex flex-col items-center justify-start gap-1 h-full rounded-xl border px-0.5 sm:px-1 py-3 text-center transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-gray-900 peer-focus-visible:ring-offset-2 ${
+                              on ? 'border-gray-900 bg-gray-900 text-white'
+                                 : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
+                            }`}>
+                              <span className="text-lg font-semibold leading-none">{val}</span>
+                              <span className={`text-[9px] sm:text-xs leading-tight tracking-tight sm:tracking-normal ${on ? 'text-gray-200' : 'text-gray-500'}`}>
+                                {SCALE_LABELS[pergunta.escala ?? 'concordancia'][val]}
+                              </span>
+                            </div>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+                {pergunta.tipo === 'escala_5' && pergunta.escala_layout !== 'linha' && (
                   <div className="space-y-2 ml-10">
                     {[1, 2, 3, 4, 5].map((val) => (
                       <label
