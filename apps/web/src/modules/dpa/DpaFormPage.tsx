@@ -31,6 +31,10 @@ interface Pergunta {
   /** Instrução/legenda do bloco (ex.: "Avalie o quanto..."), mostrada uma
    * única vez no topo do bloco — não repetir em cada pergunta. */
   bloco_intro?:  string
+  /** Rótulos da escala_5: 'concordancia' (padrão) ou 'frequencia'. */
+  escala?:       'concordancia' | 'frequencia'
+  /** Só exibe a pergunta quando a resposta de outra pergunta for igual ao valor. */
+  exibir_se?:    { pergunta_id: string; igual: string }
 }
 
 // Sentinela interna para a seleção "Outro"; convertida em "Outro: <texto>" no envio.
@@ -55,12 +59,21 @@ interface TokenData {
 
 // ─── Scale labels ─────────────────────────────────────────────────────────────
 
-const SCALE_LABELS: Record<number, string> = {
-  1: 'Discordo totalmente',
-  2: 'Discordo',
-  3: 'Neutro',
-  4: 'Concordo',
-  5: 'Concordo totalmente',
+const SCALE_LABELS: Record<'concordancia' | 'frequencia', Record<number, string>> = {
+  concordancia: {
+    1: 'Discordo totalmente',
+    2: 'Discordo',
+    3: 'Neutro',
+    4: 'Concordo',
+    5: 'Concordo totalmente',
+  },
+  frequencia: {
+    1: 'Nunca',
+    2: 'Raramente',
+    3: 'Às vezes',
+    4: 'Frequentemente',
+    5: 'Sempre',
+  },
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -167,11 +180,18 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
     return Array.isArray(a) ? a.includes(OUTRO) : a === OUTRO
   }
 
+  // Pergunta condicional: só aparece quando a resposta da pergunta-gatilho bate.
+  function isVisible(p: Pergunta): boolean {
+    if (!p.exibir_se) return true
+    return answers[p.exibir_se.pergunta_id] === p.exibir_se.igual
+  }
+
   /** Retorna o mapa de erros (vazio = tudo ok). */
   function validate(): Record<string, string> {
     if (!tokenData?.config) return { __form__: 'Formulário indisponível.' }
     const errs: Record<string, string> = {}
     for (const p of tokenData.config.perguntas) {
+      if (!isVisible(p)) continue
       const ans   = answers[p.id]
       const empty = ans === undefined || ans === null || ans === ''
         || (Array.isArray(ans) && ans.length === 0)
@@ -196,6 +216,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
     const cfg = tokenData?.config
     if (!cfg) return out
     for (const p of cfg.perguntas) {
+      if (!isVisible(p)) continue
       const a = answers[p.id]
       if (a === undefined) continue
       const outroLabel = `Outro: ${(outroTexts[p.id] || '').trim()}`
@@ -300,7 +321,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
         <div className="max-w-2xl mx-auto">
           <h1 className="text-xl font-semibold text-gray-900">{projeto_nome}</h1>
           {projeto_descricao && (
-            <p className="text-sm text-gray-500 mt-1">{projeto_descricao}</p>
+            <p className="text-sm text-gray-500 mt-1 whitespace-pre-line">{projeto_descricao}</p>
           )}
         </div>
       </div>
@@ -330,7 +351,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                   </div>
                 )}
                 <div className="divide-y divide-gray-100">
-                  {grupo.items.map(({ pergunta, idx }) => (
+                  {grupo.items.filter(({ pergunta }) => isVisible(pergunta)).map(({ pergunta, idx }) => (
                     <div
                       key={pergunta.id}
                       data-error={errors[pergunta.id] ? 'true' : undefined}
@@ -383,7 +404,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                           answers[pergunta.id] === val ? 'font-medium text-gray-900' : 'text-gray-700'
                         }`}>
                           <span className="font-semibold mr-2">{val}</span>
-                          {SCALE_LABELS[val]}
+                          {SCALE_LABELS[pergunta.escala ?? 'concordancia'][val]}
                         </span>
                       </label>
                     ))}
