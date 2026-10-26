@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { htmlToText } from '@/lib/richText'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -132,7 +133,7 @@ export function DpaProjectsPage() {
                       </span>
                     </div>
                     {p.descricao && (
-                      <p className="text-xs text-gray-500 truncate">{p.descricao}</p>
+                      <p className="text-xs text-gray-500 truncate">{htmlToText(p.descricao)}</p>
                     )}
                   </div>
 

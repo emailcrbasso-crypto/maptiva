@@ -13,6 +13,7 @@
 import { useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { RichTextEditor } from '@/components/RichText'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -320,12 +321,10 @@ export function DpaNewProjectPage() {
               <label className="block text-xs font-medium text-gray-700 mb-1.5">
                 Descrição / instruções para o participante
               </label>
-              <textarea
-                rows={3}
+              <RichTextEditor
                 value={descricao}
-                onChange={(e) => setDescricao(e.target.value)}
+                onChange={setDescricao}
                 placeholder="Opcional — aparece no cabeçalho do formulário"
-                className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent resize-none"
               />
             </div>
 

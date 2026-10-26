@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { RichText, RichTextEditor } from '@/components/RichText'
 import { useTenant } from '@/modules/auth/TenantContext'
 import { exportDpaPdf } from '@/lib/exportDpaPdf'
 import * as XLSX from 'xlsx'
@@ -441,12 +442,10 @@ export function DpaDashboardPage() {
                   className="w-full text-lg font-semibold text-gray-900 border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-900"
                   autoFocus
                 />
-                <textarea
-                  rows={2}
+                <RichTextEditor
                   value={descDraft}
-                  onChange={(e) => setDescDraft(e.target.value)}
+                  onChange={setDescDraft}
                   placeholder="Descrição / instruções para o participante"
-                  className="w-full text-sm text-gray-600 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900 resize-none"
                 />
                 <div className="flex items-center gap-2">
                   <button
@@ -481,7 +480,7 @@ export function DpaDashboardPage() {
                   </button>
                 </div>
                 {project.descricao && (
-                  <p className="text-sm text-gray-500 mt-0.5">{project.descricao}</p>
+                  <RichText value={project.descricao} className="text-sm text-gray-500 mt-0.5" />
                 )}
               </>
             )}

@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { applyBrowserIdentity } from '@/lib/browserIdentity'
+import { RichText } from '@/components/RichText'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -346,7 +347,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
         <div className="max-w-2xl mx-auto">
           <h1 className="text-xl font-semibold text-gray-900">{projeto_nome}</h1>
           {projeto_descricao && (
-            <p className="text-sm text-gray-500 mt-3 whitespace-pre-line">{projeto_descricao}</p>
+            <RichText value={projeto_descricao} className="text-sm text-gray-500 mt-3" />
           )}
         </div>
       </div>
