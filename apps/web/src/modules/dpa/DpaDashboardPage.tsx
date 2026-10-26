@@ -116,6 +116,7 @@ export function DpaDashboardPage() {
   const [copied,       setCopied]       = useState<string | null>(null)
   const [sendingEmail,   setSendingEmail]   = useState<string | null>(null)  // participant id being sent
   const [sendingBulk,    setSendingBulk]    = useState(false)
+  const [loteTamanho,    setLoteTamanho]    = useState(30)
   const [emailFeedback,  setEmailFeedback]  = useState<string | null>(null)
 
   // ── New participant form ──────────────────────────────────────────────────
@@ -276,8 +277,13 @@ export function DpaDashboardPage() {
     setTimeout(() => setEmailFeedback(null), 4000)
   }
 
+  // Envio em lote só para quem AINDA NÃO recebeu e-mail (evita mandar o convite
+  // de novo a quem já foi avisado), limitado ao tamanho de lote escolhido.
+  // Reenvio para um participante específico continua pelo botão "Enviar e-mail".
   async function sendEmailBulk() {
-    const pending = participantes.filter((p) => p.status === 'pendente')
+    const pending = participantes
+      .filter((p) => p.status === 'pendente' && !p.email_enviado_em)
+      .slice(0, Math.max(1, loteTamanho))
     if (pending.length === 0) return
     setSendingBulk(true)
     setEmailFeedback(null)
@@ -813,7 +819,20 @@ export function DpaDashboardPage() {
               {participantes.filter((p) => p.status === 'respondido').length} responderam de {participantes.length}
             </p>
             <div className="flex items-center gap-2">
-              {project.status === 'ativo' && !project.shared_link_token && participantes.some((p) => p.status === 'pendente') && (
+              {project.status === 'ativo' && !project.shared_link_token && participantes.some((p) => p.status === 'pendente' && !p.email_enviado_em) && (
+                <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                  Lote
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={loteTamanho}
+                    onChange={(e) => setLoteTamanho(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
+                    className="w-14 border border-gray-300 rounded-md px-1.5 py-1 text-xs text-gray-700"
+                  />
+                </label>
+              )}
+              {project.status === 'ativo' && !project.shared_link_token && participantes.some((p) => p.status === 'pendente' && !p.email_enviado_em) && (
                 <button
                   onClick={sendEmailBulk}
                   disabled={sendingBulk}
@@ -828,7 +847,7 @@ export function DpaDashboardPage() {
                       Enviando...
                     </>
                   ) : (
-                    <>✉ Enviar para pendentes ({participantes.filter((p) => p.status === 'pendente').length})</>
+                    <>✉ Enviar próximo lote ({Math.min(loteTamanho, participantes.filter((p) => p.status === 'pendente' && !p.email_enviado_em).length)} de {participantes.filter((p) => p.status === 'pendente' && !p.email_enviado_em).length} sem e-mail)</>
                   )}
                 </button>
               )}
