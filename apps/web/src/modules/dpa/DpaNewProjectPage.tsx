@@ -25,6 +25,9 @@ interface Pergunta {
   multi:        boolean  // permite selecionar mais de uma opção
   maxEscolhas:  string   // limite de seleções quando multi (vazio = sem limite)
   permiteOutro: boolean  // exibe opção "Outro" com campo de detalhe
+  /** Chaves que o construtor não edita (bloco, bloco_intro, estilo, escala,
+   * exibir_se...) — preservadas ao duplicar um projeto. */
+  extra:        Record<string, unknown>
 }
 
 interface Participante {
@@ -45,6 +48,7 @@ function newPergunta(): Pergunta {
     multi:        false,
     maxEscolhas:  '',
     permiteOutro: false,
+    extra:        {},
   }
 }
 
@@ -58,11 +62,17 @@ interface SeedConfigPergunta {
   multi?:         boolean
   max_escolhas?:  number
   permite_outro?: boolean
+  [key: string]:  unknown
 }
 interface SeedConfig {
   label_unidade?: string
   perguntas?:     SeedConfigPergunta[]
+  email?:         unknown
 }
+
+const KNOWN_PERGUNTA_KEYS = new Set([
+  'id', 'texto', 'tipo', 'obrigatoria', 'opcoes', 'multi', 'max_escolhas', 'permite_outro',
+])
 interface SeedState {
   nome?:      string
   descricao?: string | null
@@ -80,6 +90,7 @@ function perguntaFromSeed(p: SeedConfigPergunta): Pergunta {
     multi:        !!p.multi,
     maxEscolhas:  p.max_escolhas ? String(p.max_escolhas) : '',
     permiteOutro: !!p.permite_outro,
+    extra:        Object.fromEntries(Object.entries(p).filter(([k]) => !KNOWN_PERGUNTA_KEYS.has(k))),
   }
 }
 
@@ -214,7 +225,9 @@ export function DpaNewProjectPage() {
       // Build config
       const config = {
         label_unidade: labelUnidade,
+        ...(seed?.config?.email ? { email: seed.config.email } : {}),
         perguntas: perguntas.map((p) => ({
+          ...p.extra,
           id:          p.id,
           texto:       p.texto,
           tipo:        p.tipo,
