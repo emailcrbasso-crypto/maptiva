@@ -92,6 +92,8 @@ const DEFAULT_BRANDING: TenantEmailBranding = {
 export interface DpaEmailConfig {
   subject?:       string
   body_template?: string
+  /** true = não exibe a faixa colorida com logo/nome no topo do e-mail. */
+  sem_cabecalho?: boolean
 }
 
 function renderCustomBody(template: string, link: string, participantName: string | null): string {
@@ -214,7 +216,7 @@ function buildEmail(params: {
 </head>
 <body>
   <div class="card">
-    <div class="header">${headerContent}</div>
+    ${emailConfig?.sem_cabecalho ? '' : `<div class="header">${headerContent}</div>`}
     <div class="body">
       ${bodyContent}
     </div>
