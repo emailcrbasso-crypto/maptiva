@@ -49,6 +49,8 @@ const OUTRO = '__outro__'
 interface DpaConfig {
   label_unidade: string
   perguntas:     Pergunta[]
+  /** Texto da tela de "obrigado" após o envio (padrão do sistema se ausente). */
+  mensagem_encerramento?: string
 }
 
 interface TokenData {
@@ -280,7 +282,10 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
       if (error) throw error
       if (!(data as { sucesso: boolean }).sucesso) throw new Error('Falha ao enviar')
 
-      navigate('/diagnostico/obrigado', { replace: true })
+      navigate('/diagnostico/obrigado', {
+        replace: true,
+        state:   { mensagem: tokenData?.config?.mensagem_encerramento },
+      })
     } catch (err) {
       console.error(err)
       setFormError(friendlyError((err as Error).message ?? ''))

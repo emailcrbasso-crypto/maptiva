@@ -6,9 +6,14 @@
  *   /dpa/acesso-negado  — invalid / expired token
  */
 
+import { useLocation } from 'react-router-dom'
+
 // ─── Obrigado ─────────────────────────────────────────────────────────────────
 
 export function DpaObrigadoPage() {
+  // Mensagem própria do projeto (config.mensagem_encerramento), repassada pelo
+  // formulário. Sem ela (ou após recarregar a página), vale o texto padrão.
+  const mensagem = (useLocation().state as { mensagem?: string } | null)?.mensagem?.trim()
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-6">
       <div className="max-w-md w-full bg-white rounded-2xl border border-gray-200 p-10 text-center">
@@ -16,9 +21,8 @@ export function DpaObrigadoPage() {
         <h1 className="text-xl font-semibold text-gray-900 mb-2">
           Diagnóstico enviado!
         </h1>
-        <p className="text-sm text-gray-500 leading-relaxed">
-          Suas respostas foram registradas com sucesso. Obrigado pela sua participação —
-          suas percepções são valiosas para a organização.
+        <p className="text-sm text-gray-500 leading-relaxed whitespace-pre-line">
+          {mensagem ?? 'Suas respostas foram registradas com sucesso. Obrigado pela sua participação — suas percepções são valiosas para a organização.'}
         </p>
         <p className="mt-6 text-xs text-gray-400">
           Você pode fechar esta janela.
