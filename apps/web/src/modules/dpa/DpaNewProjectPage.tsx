@@ -69,6 +69,7 @@ interface SeedConfig {
   perguntas?:     SeedConfigPergunta[]
   email?:         unknown
   mensagem_encerramento?: string
+  sem_numeracao?: boolean
 }
 
 const KNOWN_PERGUNTA_KEYS = new Set([
@@ -228,6 +229,7 @@ export function DpaNewProjectPage() {
         label_unidade: labelUnidade,
         ...(seed?.config?.email ? { email: seed.config.email } : {}),
         ...(seed?.config?.mensagem_encerramento ? { mensagem_encerramento: seed.config.mensagem_encerramento } : {}),
+        ...(seed?.config?.sem_numeracao ? { sem_numeracao: true } : {}),
         perguntas: perguntas.map((p) => ({
           ...p.extra,
           id:          p.id,

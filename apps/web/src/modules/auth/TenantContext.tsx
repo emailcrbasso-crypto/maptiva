@@ -12,6 +12,7 @@
  *   branding.hideMaptiva → whether to hide "Powered by Maptiva"
  */
 
+import { applyBrowserIdentity } from '@/lib/browserIdentity'
 import {
   createContext,
   useContext,
@@ -129,19 +130,11 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     document.documentElement.style.setProperty('--color-brand-primary',   branding.primaryColor)
     document.documentElement.style.setProperty('--color-brand-secondary', branding.secondaryColor)
 
-    // Page title
-    document.title = branding.name
+    // Páginas públicas do diagnóstico definem a própria identidade (a do tenant
+    // dono do projeto) — não a de quem estiver logado naquele navegador.
+    if (window.location.pathname.startsWith('/diagnostico')) return
 
-    // Favicon
-    if (branding.faviconUrl) {
-      let link = document.querySelector<HTMLLinkElement>('link[rel~="icon"]')
-      if (!link) {
-        link = document.createElement('link')
-        link.rel = 'icon'
-        document.head.appendChild(link)
-      }
-      link.href = branding.faviconUrl
-    }
+    applyBrowserIdentity(branding.name, branding.faviconUrl)
   }, [branding, loading])
 
   return (

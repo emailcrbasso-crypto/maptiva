@@ -10,6 +10,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { applyBrowserIdentity } from '@/lib/browserIdentity'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,6 +52,9 @@ interface DpaConfig {
   perguntas:     Pergunta[]
   /** Texto da tela de "obrigado" após o envio (padrão do sistema se ausente). */
   mensagem_encerramento?: string
+  /** true = não exibe o número das perguntas (útil com perguntas condicionais,
+   * que fariam a numeração "pular" para quem não as vê). */
+  sem_numeracao?: boolean
 }
 
 interface TokenData {
@@ -127,6 +131,13 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
 
       setTokenData(result)
       setLoading(false)
+
+      // Título e ícone da aba: do tenant dono do projeto (best-effort).
+      const { data: marca } = await supabase.rpc('get_dpa_branding', { p_token: token })
+      if (marca) {
+        const m = marca as { name?: string; favicon_url?: string | null }
+        applyBrowserIdentity(m.name ?? null, m.favicon_url ?? null)
+      }
     }
     validate()
   }, [token, navigate, shared])
@@ -380,9 +391,11 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                       className={`${grupo.bloco ? 'py-5 first:pt-0 last:pb-0' : ''} ${errors[pergunta.id] ? '-mx-2 px-2 rounded-lg ring-1 ring-red-300 bg-red-50/40' : ''}`}
                     >
                 <div className="flex items-start gap-3 mb-5">
-                  <span className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-100 text-gray-500 text-xs font-semibold flex items-center justify-center mt-0.5">
-                    {idx + 1}
-                  </span>
+                  {!config.sem_numeracao && (
+                    <span className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-100 text-gray-500 text-xs font-semibold flex items-center justify-center mt-0.5">
+                      {idx + 1}
+                    </span>
+                  )}
                   <div>
                     <p className="text-sm font-medium text-gray-900 leading-relaxed whitespace-pre-line">
                       {pergunta.texto}
@@ -395,7 +408,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
 
                 {/* Scale 1-5 */}
                 {pergunta.tipo === 'escala_5' && pergunta.escala_layout === 'linha' && (
-                  <div className="sm:ml-10">
+                  <div className={config.sem_numeracao ? '' : 'sm:ml-10'}>
                     <div role="radiogroup" className="grid grid-cols-5 gap-1.5 sm:gap-2">
                       {[1, 2, 3, 4, 5].map((val) => {
                         const on = answers[pergunta.id] === val
@@ -425,7 +438,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                   </div>
                 )}
                 {pergunta.tipo === 'escala_5' && pergunta.escala_layout !== 'linha' && (
-                  <div className="space-y-2 ml-10">
+                  <div className={`space-y-2 ${config.sem_numeracao ? '' : 'ml-10'}`}>
                     {[1, 2, 3, 4, 5].map((val) => (
                       <label
                         key={val}
@@ -465,7 +478,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
 
                 {/* Free text */}
                 {pergunta.tipo === 'texto_livre' && (
-                  <div className="ml-10">
+                  <div className={config.sem_numeracao ? '' : 'ml-10'}>
                     <textarea
                       rows={4}
                       value={(answers[pergunta.id] as string) || ''}
@@ -478,7 +491,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
 
                 {/* Multiple choice — estilo dropdown (seleção única) */}
                 {pergunta.tipo === 'multipla_escolha' && pergunta.opcoes && pergunta.estilo === 'dropdown' && !pergunta.multi && (
-                  <div className="ml-10">
+                  <div className={config.sem_numeracao ? '' : 'ml-10'}>
                     <select
                       value={(answers[pergunta.id] as string) || ''}
                       onChange={(e) => handleSingleChoice(pergunta.id, e.target.value)}
@@ -541,7 +554,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                   }
 
                   return (
-                    <div className="space-y-2 ml-10">
+                    <div className={`space-y-2 ${config.sem_numeracao ? '' : 'ml-10'}`}>
                       {isMulti && pergunta.max_escolhas && (
                         <p className="text-xs text-gray-400">
                           Escolha até {pergunta.max_escolhas} {pergunta.max_escolhas > 1 ? 'opções' : 'opção'}
@@ -572,7 +585,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
 
                 {/* Error */}
                 {errors[pergunta.id] && (
-                  <p className="mt-3 ml-10 text-sm font-medium text-red-600 flex items-center gap-1.5">
+                  <p className={`mt-3 ${config.sem_numeracao ? '' : 'ml-10'} text-sm font-medium text-red-600 flex items-center gap-1.5`}>
                     <span aria-hidden>⚠</span> {errors[pergunta.id]}
                   </p>
                 )}
