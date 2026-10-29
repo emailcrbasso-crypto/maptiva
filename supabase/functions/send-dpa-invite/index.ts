@@ -261,14 +261,20 @@ serve(async (req: Request) => {
   }
 
   // ── 2. Parse body ─────────────────────────────────────────────────────────────
-  let body: { participant_id?: string; participant_ids?: string[]; base_url?: string }
+  let body: {
+    participant_id?: string
+    participant_ids?: string[]
+    base_url?: string
+    /** Assunto/corpo avulsos (lembretes, modelos) — valem só para esta chamada. */
+    email_override?: { subject?: string; body_template?: string }
+  }
   try {
     body = await req.json()
   } catch {
     return json({ ok: false, error: 'Invalid JSON body' })
   }
 
-  const { participant_id, participant_ids, base_url } = body
+  const { participant_id, participant_ids, base_url, email_override } = body
 
   if (!base_url) {
     return json({ ok: false, error: 'Missing required field: base_url' })
@@ -408,7 +414,11 @@ serve(async (req: Request) => {
       link,
       branding,
       defaultFrom:     EMAIL_FROM,
-      emailConfig:     projetoData.config?.email,
+      emailConfig:     {
+        ...projetoData.config?.email,
+        ...(email_override?.subject?.trim()       ? { subject: email_override.subject.trim() } : {}),
+        ...(email_override?.body_template?.trim() ? { body_template: email_override.body_template } : {}),
+      },
     })
 
     // Envia com retry (backoff) em caso de 429 (rate limit) do Resend —

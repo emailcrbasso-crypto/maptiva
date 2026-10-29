@@ -15,6 +15,7 @@ import { useParams, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { RichText, RichTextEditor } from '@/components/RichText'
 import { useTenant } from '@/modules/auth/TenantContext'
+import { DpaEmailComposer } from './DpaEmailComposer'
 import { exportDpaPdf } from '@/lib/exportDpaPdf'
 import * as XLSX from 'xlsx'
 
@@ -41,7 +42,7 @@ interface DpaProject {
   nome:      string
   descricao: string | null
   status:    'rascunho' | 'ativo' | 'encerrado'
-  config:    DpaConfig
+  config:    DpaConfig & Record<string, unknown>
   shared_link_token: string | null
 }
 
@@ -119,6 +120,7 @@ export function DpaDashboardPage() {
   const [sendingBulk,    setSendingBulk]    = useState(false)
   const [loteTamanho,    setLoteTamanho]    = useState(30)
   const [emailFeedback,  setEmailFeedback]  = useState<string | null>(null)
+  const [showComposer,  setShowComposer]  = useState(false)
 
   // ── New participant form ──────────────────────────────────────────────────
   const [editingTitle,  setEditingTitle]  = useState(false)
@@ -850,6 +852,14 @@ export function DpaDashboardPage() {
                   )}
                 </button>
               )}
+              {project.status === 'ativo' && !project.shared_link_token && participantes.some((p) => p.status === 'pendente') && (
+                <button
+                  onClick={() => setShowComposer(true)}
+                  className="text-xs border border-blue-600 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors"
+                >
+                  ✉ Lembrete / novo e-mail
+                </button>
+              )}
               <button
                 onClick={() => setShowAddForm((v) => !v)}
                 className="text-xs border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
@@ -858,6 +868,17 @@ export function DpaDashboardPage() {
               </button>
             </div>
           </div>
+
+          {showComposer && (
+            <DpaEmailComposer
+              projectId={project.id}
+              config={project.config}
+              pendentes={participantes.filter((p) => p.status === 'pendente')}
+              onClose={() => setShowComposer(false)}
+              onConfigSaved={(config) => setProject((prev) => prev ? { ...prev, config: config as DpaProject['config'] } : prev)}
+              onSent={() => { void load() }}
+            />
+          )}
 
           {/* Email feedback toast */}
           {emailFeedback && (
