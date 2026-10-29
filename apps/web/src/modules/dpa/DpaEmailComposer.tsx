@@ -137,8 +137,12 @@ export function DpaEmailComposer({ projectId, config, pendentes, onClose, onConf
       headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
     })
     setTestando(false)
-    const data = res.data as { ok: boolean; sent?: number; error?: string } | null
-    setFeedback(res.error || !data?.ok || !data.sent
+    const data = res.data as { ok: boolean; sent?: number; test?: boolean; error?: string } | null
+    // data.test só vem na versão nova da função; sem ele o e-mail pode ter ido
+    // ao participante de verdade, então não anunciamos sucesso.
+    setFeedback(data?.ok && data.sent && data.test !== true
+      ? 'Erro: a função send-dpa-invite no Supabase está desatualizada — o e-mail pode ter sido enviado ao participante de exemplo. Publique a função de novo.'
+      : res.error || !data?.ok || !data.sent
       ? `Erro no teste: ${data?.error ?? res.error?.message ?? 'não enviado'}`
       : `✓ Teste enviado para ${testeEmail.trim()}. Não responda por esse link, ele é de ${exemplo.nome?.trim() || exemplo.email}.`)
   }

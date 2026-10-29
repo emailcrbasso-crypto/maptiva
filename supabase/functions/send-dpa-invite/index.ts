@@ -457,5 +457,5 @@ serve(async (req: Request) => {
     await sleep(150)
   }
 
-  return json({ ok: true, sent, skipped })
+  return json({ ok: true, sent, skipped, test: Boolean(testTo) })
 })
