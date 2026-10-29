@@ -267,6 +267,8 @@ serve(async (req: Request) => {
     base_url?: string
     /** Assunto/corpo avulsos (lembretes, modelos) — valem só para esta chamada. */
     email_override?: { subject?: string; body_template?: string }
+    /** Envio de teste: manda o e-mail do participante para este endereço, sem marcar como enviado. */
+    test_to?: string
   }
   try {
     body = await req.json()
@@ -274,7 +276,11 @@ serve(async (req: Request) => {
     return json({ ok: false, error: 'Invalid JSON body' })
   }
 
-  const { participant_id, participant_ids, base_url, email_override } = body
+  const { participant_id, participant_ids, base_url, email_override, test_to } = body
+  const testTo = test_to?.trim()
+  if (testTo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testTo)) {
+    return json({ ok: false, error: 'Invalid test_to address' })
+  }
 
   if (!base_url) {
     return json({ ok: false, error: 'Missing required field: base_url' })
@@ -428,7 +434,7 @@ serve(async (req: Request) => {
       emailRes = await fetch('https://api.resend.com/emails', {
         method:  'POST',
         headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ from, to: [part.email], subject, html }),
+        body:    JSON.stringify({ from, to: [testTo || part.email], subject: testTo ? `[TESTE] ${subject}` : subject, html }),
       })
       if (emailRes.ok || emailRes.status !== 429) break
       await sleep(500 * (attempt + 1)) // 500ms, 1000ms
@@ -436,8 +442,8 @@ serve(async (req: Request) => {
 
     if (emailRes?.ok) {
       sent++
-      // Update email_enviado_em timestamp
-      await adminClient
+      // Update email_enviado_em timestamp (teste não conta como envio)
+      if (!testTo) await adminClient
         .from('dpa_participantes')
         .update({ email_enviado_em: new Date().toISOString() })
         .eq('id', part.id)

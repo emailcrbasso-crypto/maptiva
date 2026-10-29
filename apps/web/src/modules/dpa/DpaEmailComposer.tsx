@@ -84,6 +84,8 @@ export function DpaEmailComposer({ projectId, config, pendentes, onClose, onConf
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [confirm,  setConfirm]  = useState(false)
+  const [testeEmail, setTesteEmail] = useState('')
+  const [testando,   setTestando]   = useState(false)
 
   const semLink = !body.includes('{{LINK}}')
   const exemplo = pendentes[0]
@@ -116,6 +118,29 @@ export function DpaEmailComposer({ projectId, config, pendentes, onClose, onConf
     if (error) { setFeedback(`Erro: ${error.message}`); return }
     onConfigSaved(nova)
     escolher(PRESETS[1].id)
+  }
+
+  // Teste: usa o link de um pendente só como exemplo, mas entrega no e-mail
+  // informado e não marca ninguém como enviado. Não responda por esse link.
+  async function enviarTeste() {
+    if (!exemplo || !testeEmail.includes('@') || semLink) return
+    setTestando(true)
+    setFeedback(null)
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await supabase.functions.invoke('send-dpa-invite', {
+      body: {
+        participant_ids: [exemplo.id],
+        base_url: window.location.origin,
+        email_override: { subject, body_template: body },
+        test_to: testeEmail.trim(),
+      },
+      headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+    })
+    setTestando(false)
+    const data = res.data as { ok: boolean; sent?: number; error?: string } | null
+    setFeedback(res.error || !data?.ok || !data.sent
+      ? `Erro no teste: ${data?.error ?? res.error?.message ?? 'não enviado'}`
+      : `✓ Teste enviado para ${testeEmail.trim()}. Não responda por esse link, ele é de ${exemplo.nome?.trim() || exemplo.email}.`)
   }
 
   async function enviar() {
@@ -221,6 +246,23 @@ export function DpaEmailComposer({ projectId, config, pendentes, onClose, onConf
             )}
 
             <div className="flex gap-2 pt-1">
+              <input
+                type="email"
+                value={testeEmail}
+                onChange={(e) => setTesteEmail(e.target.value)}
+                placeholder="Seu e-mail para receber um teste"
+                className="flex-1 text-xs border border-gray-300 rounded-lg px-3 py-1.5"
+              />
+              <button
+                onClick={enviarTeste}
+                disabled={sending || testando || semLink || !testeEmail.includes('@') || !exemplo}
+                className="text-xs border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                {testando ? 'Enviando…' : 'Enviar teste'}
+              </button>
+            </div>
+
+            <div className="flex gap-2">
               <input
                 value={nomeNovo}
                 onChange={(e) => setNomeNovo(e.target.value)}
