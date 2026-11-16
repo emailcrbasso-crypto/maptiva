@@ -109,7 +109,10 @@ export function DpaDashboardPage() {
 
   const [project,      setProject]      = useState<DpaProject | null>(null)
   const [dashboard,    setDashboard]    = useState<DashboardData | null>(null)
-  const [anterior,     setAnterior]     = useState<{ rotulo: string; respondentes: Resposta[] } | null>(null)
+  const [anteriorCarregado, setAnterior] = useState<{ rotulo: string; respondentes: Resposta[] } | null>(null)
+  const [mostrarComparativo, setMostrarComparativo] = useState(true)
+  // Comparativo efetivo: só existe se há edição anterior ligada e a chave está ligada.
+  const anterior = mostrarComparativo ? anteriorCarregado : null
   const [participantes, setParticipantes] = useState<Participante[]>([])
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState<string | null>(null)
@@ -705,6 +708,18 @@ export function DpaDashboardPage() {
               )}
 
               {/* Pesquisa de clima: favorabilidade por bloco (opt-in por projeto) */}
+              {project.config.favorabilidade === true && anteriorCarregado && (
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={mostrarComparativo}
+                    onChange={(e) => setMostrarComparativo(e.target.checked)}
+                    className="rounded border-gray-300"
+                  />
+                  Comparar com {anteriorCarregado.rotulo}
+                  <span className="text-xs text-gray-400">(vale também para o PDF)</span>
+                </label>
+              )}
               {project.config.favorabilidade === true && (
                 <FavorabilityPanel
                   perguntas={config.perguntas}
