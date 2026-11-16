@@ -459,7 +459,7 @@ export function DpaDashboardPage() {
         <Link to="/dpa" className="text-sm text-gray-400 hover:text-gray-600">
           ← Diagnósticos
         </Link>
-        <div className="flex items-start justify-between mt-2 gap-4">
+        <div className="flex flex-col mt-2 gap-4">
           <div className="flex-1 min-w-0">
             {editingTitle ? (
               <div className="space-y-2 max-w-xl">
@@ -515,7 +515,7 @@ export function DpaDashboardPage() {
             )}
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Status actions */}
             {project.status === 'rascunho' && (
               <button
