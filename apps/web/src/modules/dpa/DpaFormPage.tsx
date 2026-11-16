@@ -56,6 +56,16 @@ interface DpaConfig {
   /** true = não exibe o número das perguntas (útil com perguntas condicionais,
    * que fariam a numeração "pular" para quem não as vê). */
   sem_numeracao?: boolean
+  /** true = uma página por bloco, com barra de progresso, botões Voltar/Próximo,
+   * escala em linha por padrão e rascunho salvo no navegador. Ausente = formulário
+   * corrido de sempre. */
+  modo_paginado?: boolean
+}
+
+interface Draft {
+  answers:    Record<string, string | number | string[]>
+  outroTexts: Record<string, string>
+  pagina:     number
 }
 
 interface TokenData {
@@ -105,6 +115,19 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
   const [submitting, setSubmitting] = useState(false)
   const [errors,     setErrors]     = useState<Record<string, string>>({})
   const [formError,  setFormError]  = useState<string | null>(null)
+  const [pagina,     setPagina]     = useState(0)
+
+  const paged    = tokenData?.config?.modo_paginado === true
+  const draftKey = token ? `dpa-rascunho:${token}` : null
+
+  // Rascunho (só no modo paginado): guarda as respostas neste aparelho para quem
+  // fechar o navegador não perder o que já respondeu. Nunca sai do navegador.
+  useEffect(() => {
+    if (!paged || !draftKey || loading) return
+    try {
+      localStorage.setItem(draftKey, JSON.stringify({ answers, outroTexts, pagina } satisfies Draft))
+    } catch { /* armazenamento indisponível: segue sem rascunho */ }
+  }, [paged, draftKey, loading, answers, outroTexts, pagina])
 
   useEffect(() => {
     if (!token) return
@@ -128,6 +151,18 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
           navigate('/diagnostico/acesso-negado', { replace: true })
         }
         return
+      }
+
+      if (result.config?.modo_paginado === true) {
+        try {
+          const raw = localStorage.getItem(`dpa-rascunho:${token}`)
+          if (raw) {
+            const d = JSON.parse(raw) as Partial<Draft>
+            if (d.answers && typeof d.answers === 'object') setAnswers(d.answers)
+            if (d.outroTexts && typeof d.outroTexts === 'object') setOutroTexts(d.outroTexts)
+            if (typeof d.pagina === 'number' && d.pagina >= 0) setPagina(d.pagina)
+          }
+        } catch { /* rascunho ilegível: começa do zero */ }
       }
 
       setTokenData(result)
@@ -209,11 +244,11 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
     return answers[p.exibir_se.pergunta_id] === p.exibir_se.igual
   }
 
-  /** Retorna o mapa de erros (vazio = tudo ok). */
-  function validate(): Record<string, string> {
+  /** Retorna o mapa de erros (vazio = tudo ok). Sem `subset`, valida todas as perguntas. */
+  function validate(subset?: Pergunta[]): Record<string, string> {
     if (!tokenData?.config) return { __form__: 'Formulário indisponível.' }
     const errs: Record<string, string> = {}
-    for (const p of tokenData.config.perguntas) {
+    for (const p of subset ?? tokenData.config.perguntas) {
       if (!isVisible(p)) continue
       const ans   = answers[p.id]
       const empty = ans === undefined || ans === null || ans === ''
@@ -271,11 +306,36 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
     }, 50)
   }
 
+  function irParaPagina(destino: number) {
+    setPagina(destino)
+    setFormError(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+
+    // Modo paginado: "Próximo" valida só a página atual e avança.
+    if (paged && pagina < paginas.length - 1) {
+      const errs = validate(paginas[pagina].items.map((i) => i.pergunta))
+      const n = Object.keys(errs).length
+      if (n > 0) {
+        setFormError(n === 1 ? 'Falta 1 pergunta obrigatória nesta página.' : `Faltam ${n} perguntas obrigatórias nesta página.`)
+        scrollToFirstError()
+        return
+      }
+      irParaPagina(pagina + 1)
+      return
+    }
+
     const errs = validate()
     const n = Object.keys(errs).length
     if (n > 0) {
+      if (paged) {
+        // Leva a pessoa à primeira página com pergunta pendente.
+        const alvo = paginas.findIndex((g) => g.items.some((i) => errs[i.pergunta.id]))
+        if (alvo >= 0 && alvo !== pagina) setPagina(alvo)
+      }
       setFormError(
         `${n === 1 ? 'Falta 1 pergunta obrigatória' : `Faltam ${n} perguntas obrigatórias`} para você poder enviar. Role a página e preencha os campos marcados em vermelho.`,
       )
@@ -293,6 +353,10 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
 
       if (error) throw error
       if (!(data as { sucesso: boolean }).sucesso) throw new Error('Falha ao enviar')
+
+      if (draftKey) {
+        try { localStorage.removeItem(draftKey) } catch { /* sem armazenamento */ }
+      }
 
       navigate('/diagnostico/obrigado', {
         replace: true,
@@ -340,6 +404,14 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
     }
   })
 
+  // Modo paginado: cada bloco (ou pergunta avulsa) é uma página; páginas sem
+  // nenhuma pergunta visível (condicionais) são puladas.
+  const paginas = grupos.filter((g) => g.items.some(({ pergunta }) => isVisible(pergunta)))
+  const paginaAtual = Math.min(pagina, Math.max(paginas.length - 1, 0))
+  const ultimaPagina = !paged || paginaAtual >= paginas.length - 1
+  const gruposRender = paged ? paginas.slice(paginaAtual, paginaAtual + 1) : grupos
+  const progresso = paginas.length > 0 ? Math.round(((paginaAtual + 1) / paginas.length) * 100) : 0
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -353,7 +425,22 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
       </div>
 
       <div className="max-w-2xl mx-auto px-6 py-8">
+        {/* Progresso (modo paginado) */}
+        {paged && paginas.length > 1 && (
+          <div className="mb-6" role="progressbar" aria-valuemin={1} aria-valuemax={paginas.length} aria-valuenow={paginaAtual + 1}
+            aria-label="Progresso do formulário">
+            <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
+              <span>Etapa {paginaAtual + 1} de {paginas.length}</span>
+              <span>{progresso}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden">
+              <div className="h-full bg-gray-900 transition-all" style={{ width: `${progresso}%` }} />
+            </div>
+          </div>
+        )}
+
         {/* Privacy notice */}
+        {(!paged || paginaAtual === 0) && (
         <div className="bg-amber-50 border border-amber-100 rounded-xl px-5 py-4 mb-8 flex items-start gap-3">
           <svg className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
@@ -362,11 +449,12 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
             Suas respostas são <strong>anônimas</strong>. Elas serão analisadas em conjunto com as demais respostas do diagnóstico.
           </p>
         </div>
+        )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} noValidate>
           <div className="space-y-8">
-            {grupos.map((grupo, gi) => (
+            {gruposRender.map((grupo, gi) => (
               <div key={gi} className={`bg-white rounded-xl border border-gray-200 ${grupo.fixo ? 'p-4 sm:p-6 -mx-2 sm:mx-0' : 'p-6'}`}>
                 {grupo.bloco && grupo.fixo && (
                   <div className="sticky top-0 z-10 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 mb-2 px-4 sm:px-6 py-3 rounded-t-xl bg-white/95 backdrop-blur border-b border-gray-200 shadow-sm">
@@ -408,7 +496,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                 </div>
 
                 {/* Scale 1-5 */}
-                {pergunta.tipo === 'escala_5' && pergunta.escala_layout === 'linha' && (
+                {pergunta.tipo === 'escala_5' && (pergunta.escala_layout === 'linha' || (paged && pergunta.escala_layout !== 'lista')) && (
                   <div className={config.sem_numeracao ? '' : 'sm:ml-10'}>
                     <div role="radiogroup" className="grid grid-cols-5 gap-1.5 sm:gap-2">
                       {[1, 2, 3, 4, 5].map((val) => {
@@ -438,7 +526,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                     </div>
                   </div>
                 )}
-                {pergunta.tipo === 'escala_5' && pergunta.escala_layout !== 'linha' && (
+                {pergunta.tipo === 'escala_5' && !(pergunta.escala_layout === 'linha' || (paged && pergunta.escala_layout !== 'lista')) && (
                   <div className={`space-y-2 ${config.sem_numeracao ? '' : 'ml-10'}`}>
                     {[1, 2, 3, 4, 5].map((val) => (
                       <label
@@ -605,16 +693,35 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                 <span>{formError}</span>
               </div>
             )}
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full bg-gray-900 text-white py-3 rounded-xl font-medium text-sm hover:bg-gray-700 disabled:opacity-50 transition-colors"
-            >
-              {submitting ? 'Enviando...' : 'Enviar respostas'}
-            </button>
-            <p className="text-center text-xs text-gray-400 mt-3">
-              Após o envio você não poderá alterar suas respostas.
-            </p>
+            <div className="flex gap-3">
+              {paged && paginaAtual > 0 && (
+                <button
+                  type="button"
+                  onClick={() => irParaPagina(paginaAtual - 1)}
+                  disabled={submitting}
+                  className="px-5 py-3 rounded-xl border border-gray-300 bg-white text-gray-700 font-medium text-sm hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                >
+                  Voltar
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={submitting}
+                className="flex-1 bg-gray-900 text-white py-3 rounded-xl font-medium text-sm hover:bg-gray-700 disabled:opacity-50 transition-colors"
+              >
+                {submitting ? 'Enviando...' : ultimaPagina ? 'Enviar respostas' : 'Próximo'}
+              </button>
+            </div>
+            {ultimaPagina && (
+              <p className="text-center text-xs text-gray-400 mt-3">
+                Após o envio você não poderá alterar suas respostas.
+              </p>
+            )}
+            {paged && (
+              <p className="text-center text-xs text-gray-400 mt-2">
+                Suas respostas ficam salvas neste aparelho: se fechar a página, você continua de onde parou.
+              </p>
+            )}
           </div>
         </form>
       </div>

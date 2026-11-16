@@ -73,6 +73,7 @@ interface SeedConfig {
   sem_numeracao?: boolean
   favorabilidade?: boolean
   importancia_pergunta_id?: string
+  modo_paginado?: boolean
 }
 
 const KNOWN_PERGUNTA_KEYS = new Set([
@@ -234,6 +235,7 @@ export function DpaNewProjectPage() {
         ...(seed?.config?.mensagem_encerramento ? { mensagem_encerramento: seed.config.mensagem_encerramento } : {}),
         ...(seed?.config?.sem_numeracao ? { sem_numeracao: true } : {}),
         ...(seed?.config?.favorabilidade ? { favorabilidade: true } : {}),
+        ...(seed?.config?.modo_paginado ? { modo_paginado: true } : {}),
         ...(seed?.config?.importancia_pergunta_id ? { importancia_pergunta_id: seed.config.importancia_pergunta_id } : {}),
         perguntas: perguntas.map((p) => ({
           ...p.extra,
