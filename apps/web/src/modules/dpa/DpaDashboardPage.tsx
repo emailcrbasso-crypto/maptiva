@@ -18,6 +18,7 @@ import { useTenant } from '@/modules/auth/TenantContext'
 import { DpaEmailComposer } from './DpaEmailComposer'
 import { FavorabilityPanel } from './FavorabilityPanel'
 import { exportDpaPdf } from '@/lib/exportDpaPdf'
+import { exportDpaPrintForm } from '@/lib/exportDpaPrintForm'
 import * as XLSX from 'xlsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -119,6 +120,7 @@ export function DpaDashboardPage() {
   const [tab,          setTab]          = useState<'resultados' | 'participantes'>('resultados')
   const [exportingPdf,      setExportingPdf]      = useState(false)
   const [exportingCompilado, setExportingCompilado] = useState(false)
+  const [exportingForm,      setExportingForm]      = useState(false)
   const [updating,     setUpdating]     = useState(false)
   const [copied,       setCopied]       = useState<string | null>(null)
   const [sendingEmail,   setSendingEmail]   = useState<string | null>(null)  // participant id being sent
@@ -577,6 +579,31 @@ export function DpaDashboardPage() {
                   className="text-sm px-4 py-2 rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 transition-colors"
                 >
                   {exportingCompilado ? 'Gerando...' : '🔒 PDF Compilado (Cliente)'}
+                </button>
+                <button
+                  onClick={async () => {
+                    setExportingForm(true)
+                    try {
+                      await exportDpaPrintForm(
+                        project as Parameters<typeof exportDpaPrintForm>[0],
+                        {
+                          companyName:  branding.name,
+                          logoUrl:      branding.logoUrl,
+                          primaryColor: branding.primaryColor,
+                          footerText:   branding.pdfFooterText,
+                          hideMaptiva:  branding.hideMaptiva,
+                        },
+                        dashboard.por_unidade.map((u) => u.unidade),
+                      )
+                    } finally {
+                      setExportingForm(false)
+                    }
+                  }}
+                  disabled={exportingForm}
+                  title="Folha A4 para impressão, gerada a partir das perguntas desta pesquisa — sem identificação pessoal"
+                  className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                >
+                  {exportingForm ? 'Gerando...' : '🖨 Formulário impresso'}
                 </button>
               </>
             )}
