@@ -11,7 +11,30 @@ import type { PdfBranding } from './exportReportPdf'
 import {
   favorabilityByBlock, favorabilityByQuestion, topQuestions, bottomQuestions,
   favorabilityPooled, riskQuestions, importanceByBlock, priorityMatrix,
+  favorabilityPooledByUnit, compareBlocks, compareQuestions, compareUnits,
+  deltaDirection, type FavorabilityDelta,
 } from './favorability'
+
+/** Edição anterior da mesma pesquisa, para a seção de evolução. */
+export interface DpaPreviousEdition {
+  rotulo:       string
+  respondentes: Resposta[]
+}
+
+function fmtDelta(d: number): string {
+  const sign = d > 0 ? '+' : ''
+  return `${sign}${d.toString().replace('.', ',')} p.p.`
+}
+
+function deltaColor(d: number): string {
+  const dir = deltaDirection(d)
+  return dir === 'up' ? '#15803d' : dir === 'down' ? '#dc2626' : '#6b7280'
+}
+
+function deltaWord(d: number): string {
+  const dir = deltaDirection(d)
+  return dir === 'up' ? 'Melhorou' : dir === 'down' ? 'Piorou' : 'Estável'
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -343,11 +366,13 @@ function DpaDocument({
   dashboard,
   branding,
   mode = 'interno',
+  anterior,
 }: {
   project:   DpaProject
   dashboard: DashboardData
   branding:  PdfBranding
   mode?:     DpaReportMode
+  anterior?: DpaPreviousEdition
 }) {
   const today       = new Date().toLocaleDateString('pt-BR')
   const config      = project.config
@@ -515,6 +540,83 @@ function DpaDocument({
                   </View>
                 ))}
               </View>
+            </View>
+          )
+        })()}
+
+        {/* ── Evolução em relação à edição anterior (pesquisa de clima) ── */}
+        {config.favorabilidade === true && anterior && anterior.respondentes.length > 0 && (() => {
+          const blocos    = favorabilityByBlock(perguntas, dashboard.respostas)
+          const blocosAnt = favorabilityByBlock(perguntas, anterior.respondentes)
+          const deltasBloco = compareBlocks(blocos, blocosAnt).sort((a, b) => b.delta - a.delta)
+          if (deltasBloco.length === 0) return null
+
+          const pooled = (bs: typeof blocos) => {
+            const total = bs.reduce((s, b) => s + b.n, 0)
+            return total === 0 ? 0 : Math.round((bs.reduce((s, b) => s + b.favoravel * b.n, 0) / total) * 10) / 10
+          }
+          const geral    = pooled(blocos)
+          const geralAnt = pooled(blocosAnt)
+          const geralDelta = Math.round((geral - geralAnt) * 10) / 10
+
+          const deltasPerg = compareQuestions(
+            favorabilityByQuestion(perguntas, dashboard.respostas),
+            favorabilityByQuestion(perguntas, anterior.respondentes),
+          )
+          const melhoras = deltasPerg.filter((d) => d.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 5)
+          const quedas   = deltasPerg.filter((d) => d.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 5)
+
+          const deltasUnid = compareUnits(
+            favorabilityPooledByUnit(perguntas, dashboard.respostas, N_MIN_UNIDADE).unidades,
+            favorabilityPooledByUnit(perguntas, anterior.respondentes, N_MIN_UNIDADE).unidades,
+          ).sort((a, b) => b.delta - a.delta)
+
+          const renderLista = (t: string, items: FavorabilityDelta[]) => (
+            <View style={{ flex: 1 }}>
+              <Text style={[S.sectionTitle, { marginBottom: 4 }]}>{t}</Text>
+              {items.map((q) => (
+                <View key={q.chave} style={{ flexDirection: 'row', marginBottom: 3 }}>
+                  <Text style={{ width: 52, fontSize: 8, fontFamily: 'Helvetica-Bold', color: deltaColor(q.delta) }}>{fmtDelta(q.delta)}</Text>
+                  <Text style={{ flex: 1, fontSize: 8, color: '#374151' }}>{q.rotulo} ({q.anterior}% para {q.atual}%)</Text>
+                </View>
+              ))}
+            </View>
+          )
+
+          return (
+            <View style={S.section} wrap={false}>
+              <Text style={S.sectionTitle}>Evolução em relação a {anterior.rotulo}</Text>
+              <Text style={S.noticeText}>
+                Favorabilidade geral: {geralAnt}% em {anterior.rotulo} e {geral}% nesta edição ({fmtDelta(geralDelta)} — {deltaWord(geralDelta).toLowerCase()}).
+                Variações de até 2 p.p. são tratadas como estabilidade.
+              </Text>
+              <View style={{ borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6, paddingHorizontal: 10, marginTop: 4 }}>
+                {deltasBloco.map((b, i) => (
+                  <View key={b.chave} style={[S.hlRow, i === deltasBloco.length - 1 ? { borderBottomWidth: 0 } : {}, { alignItems: 'center' }]}>
+                    <Text style={[S.hlLabel, { flex: 3 }]}>{b.rotulo}</Text>
+                    <Text style={{ width: 70, fontSize: 8, color: '#6b7280', textAlign: 'right' }}>{b.anterior}% para {b.atual}%</Text>
+                    <Text style={{ width: 92, fontSize: 8, fontFamily: 'Helvetica-Bold', textAlign: 'right', color: deltaColor(b.delta) }}>
+                      {deltaWord(b.delta)} {fmtDelta(b.delta)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              <View style={{ flexDirection: 'row', gap: 14, marginTop: 10 }}>
+                {renderLista('Maiores melhoras', melhoras)}
+                {renderLista('Maiores quedas', quedas)}
+              </View>
+              {deltasUnid.length > 0 && (
+                <View style={{ marginTop: 10 }}>
+                  <Text style={[S.sectionTitle, { marginBottom: 4 }]}>Por {config.label_unidade.toLowerCase()}</Text>
+                  {deltasUnid.map((u) => (
+                    <View key={u.chave} style={{ flexDirection: 'row', marginBottom: 3 }}>
+                      <Text style={{ flex: 1, fontSize: 8, color: '#374151' }}>{u.rotulo}</Text>
+                      <Text style={{ width: 70, fontSize: 8, color: '#6b7280', textAlign: 'right' }}>{u.anterior}% para {u.atual}%</Text>
+                      <Text style={{ width: 70, fontSize: 8, fontFamily: 'Helvetica-Bold', textAlign: 'right', color: deltaColor(u.delta) }}>{fmtDelta(u.delta)}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           )
         })()}
@@ -753,9 +855,10 @@ export async function exportDpaPdf(
   dashboard: DashboardData,
   branding:  PdfBranding,
   mode:      DpaReportMode = 'interno',
+  anterior?: DpaPreviousEdition,
 ): Promise<void> {
   const blob = await pdf(
-    <DpaDocument project={project} dashboard={dashboard} branding={branding} mode={mode} />
+    <DpaDocument project={project} dashboard={dashboard} branding={branding} mode={mode} anterior={anterior} />
   ).toBlob()
 
   const url      = URL.createObjectURL(blob)

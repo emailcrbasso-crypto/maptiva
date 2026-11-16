@@ -109,6 +109,7 @@ export function DpaDashboardPage() {
 
   const [project,      setProject]      = useState<DpaProject | null>(null)
   const [dashboard,    setDashboard]    = useState<DashboardData | null>(null)
+  const [anterior,     setAnterior]     = useState<{ rotulo: string; respondentes: Resposta[] } | null>(null)
   const [participantes, setParticipantes] = useState<Participante[]>([])
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState<string | null>(null)
@@ -175,6 +176,25 @@ export function DpaDashboardPage() {
       }
       if (dashData) {
         setDashboard(dashData as DashboardData)
+      }
+
+      // Comparativo com a edição anterior (opt-in via config.comparativo_projeto_id)
+      const cfg = (projRes.data as DpaProject).config
+      const antId = typeof cfg.comparativo_projeto_id === 'string' ? cfg.comparativo_projeto_id : null
+      setAnterior(null)
+      if (antId && cfg.favorabilidade === true) {
+        const [antProj, antDash] = await Promise.all([
+          supabase.from('dpa_projetos').select('nome, config').eq('id', antId).single(),
+          supabase.rpc('get_dpa_dashboard', { p_projeto_id: antId }),
+        ])
+        const antData = antDash.data as DashboardData | null
+        if (!antProj.error && !antDash.error && antData) {
+          const antCfg = (antProj.data?.config ?? {}) as Record<string, unknown>
+          setAnterior({
+            rotulo: typeof antCfg.rotulo_comparativo === 'string' ? antCfg.rotulo_comparativo : (antProj.data?.nome ?? 'edição anterior'),
+            respondentes: antData.respostas,
+          })
+        }
       }
     }
 
@@ -528,7 +548,7 @@ export function DpaDashboardPage() {
                       primaryColor: branding.primaryColor,
                       footerText:   branding.pdfFooterText,
                       hideMaptiva:  branding.hideMaptiva,
-                    }, 'interno')
+                    }, 'interno', anterior ?? undefined)
                     setExportingPdf(false)
                   }}
                   disabled={exportingPdf}
@@ -546,7 +566,7 @@ export function DpaDashboardPage() {
                       primaryColor: branding.primaryColor,
                       footerText:   branding.pdfFooterText,
                       hideMaptiva:  branding.hideMaptiva,
-                    }, 'compilado')
+                    }, 'compilado', anterior ?? undefined)
                     setExportingCompilado(false)
                   }}
                   disabled={exportingCompilado}
@@ -695,6 +715,7 @@ export function DpaDashboardPage() {
                     typeof project.config.importancia_pergunta_id === 'string'
                       ? project.config.importancia_pergunta_id : undefined
                   }
+                  anterior={anterior ?? undefined}
                 />
               )}
 

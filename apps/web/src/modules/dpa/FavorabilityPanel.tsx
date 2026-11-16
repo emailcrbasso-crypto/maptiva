@@ -13,11 +13,16 @@ import {
   favorabilityByUnitAndBlock,
   favorabilityPooled,
   favorabilityPooledByUnit,
+  compareBlocks,
+  compareQuestions,
+  compareUnits,
+  deltaDirection,
   importanceByBlock,
   priorityMatrix,
   riskQuestions,
   topQuestions,
   bottomQuestions,
+  type FavorabilityDelta,
   type PriorityQuadrant,
   type QuestionFavorability,
   type QuestionRef,
@@ -31,6 +36,8 @@ interface Props {
   nMin:         number
   /** Pergunta de múltipla escolha cujas opções são os blocos ("escolha os 4 mais importantes"). */
   importanciaPerguntaId?: string
+  /** Edição anterior da mesma pesquisa, para o comparativo (mesmas perguntas e blocos). */
+  anterior?: { rotulo: string; respondentes: RespondentRow[] }
 }
 
 const QUADRANT_STYLE: Record<PriorityQuadrant, { label: string; color: string }> = {
@@ -114,6 +121,40 @@ function QuestionList({ title, items, tone }: {
   )
 }
 
+function DeltaBadge({ delta }: { delta: number }) {
+  const dir = deltaDirection(delta)
+  const style = dir === 'up' ? 'text-green-700 bg-green-50'
+    : dir === 'down' ? 'text-red-700 bg-red-50' : 'text-gray-600 bg-gray-100'
+  const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '►'
+  const sign = delta > 0 ? '+' : ''
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-semibold tabular-nums whitespace-nowrap ${style}`}
+      title={dir === 'stable' ? 'Variação dentro da margem de estabilidade (±2 p.p.)' : undefined}
+    >
+      <span aria-hidden="true">{arrow}</span>{sign}{delta.toString().replace('.', ',')} p.p.
+    </span>
+  )
+}
+
+function DeltaList({ title, items }: { title: string; items: FavorabilityDelta[] }) {
+  return (
+    <div className="flex-1 min-w-0">
+      <h4 className="text-xs font-semibold text-gray-700 mb-2">{title}</h4>
+      <ul className="space-y-2">
+        {items.map((q) => (
+          <li key={q.chave} className="flex items-start gap-2 text-xs">
+            <span className="shrink-0 w-28"><DeltaBadge delta={q.delta} /></span>
+            <span className="text-gray-700 leading-snug">
+              {q.rotulo} <span className="text-gray-400">· {q.anterior}% → {q.atual}%</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function PriorityChart({ pontos, corteFavoravel, corteImportancia }: ReturnType<typeof priorityMatrix>) {
   const W = 640, H = 340, L = 52, R = 16, T = 16, B = 40
   const xs = pontos.map((p) => p.favoravel)
@@ -154,7 +195,7 @@ function PriorityChart({ pontos, corteFavoravel, corteImportancia }: ReturnType<
   )
 }
 
-export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin, importanciaPerguntaId }: Props) {
+export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin, importanciaPerguntaId, anterior }: Props) {
   const [blocoFiltro, setBlocoFiltro] = useState<string>('')
   const [ordem, setOrdem] = useState<'desc' | 'asc'>('desc')
 
@@ -178,13 +219,44 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
       ? priorityMatrix(blocos, importanceByBlock(importanciaPerguntaId, blocos.map((b) => b.bloco), respondentes))
       : null
 
-    return {
-      blocos, perguntasFav, matriz, geralPorBase, riscoGeral, riscoPorBase, riscoItens, prioridades,
-      geral: { favoravel: weigh('favoravel'), neutro: weigh('neutro'), desfavoravel: weigh('desfavoravel') },
-    }
-  }, [perguntas, respondentes, nMin, importanciaPerguntaId])
+    const geral = { favoravel: weigh('favoravel'), neutro: weigh('neutro'), desfavoravel: weigh('desfavoravel') }
 
-  const { blocos, perguntasFav, matriz, geralPorBase, riscoGeral, riscoPorBase, riscoItens, prioridades, geral } = dados
+    let comparativo: {
+      geralDelta: number
+      geralAnterior: number
+      blocos: FavorabilityDelta[]
+      melhoras: FavorabilityDelta[]
+      pioras: FavorabilityDelta[]
+      unidades: FavorabilityDelta[]
+      respondentesAnterior: number
+    } | null = null
+    if (anterior && anterior.respondentes.length > 0) {
+      const blocosAnt = favorabilityByBlock(perguntas, anterior.respondentes)
+      const totalAnt = blocosAnt.reduce((s, b) => s + b.n, 0)
+      const geralAnt = totalAnt === 0 ? 0
+        : Math.round((blocosAnt.reduce((s, b) => s + b.favoravel * b.n, 0) / totalAnt) * 10) / 10
+      const perguntasAnt = favorabilityByQuestion(perguntas, anterior.respondentes)
+      const deltasPerg = compareQuestions(perguntasFav, perguntasAnt)
+      comparativo = {
+        geralDelta: Math.round((geral.favoravel - geralAnt) * 10) / 10,
+        geralAnterior: geralAnt,
+        blocos: compareBlocks(blocos, blocosAnt),
+        melhoras: [...deltasPerg].filter((d) => d.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 5),
+        pioras: [...deltasPerg].filter((d) => d.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 5),
+        unidades: compareUnits(
+          geralPorBase.unidades,
+          favorabilityPooledByUnit(perguntas, anterior.respondentes, nMin).unidades,
+        ),
+        respondentesAnterior: anterior.respondentes.length,
+      }
+    }
+
+    return {
+      blocos, perguntasFav, matriz, geralPorBase, riscoGeral, riscoPorBase, riscoItens, prioridades, geral, comparativo,
+    }
+  }, [perguntas, respondentes, nMin, importanciaPerguntaId, anterior])
+
+  const { blocos, perguntasFav, matriz, geralPorBase, riscoGeral, riscoPorBase, riscoItens, prioridades, geral, comparativo } = dados
 
   const ranking = useMemo(() => {
     const itens = perguntasFav.filter((q) => q.n > 0 && (!blocoFiltro || q.bloco === blocoFiltro))
@@ -203,7 +275,10 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
         <div>
           <div className="flex items-baseline justify-between gap-3 mb-1">
             <h3 className="text-sm font-semibold text-gray-900">Favorabilidade geral</h3>
-            <span className="text-2xl font-semibold text-gray-900">{geral.favoravel}%</span>
+            <span className="flex items-baseline gap-2">
+              {comparativo && <DeltaBadge delta={comparativo.geralDelta} />}
+              <span className="text-2xl font-semibold text-gray-900">{geral.favoravel}%</span>
+            </span>
           </div>
           <p className="text-xs text-gray-500 mb-3">
             Percentual de respostas 4 e 5 (concordo e concordo totalmente) em {respondentes.length.toLocaleString('pt-BR')} respondentes.
@@ -239,6 +314,66 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
           <div className="mt-3"><Legend /></div>
         </div>
       </div>
+
+      {/* Evolução em relação à edição anterior */}
+      {comparativo && anterior && (
+        <div className={`${card} space-y-6`}>
+          <SectionTitle hint={`Favorabilidade (% de notas 4 e 5) de ${anterior.rotulo} para esta edição. Variações de até 2 p.p. contam como estabilidade.`}>
+            Evolução em relação a {anterior.rotulo}
+          </SectionTitle>
+          <div className="flex flex-wrap items-center gap-3 text-sm text-gray-700">
+            <span>Geral: <strong>{comparativo.geralAnterior}%</strong> → <strong>{geral.favoravel}%</strong></span>
+            <DeltaBadge delta={comparativo.geralDelta} />
+            <span className="text-xs text-gray-400">
+              {comparativo.respondentesAnterior.toLocaleString('pt-BR')} respondentes na edição anterior
+            </span>
+          </div>
+
+          <div>
+            <h4 className="text-xs font-semibold text-gray-700 mb-2">Por bloco</h4>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-gray-500 border-b border-gray-200">
+                  <th className="py-1.5 pr-3 font-medium">Bloco</th>
+                  <th className="py-1.5 px-2 font-medium text-right w-20">{anterior.rotulo}</th>
+                  <th className="py-1.5 px-2 font-medium text-right w-20">Atual</th>
+                  <th className="py-1.5 pl-2 font-medium text-right w-32">Variação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...comparativo.blocos].sort((a, b) => b.delta - a.delta).map((b) => (
+                  <tr key={b.chave} className="border-b border-gray-100">
+                    <td className="py-2 pr-3 text-gray-800">{b.rotulo}</td>
+                    <td className="py-2 px-2 text-right text-gray-500 tabular-nums">{b.anterior}%</td>
+                    <td className="py-2 px-2 text-right font-semibold text-gray-900 tabular-nums">{b.atual}%</td>
+                    <td className="py-2 pl-2 text-right"><DeltaBadge delta={b.delta} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex flex-col md:flex-row gap-6">
+            <DeltaList title="Maiores melhoras (perguntas)" items={comparativo.melhoras} />
+            <DeltaList title="Maiores quedas (perguntas)" items={comparativo.pioras} />
+          </div>
+
+          {comparativo.unidades.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-gray-700 mb-2">Por {labelUnidade.toLowerCase()}</h4>
+              <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5">
+                {[...comparativo.unidades].sort((a, b) => b.delta - a.delta).map((u) => (
+                  <li key={u.chave} className="flex items-center gap-2 text-xs">
+                    <span className="w-36 truncate text-gray-700" title={u.rotulo}>{u.rotulo}</span>
+                    <span className="text-gray-400 tabular-nums">{u.anterior}% → {u.atual}%</span>
+                    <span className="ml-auto"><DeltaBadge delta={u.delta} /></span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Prioridades */}
       {prioridades && prioridades.pontos.length > 0 && (

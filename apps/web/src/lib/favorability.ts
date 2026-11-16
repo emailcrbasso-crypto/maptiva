@@ -336,3 +336,69 @@ export function priorityMatrix(
     corteImportancia: Math.round(corteImportancia * 10) / 10,
   }
 }
+
+// ── Comparativo entre edições ────────────────────────────────────────────────
+
+export interface FavorabilityDelta {
+  /** Identificador do item comparado (bloco, pergunta ou unidade). */
+  chave:    string
+  rotulo:   string
+  atual:    number
+  anterior: number
+  /** Diferença em pontos percentuais (atual − anterior, uma casa). */
+  delta:    number
+}
+
+/** Variação abaixo deste valor (em p.p.) é tratada como estabilidade. */
+export const STABLE_DELTA_PP = 2
+
+export type DeltaDirection = 'up' | 'down' | 'stable'
+
+export function deltaDirection(delta: number): DeltaDirection {
+  if (delta >= STABLE_DELTA_PP) return 'up'
+  if (delta <= -STABLE_DELTA_PP) return 'down'
+  return 'stable'
+}
+
+function round1(x: number): number {
+  return Math.round(x * 10) / 10
+}
+
+function pair(
+  chave: string, rotulo: string, atual: number, anterior: number,
+): FavorabilityDelta {
+  return { chave, rotulo, atual, anterior, delta: round1(atual - anterior) }
+}
+
+/** Compara blocos presentes nas duas edições (mesmo nome de bloco). */
+export function compareBlocks(
+  atual: BlockFavorability[],
+  anterior: BlockFavorability[],
+): FavorabilityDelta[] {
+  const prev = new Map(anterior.filter((b) => b.n > 0).map((b) => [b.bloco, b]))
+  return atual
+    .filter((b) => b.n > 0 && prev.has(b.bloco))
+    .map((b) => pair(b.bloco, b.bloco, b.favoravel, prev.get(b.bloco)!.favoravel))
+}
+
+/** Compara perguntas pelo mesmo id nas duas edições. */
+export function compareQuestions(
+  atual: QuestionFavorability[],
+  anterior: QuestionFavorability[],
+): FavorabilityDelta[] {
+  const prev = new Map(anterior.filter((q) => q.n > 0).map((q) => [q.id, q]))
+  return atual
+    .filter((q) => q.n > 0 && prev.has(q.id))
+    .map((q) => pair(q.id, q.texto, q.favoravel, prev.get(q.id)!.favoravel))
+}
+
+/** Compara unidades presentes nas duas edições (ambas acima do N-mínimo). */
+export function compareUnits(
+  atual: UnitFavorability[],
+  anterior: UnitFavorability[],
+): FavorabilityDelta[] {
+  const prev = new Map(anterior.map((u) => [u.unidade, u]))
+  return atual
+    .filter((u) => prev.has(u.unidade))
+    .map((u) => pair(u.unidade, u.unidade, u.favoravel, prev.get(u.unidade)!.favoravel))
+}
