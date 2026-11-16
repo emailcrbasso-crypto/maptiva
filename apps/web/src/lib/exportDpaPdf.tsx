@@ -8,6 +8,9 @@ import {
   Document, Page, Text, View, StyleSheet, pdf, Image,
 } from '@react-pdf/renderer'
 import type { PdfBranding } from './exportReportPdf'
+import {
+  favorabilityByBlock, favorabilityByQuestion, topQuestions, bottomQuestions,
+} from './favorability'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -19,8 +22,10 @@ interface Pergunta {
 }
 
 interface DpaConfig {
-  label_unidade: string
-  perguntas:     Pergunta[]
+  label_unidade:   string
+  perguntas:       Pergunta[]
+  /** Pesquisa de clima: liga a seção de favorabilidade por bloco. */
+  favorabilidade?: boolean
 }
 
 interface DpaProject {
@@ -466,6 +471,50 @@ function DpaDocument({
             )}
           </View>
         )}
+
+        {/* ── Favorabilidade (pesquisa de clima) ── */}
+        {config.favorabilidade === true && (() => {
+          const blocos = favorabilityByBlock(perguntas, dashboard.respostas)
+          if (blocos.length === 0) return null
+          const porPergunta = favorabilityByQuestion(perguntas, dashboard.respostas)
+          const topo  = topQuestions(porPergunta, 5)
+          const baixo = bottomQuestions(porPergunta, 5)
+          const ordenados = [...blocos].sort((a, b) => b.favoravel - a.favoravel)
+          return (
+            <View style={S.section} wrap={false}>
+              <Text style={S.sectionTitle}>Favorabilidade por bloco</Text>
+              <Text style={S.noticeText}>
+                Favorável = notas 4 e 5 · Neutro = nota 3 · Desfavorável = notas 1 e 2.
+              </Text>
+              <View style={{ borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6, paddingHorizontal: 10, marginTop: 4 }}>
+                {ordenados.map((b, i) => (
+                  <View key={b.bloco} style={[S.hlRow, i === ordenados.length - 1 ? { borderBottomWidth: 0 } : {}, { alignItems: 'center' }]}>
+                    <Text style={[S.hlLabel, { flex: 3 }]}>{b.bloco}</Text>
+                    <View style={{ flex: 4, flexDirection: 'row', height: 7, borderRadius: 3, overflow: 'hidden', backgroundColor: '#f3f4f6' }}>
+                      <View style={{ width: `${b.favoravel}%`, backgroundColor: '#22c55e' }} />
+                      <View style={{ width: `${b.neutro}%`, backgroundColor: '#d1d5db' }} />
+                      <View style={{ width: `${b.desfavoravel}%`, backgroundColor: '#f87171' }} />
+                    </View>
+                    <Text style={[S.hlValue, { width: 36, textAlign: 'right' }]}>{b.favoravel}%</Text>
+                  </View>
+                ))}
+              </View>
+              <View style={{ flexDirection: 'row', gap: 14, marginTop: 10 }}>
+                {[{ t: 'Mais favoráveis', items: topo, c: '#15803d' }, { t: 'Menos favoráveis', items: baixo, c: '#dc2626' }].map((col) => (
+                  <View key={col.t} style={{ flex: 1 }}>
+                    <Text style={[S.sectionTitle, { marginBottom: 4 }]}>{col.t}</Text>
+                    {col.items.map((q) => (
+                      <View key={q.id} style={{ flexDirection: 'row', marginBottom: 3 }}>
+                        <Text style={{ width: 28, fontSize: 8, fontFamily: 'Helvetica-Bold', color: col.c }}>{q.favoravel}%</Text>
+                        <Text style={{ flex: 1, fontSize: 8, color: '#374151' }}>{q.texto}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ))}
+              </View>
+            </View>
+          )
+        })()}
 
         {/* ── Questions ── */}
         <View style={S.section}>

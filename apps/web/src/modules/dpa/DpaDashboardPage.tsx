@@ -16,6 +16,7 @@ import { supabase } from '@/lib/supabase'
 import { RichText, RichTextEditor } from '@/components/RichText'
 import { useTenant } from '@/modules/auth/TenantContext'
 import { DpaEmailComposer } from './DpaEmailComposer'
+import { FavorabilityPanel } from './FavorabilityPanel'
 import { exportDpaPdf } from '@/lib/exportDpaPdf'
 import * as XLSX from 'xlsx'
 
@@ -681,6 +682,16 @@ export function DpaDashboardPage() {
                     })}
                   </div>
                 </div>
+              )}
+
+              {/* Pesquisa de clima: favorabilidade por bloco (opt-in por projeto) */}
+              {project.config.favorabilidade === true && (
+                <FavorabilityPanel
+                  perguntas={config.perguntas}
+                  respondentes={dashboard.respostas}
+                  labelUnidade={config.label_unidade}
+                  nMin={3}
+                />
               )}
 
               {/* Per-question results */}
