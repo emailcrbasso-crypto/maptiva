@@ -498,7 +498,7 @@ function DpaDocument({
                       <View style={{ width: `${b.neutro}%`, backgroundColor: '#d1d5db' }} />
                       <View style={{ width: `${b.desfavoravel}%`, backgroundColor: '#f87171' }} />
                     </View>
-                    <Text style={[S.hlValue, { width: 36, textAlign: 'right' }]}>{b.favoravel}%</Text>
+                    <Text style={[S.hlValue, { width: 84, textAlign: 'right' }]}>{b.favoravel}% · {b.neutro}% · {b.desfavoravel}%</Text>
                   </View>
                 ))}
               </View>

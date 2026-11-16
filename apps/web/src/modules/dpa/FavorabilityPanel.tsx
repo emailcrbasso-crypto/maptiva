@@ -54,6 +54,28 @@ function StackedBar({ fav, neu, des }: { fav: number; neu: number; des: number }
   )
 }
 
+function Legend() {
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-500">
+      <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />Favorável: notas 4 e 5</span>
+      <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />Neutro: nota 3</span>
+      <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />Desfavorável: notas 1 e 2</span>
+    </div>
+  )
+}
+
+function Trio({ fav, neu, des }: { fav: number; neu: number; des: number }) {
+  return (
+    <span className="tabular-nums whitespace-nowrap text-xs">
+      <span className="font-semibold text-green-700">{fav}%</span>
+      <span className="text-gray-300"> · </span>
+      <span className="text-gray-500">{neu}%</span>
+      <span className="text-gray-300"> · </span>
+      <span className="text-red-600">{des}%</span>
+    </span>
+  )
+}
+
 function cellColor(pct: number | null): string {
   if (pct === null) return 'bg-gray-50 text-gray-300'
   if (pct >= 70) return 'bg-green-100 text-green-800'
@@ -210,10 +232,11 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
               >
                 <span className="text-xs text-gray-700 w-48 shrink-0 truncate" title={b.bloco}>{b.bloco}</span>
                 <div className="flex-1"><StackedBar fav={b.favoravel} neu={b.neutro} des={b.desfavoravel} /></div>
-                <span className="text-xs font-semibold text-gray-900 w-12 text-right shrink-0">{b.favoravel}%</span>
+                <span className="w-36 text-right shrink-0"><Trio fav={b.favoravel} neu={b.neutro} des={b.desfavoravel} /></span>
               </button>
             ))}
           </div>
+          <div className="mt-3"><Legend /></div>
         </div>
       </div>
 
@@ -314,6 +337,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
             </button>
           </div>
         </div>
+        <div className="mb-2"><Legend /></div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -321,8 +345,10 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                 <th className="py-1.5 pr-2 w-8 font-medium">#</th>
                 <th className="py-1.5 pr-3 font-medium">Pergunta</th>
                 <th className="py-1.5 pr-3 font-medium hidden md:table-cell">Bloco</th>
-                <th className="py-1.5 px-2 font-medium w-44">Distribuição</th>
-                <th className="py-1.5 pl-2 font-medium w-14 text-right">Fav.</th>
+                <th className="py-1.5 px-2 font-medium w-36">Distribuição</th>
+                <th className="py-1.5 pl-2 font-medium w-14 text-right text-green-700">Fav.</th>
+                <th className="py-1.5 pl-2 font-medium w-14 text-right">Neutro</th>
+                <th className="py-1.5 pl-2 font-medium w-14 text-right text-red-600">Desfav.</th>
               </tr>
             </thead>
             <tbody>
@@ -332,7 +358,9 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                   <td className="py-2 pr-3 text-gray-800 leading-snug">{q.texto}</td>
                   <td className="py-2 pr-3 text-gray-500 hidden md:table-cell">{q.bloco}</td>
                   <td className="py-2 px-2"><StackedBar fav={q.favoravel} neu={q.neutro} des={q.desfavoravel} /></td>
-                  <td className="py-2 pl-2 text-right font-semibold text-gray-900">{q.favoravel}%</td>
+                  <td className="py-2 pl-2 text-right font-semibold text-green-700 tabular-nums">{q.favoravel}%</td>
+                  <td className="py-2 pl-2 text-right text-gray-500 tabular-nums">{q.neutro}%</td>
+                  <td className="py-2 pl-2 text-right text-red-600 tabular-nums">{q.desfavoravel}%</td>
                 </tr>
               ))}
             </tbody>
