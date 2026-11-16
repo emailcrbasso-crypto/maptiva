@@ -691,6 +691,10 @@ export function DpaDashboardPage() {
                   respondentes={dashboard.respostas}
                   labelUnidade={config.label_unidade}
                   nMin={3}
+                  importanciaPerguntaId={
+                    typeof project.config.importancia_pergunta_id === 'string'
+                      ? project.config.importancia_pergunta_id : undefined
+                  }
                 />
               )}
 

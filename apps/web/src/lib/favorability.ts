@@ -30,6 +30,8 @@ export interface QuestionRef {
   texto: string
   tipo:  string
   bloco?: string | null
+  /** Pergunta que compõe o recorte de riscos psicossociais (transversal aos blocos). */
+  risco_psicossocial?: boolean
 }
 
 export interface RespondentRow {
@@ -214,4 +216,123 @@ export function topQuestions(items: QuestionFavorability[], limit: number): Ques
 /** Ordena por favorabilidade (menor primeiro) e devolve as `limit` primeiras. */
 export function bottomQuestions(items: QuestionFavorability[], limit: number): QuestionFavorability[] {
   return [...items].filter((q) => q.n > 0).sort((a, b) => a.favoravel - b.favoravel).slice(0, limit)
+}
+
+/** Favorabilidade agregada de um conjunto de perguntas (todas as notas juntas). */
+export function favorabilityPooled(
+  perguntas: QuestionRef[],
+  respondentes: RespondentRow[],
+): FavorabilityPct {
+  const scores: Array<number | null> = []
+  for (const p of scaleQuestions(perguntas)) {
+    for (const r of respondentes) scores.push(parseScore(r.respostas[p.id]))
+  }
+  return toPct(breakdownScores(scores))
+}
+
+export interface UnitFavorability {
+  unidade:   string
+  favoravel: number
+  respondentes: number
+}
+
+/**
+ * Favorabilidade agregada por unidade para um conjunto de perguntas, ocultando
+ * unidades com menos de `nMin` respondentes. Ordenado do maior para o menor.
+ */
+export function favorabilityPooledByUnit(
+  perguntas: QuestionRef[],
+  respondentes: RespondentRow[],
+  nMin: number,
+): { unidades: UnitFavorability[]; omitidas: number } {
+  const grupos = new Map<string, RespondentRow[]>()
+  for (const r of respondentes) {
+    const u = r.unidade?.trim()
+    if (!u) continue
+    if (!grupos.has(u)) grupos.set(u, [])
+    grupos.get(u)!.push(r)
+  }
+  const unidades: UnitFavorability[] = []
+  let omitidas = 0
+  for (const [unidade, rows] of grupos) {
+    if (rows.length < nMin) { omitidas++; continue }
+    unidades.push({ unidade, favoravel: favorabilityPooled(perguntas, rows).favoravel, respondentes: rows.length })
+  }
+  unidades.sort((a, b) => b.favoravel - a.favoravel)
+  return { unidades, omitidas }
+}
+
+/** Perguntas marcadas como risco psicossocial. */
+export function riskQuestions(perguntas: QuestionRef[]): QuestionRef[] {
+  return scaleQuestions(perguntas).filter((p) => p.risco_psicossocial === true)
+}
+
+export interface BlockImportance {
+  bloco:      string
+  /** % dos respondentes que escolheram o bloco entre os mais importantes. */
+  importancia: number
+}
+
+/**
+ * Importância por bloco a partir de uma pergunta de múltipla escolha cujas
+ * opções são os nomes dos blocos. Base = respondentes que responderam a pergunta.
+ */
+export function importanceByBlock(
+  perguntaId: string,
+  blocos: string[],
+  respondentes: RespondentRow[],
+): BlockImportance[] {
+  let base = 0
+  const count = new Map<string, number>(blocos.map((b) => [b, 0]))
+  for (const r of respondentes) {
+    const v = r.respostas[perguntaId]
+    if (!Array.isArray(v) || v.length === 0) continue
+    base++
+    for (const item of new Set(v.map(String))) {
+      if (count.has(item)) count.set(item, count.get(item)! + 1)
+    }
+  }
+  return blocos.map((bloco) => ({
+    bloco,
+    importancia: base === 0 ? 0 : Math.round((count.get(bloco)! / base) * 1000) / 10,
+  }))
+}
+
+export type PriorityQuadrant = 'prioridade' | 'manter' | 'monitorar' | 'menor_urgencia'
+
+export interface PriorityPoint {
+  bloco:       string
+  favoravel:   number
+  importancia: number
+  quadrante:   PriorityQuadrant
+}
+
+/**
+ * Cruza favorabilidade e importância por bloco. Os cortes são as médias dos
+ * próprios blocos: importância acima da média com favorabilidade abaixo dela
+ * é "prioridade de ação".
+ */
+export function priorityMatrix(
+  blocos: BlockFavorability[],
+  importancia: BlockImportance[],
+): { pontos: PriorityPoint[]; corteFavoravel: number; corteImportancia: number } {
+  const imp = new Map(importancia.map((i) => [i.bloco, i.importancia]))
+  const base = blocos.filter((b) => b.n > 0 && imp.has(b.bloco))
+  if (base.length === 0) return { pontos: [], corteFavoravel: 0, corteImportancia: 0 }
+  const corteFavoravel = base.reduce((s, b) => s + b.favoravel, 0) / base.length
+  const corteImportancia = base.reduce((s, b) => s + (imp.get(b.bloco) ?? 0), 0) / base.length
+  const pontos = base.map((b) => {
+    const importancia = imp.get(b.bloco) ?? 0
+    const altaImp = importancia >= corteImportancia
+    const altaFav = b.favoravel >= corteFavoravel
+    const quadrante: PriorityQuadrant = altaImp
+      ? (altaFav ? 'manter' : 'prioridade')
+      : (altaFav ? 'menor_urgencia' : 'monitorar')
+    return { bloco: b.bloco, favoravel: b.favoravel, importancia, quadrante }
+  })
+  return {
+    pontos,
+    corteFavoravel: Math.round(corteFavoravel * 10) / 10,
+    corteImportancia: Math.round(corteImportancia * 10) / 10,
+  }
 }

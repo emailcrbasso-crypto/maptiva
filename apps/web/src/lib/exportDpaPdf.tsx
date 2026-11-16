@@ -10,6 +10,7 @@ import {
 import type { PdfBranding } from './exportReportPdf'
 import {
   favorabilityByBlock, favorabilityByQuestion, topQuestions, bottomQuestions,
+  favorabilityPooled, riskQuestions, importanceByBlock, priorityMatrix,
 } from './favorability'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -26,6 +27,8 @@ interface DpaConfig {
   perguntas:       Pergunta[]
   /** Pesquisa de clima: liga a seção de favorabilidade por bloco. */
   favorabilidade?: boolean
+  /** Pergunta de múltipla escolha cujas opções são os blocos (importância). */
+  importancia_pergunta_id?: string
 }
 
 interface DpaProject {
@@ -512,6 +515,58 @@ function DpaDocument({
                   </View>
                 ))}
               </View>
+            </View>
+          )
+        })()}
+
+        {/* ── Prioridades e riscos psicossociais (pesquisa de clima) ── */}
+        {config.favorabilidade === true && (() => {
+          const blocos = favorabilityByBlock(perguntas, dashboard.respostas)
+          const prioridades = config.importancia_pergunta_id
+            ? priorityMatrix(blocos, importanceByBlock(config.importancia_pergunta_id, blocos.map((b) => b.bloco), dashboard.respostas))
+            : null
+          const prioritarios = prioridades
+            ? prioridades.pontos.filter((p) => p.quadrante === 'prioridade').sort((a, b) => b.importancia - a.importancia)
+            : []
+          const riscoPerguntas = riskQuestions(perguntas)
+          const riscoGeral = riscoPerguntas.length > 0 ? favorabilityPooled(riscoPerguntas, dashboard.respostas) : null
+          const riscoItens = riscoGeral && riscoGeral.n > 0
+            ? favorabilityByQuestion(riscoPerguntas, dashboard.respostas)
+                .filter((q) => q.n > 0).sort((a, b) => a.favoravel - b.favoravel).slice(0, 10)
+            : []
+          if (prioritarios.length === 0 && riscoItens.length === 0) return null
+          return (
+            <View style={S.section} wrap={false}>
+              {prioritarios.length > 0 && (
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={S.sectionTitle}>Prioridades de ação</Text>
+                  <Text style={S.noticeText}>
+                    Blocos que as pessoas consideram mais importantes e que estão com favorabilidade abaixo da média.
+                  </Text>
+                  <View style={{ borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6, paddingHorizontal: 10, marginTop: 4 }}>
+                    {prioritarios.map((p, i) => (
+                      <View key={p.bloco} style={[S.hlRow, i === prioritarios.length - 1 ? { borderBottomWidth: 0 } : {}]}>
+                        <Text style={S.hlLabel}>{p.bloco}</Text>
+                        <Text style={S.hlValue}>{p.favoravel}% favorável · {p.importancia}% importância</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
+              {riscoGeral && riscoItens.length > 0 && (
+                <View>
+                  <Text style={S.sectionTitle}>Riscos psicossociais — favorabilidade {riscoGeral.favoravel}%</Text>
+                  <Text style={S.noticeText}>Perguntas com menor favorabilidade entre as ligadas a carga, pressão, apoio e assédio.</Text>
+                  <View style={{ marginTop: 4 }}>
+                    {riscoItens.map((q) => (
+                      <View key={q.id} style={{ flexDirection: 'row', marginBottom: 3 }}>
+                        <Text style={{ width: 30, fontSize: 8, fontFamily: 'Helvetica-Bold', color: '#dc2626' }}>{q.favoravel}%</Text>
+                        <Text style={{ flex: 1, fontSize: 8, color: '#374151' }}>{q.texto}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
             </View>
           )
         })()}
