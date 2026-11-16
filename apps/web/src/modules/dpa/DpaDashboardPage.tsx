@@ -121,6 +121,7 @@ export function DpaDashboardPage() {
   const [exportingPdf,      setExportingPdf]      = useState(false)
   const [exportingCompilado, setExportingCompilado] = useState(false)
   const [exportingForm,      setExportingForm]      = useState(false)
+  const [formUnidade,        setFormUnidade]        = useState('')
   const [updating,     setUpdating]     = useState(false)
   const [copied,       setCopied]       = useState<string | null>(null)
   const [sendingEmail,   setSendingEmail]   = useState<string | null>(null)  // participant id being sent
@@ -580,6 +581,20 @@ export function DpaDashboardPage() {
                 >
                   {exportingCompilado ? 'Gerando...' : '🔒 PDF Compilado (Cliente)'}
                 </button>
+                {dashboard.por_unidade.length > 1 && (
+                  <select
+                    value={formUnidade}
+                    onChange={(e) => setFormUnidade(e.target.value)}
+                    aria-label="Base do formulário impresso"
+                    title="Folha com a base já impressa e no QR code, ou folha em que a pessoa marca a base"
+                    className="text-sm px-2 py-2 rounded-lg border border-gray-300 text-gray-700"
+                  >
+                    <option value="">Formulário: marcar a base à mão</option>
+                    {dashboard.por_unidade.map((u) => (
+                      <option key={u.unidade} value={u.unidade}>Formulário: {u.unidade}</option>
+                    ))}
+                  </select>
+                )}
                 <button
                   onClick={async () => {
                     setExportingForm(true)
@@ -594,6 +609,7 @@ export function DpaDashboardPage() {
                           hideMaptiva:  branding.hideMaptiva,
                         },
                         dashboard.por_unidade.map((u) => u.unidade),
+                        formUnidade || null,
                       )
                     } finally {
                       setExportingForm(false)

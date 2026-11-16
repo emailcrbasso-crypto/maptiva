@@ -7,7 +7,32 @@
  */
 
 import { Document, Page, Text, View, StyleSheet, pdf, Image } from '@react-pdf/renderer'
+import QRCode from 'qrcode'
 import type { PdfBranding } from './exportReportPdf'
+
+/** Máximo de folhas com QR próprio (a folha de 50 perguntas usa 3). */
+const MAX_PAGES = 8
+const QR_SIZE = 46
+
+/** Código curto da pesquisa impresso no rodapé e gravado no QR. */
+export function surveyCode(projectId: string): string {
+  return projectId.replace(/-/g, '').slice(0, 8).toUpperCase()
+}
+
+/**
+ * Conteúdo do QR de uma folha: versão, pesquisa, base (ou "-" quando a pessoa
+ * marca a base à mão) e número da folha. Nunca identifica a pessoa.
+ */
+export function qrPayload(projectId: string, unidade: string | null, page: number): string {
+  return `MAPTIVA|v1|DPA|${surveyCode(projectId)}|${unidade ?? '-'}|F${page}`
+}
+
+export async function buildQrImages(projectId: string, unidade: string | null): Promise<string[]> {
+  return Promise.all(
+    Array.from({ length: MAX_PAGES }, (_, i) =>
+      QRCode.toDataURL(qrPayload(projectId, unidade, i + 1), { margin: 1, width: 240, errorCorrectionLevel: 'M' })),
+  )
+}
 
 interface PrintQuestion {
   id:            string
@@ -38,7 +63,7 @@ const BUBBLE = 13
 const MARK = 14   // lado das marcas de alinhamento
 
 const S = StyleSheet.create({
-  page:      { paddingTop: 44, paddingBottom: 48, paddingHorizontal: 44, fontSize: 9, fontFamily: 'Helvetica', color: '#111827' },
+  page:      { paddingTop: 44, paddingBottom: 70, paddingHorizontal: 44, fontSize: 9, fontFamily: 'Helvetica', color: '#111827' },
   mark:      { position: 'absolute', width: MARK, height: MARK, backgroundColor: '#000000' },
   title:     { fontSize: 15, fontFamily: 'Helvetica-Bold', marginTop: 4 },
   subtitle:  { fontSize: 9, color: '#4b5563', marginTop: 2 },
@@ -56,7 +81,8 @@ const S = StyleSheet.create({
   bubbleTxt: { fontSize: 6.5, color: '#6b7280' },
   square:    { width: 11, height: 11, borderWidth: 0.9, borderColor: '#111827', marginRight: 6 },
   optRow:    { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
-  footer:    { position: 'absolute', bottom: 22, left: 44, right: 44, flexDirection: 'row', justifyContent: 'space-between', fontSize: 7, color: '#6b7280' },
+  footer:    { position: 'absolute', bottom: 24, left: 44, right: 44 + QR_SIZE + 10, flexDirection: 'row', justifyContent: 'space-between', fontSize: 7, color: '#6b7280' },
+  qr:        { position: 'absolute', bottom: 16, right: 44, width: QR_SIZE, height: QR_SIZE },
 })
 
 function Bubble({ n }: { n: number }) {
@@ -101,9 +127,14 @@ export function buildPrintGroups(perguntas: PrintQuestion[]): Group[] {
 }
 
 export function PrintDocument({
-  project, branding, unidades,
-}: { project: PrintProject; branding: PdfBranding; unidades: string[] }) {
-  const code = project.id.replace(/-/g, '').slice(0, 8).toUpperCase()
+  project, branding, unidades, unidade, qrs,
+}: {
+  project: PrintProject; branding: PdfBranding; unidades: string[]
+  /** Base pré-impressa na folha (e no QR); sem ela, a pessoa marca a base à mão. */
+  unidade?: string | null
+  qrs: string[]
+}) {
+  const code = surveyCode(project.id)
   const groups = buildPrintGroups(project.config.perguntas)
   const labelUnidade = project.config.label_unidade || 'Unidade'
   const firstScale = groups.find((g) => g.kind === 'scale') as Extract<Group, { kind: 'scale' }> | undefined
@@ -131,7 +162,8 @@ export function PrintDocument({
           <Text style={S.small}>
             Use caneta azul ou preta e preencha a bolha por completo, sem ultrapassar o contorno. Marque apenas uma
             opção por pergunta. Se errar, risque a resposta errada com um X e marque a correta. Não escreva seu nome:
-            suas respostas são anônimas e analisadas apenas em conjunto.
+            suas respostas são anônimas e analisadas apenas em conjunto. O QR code no rodapé identifica somente a
+            pesquisa, a base e a folha, nunca a pessoa.
           </Text>
           <View style={{ flexDirection: 'row', marginTop: 6 }}>
             {legend.map((l, i) => (
@@ -140,7 +172,14 @@ export function PrintDocument({
           </View>
         </View>
 
-        {unidades.length > 0 && (
+        {unidade && (
+          <View style={S.box} wrap={false}>
+            <Text style={S.boxTitle}>{labelUnidade}: {unidade}</Text>
+            <Text style={S.small}>Esta folha já está identificada para a sua {labelUnidade.toLowerCase()}. Não é preciso marcar nada aqui.</Text>
+          </View>
+        )}
+
+        {!unidade && unidades.length > 0 && (
           <View style={S.box} wrap={false}>
             <Text style={S.boxTitle}>Marque a sua {labelUnidade.toLowerCase()}</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
@@ -205,9 +244,16 @@ export function PrintDocument({
 
         <View fixed style={S.footer}>
           <Text>{branding.footerText}</Text>
-          <Text>Pesquisa {code}</Text>
+          <Text>Pesquisa {code}{unidade ? ` · ${unidade}` : ''}</Text>
           <Text render={({ pageNumber, totalPages }) => `Folha ${pageNumber}/${totalPages}`} />
         </View>
+        <View
+          fixed
+          style={S.qr}
+          render={({ pageNumber }) => (
+            <Image src={qrs[Math.min(pageNumber, qrs.length) - 1]} style={{ width: QR_SIZE, height: QR_SIZE }} />
+          )}
+        />
       </Page>
     </Document>
   )
@@ -217,16 +263,19 @@ export async function exportDpaPrintForm(
   project:  PrintProject,
   branding: PdfBranding,
   unidades: string[],
+  unidade: string | null = null,
 ): Promise<void> {
+  const qrs  = await buildQrImages(project.id, unidade)
   const blob = await pdf(
-    <PrintDocument project={project} branding={branding} unidades={unidades} />
+    <PrintDocument project={project} branding={branding} unidades={unidades} unidade={unidade} qrs={qrs} />
   ).toBlob()
 
   const url      = URL.createObjectURL(blob)
   const a        = document.createElement('a')
   const safeName = project.nome.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_')
   a.href         = url
-  a.download     = `Formulario_${safeName}.pdf`
+  const suffixBase = unidade ? `_${unidade.replace(/[^\w-]+/g, '_')}` : ''
+  a.download     = `Formulario_${safeName}${suffixBase}.pdf`
   a.click()
   URL.revokeObjectURL(url)
 }
