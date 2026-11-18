@@ -13,6 +13,8 @@
  *    porque combiná-los gera grupos pequenos e identificáveis.
  */
 
+import { favorabilityByBlock, favorabilityPooled, type QuestionRef } from './favorability'
+
 export interface SegmentDef {
   id:    string
   label: string
@@ -229,4 +231,56 @@ export function participationBy(
   const todos = [...map.values()]
   const grupos = todos.filter((g) => g.respondidos >= nMin).sort((a, b) => b.total - a.total)
   return { grupos, omitidos: todos.length - grupos.length }
+}
+
+// ── Comparativo entre grupos de uma dimensão (empresa, base, área) ───────────
+
+export interface GroupComparison {
+  grupo:  string
+  /** Respondentes do grupo. */
+  n:      number
+  /** Favorabilidade geral (% de notas 4 e 5 em todas as perguntas de escala). */
+  geral:  number
+  /** Favorabilidade por bloco; null quando o bloco não tem respostas no grupo. */
+  blocos: Record<string, number | null>
+}
+
+export interface GroupComparisonResult {
+  /** Blocos na ordem do questionário. */
+  blocos:   string[]
+  /** O recorte inteiro, como linha de referência. */
+  total:    GroupComparison
+  /** Grupos com pelo menos nMin respondentes, do mais favorável ao menos. */
+  grupos:   GroupComparison[]
+  /** Grupos escondidos por terem menos de nMin respondentes. */
+  omitidos: number
+}
+
+function summarize(grupo: string, perguntas: QuestionRef[], rows: SegmentRow[]): GroupComparison {
+  const blocos: Record<string, number | null> = {}
+  for (const b of favorabilityByBlock(perguntas, rows)) blocos[b.bloco] = b.n > 0 ? b.favoravel : null
+  return { grupo, n: rows.length, geral: favorabilityPooled(perguntas, rows).favoravel, blocos }
+}
+
+/** Compara os grupos de uma dimensão dentro do recorte atual, aplicando o mínimo de respondentes. */
+export function compareGroups(
+  perguntas: QuestionRef[],
+  rows: SegmentRow[],
+  def: SegmentDef,
+  nMin: number,
+): GroupComparisonResult {
+  const porGrupo = new Map<string, SegmentRow[]>()
+  for (const r of rows) {
+    const g = segmentValue(r, def)
+    if (g === null) continue
+    if (!porGrupo.has(g)) porGrupo.set(g, [])
+    porGrupo.get(g)!.push(r)
+  }
+  const todos = [...porGrupo.entries()].map(([g, rs]) => ({ g, rs }))
+  const visiveis = todos.filter((x) => x.rs.length >= nMin)
+  const grupos = visiveis
+    .map((x) => summarize(x.g, perguntas, x.rs))
+    .sort((a, b) => b.geral - a.geral)
+  const total = summarize('Total do recorte', perguntas, rows)
+  return { blocos: Object.keys(total.blocos), total, grupos, omitidos: todos.length - visiveis.length }
 }

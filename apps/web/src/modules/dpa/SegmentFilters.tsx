@@ -25,9 +25,13 @@ interface Props {
   nMin:      number
   /** Respondentes dentro do recorte atual. */
   exibindo:  number
+  /** Só desenha estes filtros (os demais continuam valendo no cálculo das opções). */
+  idsVisiveis?: string[]
+  /** Esconde o seletor "Ver resultados por" (o agrupamento fica por conta do comparativo). */
+  semAgrupar?: boolean
 }
 
-export function SegmentFilters({ defs, rows, filtros, onChange, agrupar, onAgrupar, nMin, exibindo }: Props) {
+export function SegmentFilters({ defs, rows, filtros, onChange, agrupar, onAgrupar, nMin, exibindo, idsVisiveis, semAgrupar }: Props) {
   const opcoes = useMemo(
     () => Object.fromEntries(defs.map((d) => [d.id, segmentOptions(rows, defs, filtros, d, nMin)])),
     [defs, rows, filtros, nMin],
@@ -57,7 +61,7 @@ export function SegmentFilters({ defs, rows, filtros, onChange, agrupar, onAgrup
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
       <div className="flex flex-wrap items-end gap-3">
-        {defs.map((d) => {
+        {defs.filter((d) => !idsVisiveis || idsVisiveis.includes(d.id)).map((d) => {
           const bloqueado = perfilBloqueado(defs, filtros, d)
           return (
             <label key={d.id} className="flex flex-col gap-1 text-xs text-gray-500">
@@ -78,6 +82,7 @@ export function SegmentFilters({ defs, rows, filtros, onChange, agrupar, onAgrup
           )
         })}
 
+        {!semAgrupar && (
         <label className="flex flex-col gap-1 text-xs text-gray-500">
           Ver resultados por
           <select
@@ -89,6 +94,7 @@ export function SegmentFilters({ defs, rows, filtros, onChange, agrupar, onAgrup
             {defs.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
           </select>
         </label>
+        )}
 
         {ativos > 0 && (
           <button

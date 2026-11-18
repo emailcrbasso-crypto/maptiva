@@ -18,9 +18,10 @@ import { useTenant } from '@/modules/auth/TenantContext'
 import { DpaEmailComposer } from './DpaEmailComposer'
 import { FavorabilityPanel } from './FavorabilityPanel'
 import { SegmentFilters } from './SegmentFilters'
+import { GroupComparison } from './GroupComparison'
 import { ProfilePanel } from './ProfilePanel'
 import {
-  applyFilters, regroupBy, recorteVisivel, participationBy,
+  applyFilters, regroupBy, recorteVisivel, participationBy, compareGroups,
   type SegmentDef, type SegmentFilters as Filters, type ParticipationAgg,
 } from '@/lib/segments'
 import { exportDpaPdf } from '@/lib/exportDpaPdf'
@@ -158,7 +159,7 @@ export function DpaDashboardPage() {
   const [segRows,   setSegRows]   = useState<Resposta[] | null>(null)
   const [segPart,   setSegPart]   = useState<ParticipationAgg[] | null>(null)
   const [filtros,   setFiltros]   = useState<Filters>({})
-  const [agrupar,   setAgrupar]   = useState('unidade')
+  const [agrupar,   setAgrupar]   = useState('')
 
   const segDefs = useMemo<SegmentDef[]>(
     () => (Array.isArray(project?.config.segmentos) ? (project?.config.segmentos as SegmentDef[]) : []),
@@ -166,7 +167,12 @@ export function DpaDashboardPage() {
   )
   const nMinimo = typeof project?.config.n_minimo === 'number' ? (project.config.n_minimo as number) : 3
   const segAtivo = segDefs.length > 0 && segRows !== null && project?.config.favorabilidade === true
-  const defAgrupar = segDefs.find((d) => d.id === agrupar) ?? segDefs[0]
+  // Dimensões de atributo do participante (empresa, base, área), na ordem de navegação.
+  const dimensoes = useMemo(() => segDefs.filter((d) => d.origem === 'campo'), [segDefs])
+  const dimDisponiveis = dimensoes.filter((d) => !filtros[d.id])
+  // Dimensão comparada agora: a escolhida, se ainda não foi "entrada"; senão a primeira livre.
+  const dimAtual = dimDisponiveis.find((d) => d.id === agrupar) ?? dimDisponiveis[0] ?? null
+  const defAgrupar = dimAtual ?? dimensoes[dimensoes.length - 1] ?? segDefs[0]
   const nFiltros = Object.keys(filtros).length
   // Participação pela dimensão escolhida (e filtros de atributo). Sem os agregados
   // (migration 0112 ainda não aplicada) ou para dimensão vinda de pergunta, cai na lista por unidade.
@@ -184,6 +190,33 @@ export function DpaDashboardPage() {
     () => (segAtivo ? applyFilters(segRows!, segDefs, filtros) : null),
     [segAtivo, segRows, segDefs, filtros],
   )
+  const comparativo = useMemo(
+    () => (segAtivo && recorte && dimAtual && project
+      ? compareGroups(project.config.perguntas, recorte, dimAtual, nMinimo) : null),
+    [segAtivo, recorte, dimAtual, project, nMinimo],
+  )
+  const participacaoPorGrupo = useMemo(
+    () => (participacao ? new Map(participacao.grupos.map((g) => [g.grupo, { respondidos: g.respondidos, total: g.total }])) : null),
+    [participacao],
+  )
+
+  function entrarNoGrupo(def: SegmentDef, valor: string) {
+    const prox = { ...filtros, [def.id]: valor }
+    setFiltros(prox)
+    const i = dimensoes.findIndex((d) => d.id === def.id)
+    const seguinte = dimensoes.slice(i + 1).find((d) => !prox[d.id]) ?? dimensoes.find((d) => !prox[d.id])
+    setAgrupar(seguinte?.id ?? '')
+  }
+  function sairDoGrupo(id: string) {
+    const prox = { ...filtros }
+    delete prox[id]
+    setFiltros(prox)
+    setAgrupar(id)
+  }
+  function limparRecorte() {
+    setFiltros({})
+    setAgrupar('')
+  }
   const respondentesPainel = useMemo<Resposta[]>(
     () => (segAtivo && recorte && defAgrupar ? regroupBy(recorte, defAgrupar) : (dashboard?.respostas ?? [])),
     [segAtivo, recorte, defAgrupar, dashboard],
@@ -824,18 +857,40 @@ export function DpaDashboardPage() {
             </div>
           ) : (
             <>
-              {/* Filtros e agrupamento (pesquisas segmentadas): ficam no topo, acima de tudo que eles alteram */}
+              {/* Navegação por grupos (pesquisas segmentadas): trilha, comparar por e tabela clicável */}
               {segAtivo && recorte && (
-                <SegmentFilters
-                  defs={segDefs}
-                  rows={segRows!}
+                <GroupComparison
+                  dimensoes={dimensoes}
+                  atual={dimAtual}
                   filtros={filtros}
-                  onChange={setFiltros}
-                  agrupar={defAgrupar?.id ?? 'unidade'}
-                  onAgrupar={setAgrupar}
+                  resultado={comparativo}
+                  participacao={participacaoPorGrupo}
                   nMin={nMinimo}
-                  exibindo={recorte.length}
+                  rotuloRaiz={dimensoes[0] ? `Todas as ${dimensoes[0].label.toLowerCase()}s` : 'Todos'}
+                  onTrocarDimensao={setAgrupar}
+                  onEntrar={entrarNoGrupo}
+                  onSair={sairDoGrupo}
+                  onLimpar={limparRecorte}
                 />
+              )}
+              {segAtivo && recorte && segDefs.some((d) => d.origem === 'pergunta') && (
+                <details className="bg-white rounded-xl border border-gray-200 px-4 py-3">
+                  <summary className="text-sm text-gray-600 cursor-pointer">Mais filtros</summary>
+                  <div className="mt-3">
+                    <SegmentFilters
+                      defs={segDefs}
+                      idsVisiveis={segDefs.filter((d) => d.origem === 'pergunta').map((d) => d.id)}
+                      semAgrupar
+                      rows={segRows!}
+                      filtros={filtros}
+                      onChange={setFiltros}
+                      agrupar={defAgrupar?.id ?? ''}
+                      onAgrupar={setAgrupar}
+                      nMin={nMinimo}
+                      exibindo={recorte.length}
+                    />
+                  </div>
+                </details>
               )}
               {segAtivo && recorte && !recorteVisivel(recorte.length, nMinimo) && (
                 <div className="bg-amber-50 border border-amber-100 rounded-xl px-5 py-4 text-sm text-amber-800">
@@ -845,7 +900,7 @@ export function DpaDashboardPage() {
               )}
 
               {/* Participação: por unidade, ou pela dimensão escolhida e filtros nas pesquisas segmentadas */}
-              {(participacao ? participacao.grupos.length > 0 : dashboard.por_unidade.length > 0) && (
+              {(!segAtivo || !segPart) && dashboard.por_unidade.length > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-6">
                   <h3 className="text-sm font-semibold text-gray-900 mb-4">
                     Participação por {participacao && defAgrupar ? defAgrupar.label.toLowerCase() : config.label_unidade}
@@ -906,7 +961,6 @@ export function DpaDashboardPage() {
                       ? project.config.importancia_pergunta_id : undefined
                   }
                   anterior={anteriorPainel ?? undefined}
-                  mostrarPorDimensao={segAtivo}
                 />
               )}
 
