@@ -282,6 +282,22 @@ export function DpaDashboardPage() {
     setTimeout(() => setCopied(null), 2000)
   }
 
+  // QR "responder pelo celular" do formulário impresso. Só existe link único para
+  // todos no modo link compartilhado. Fora dele, o QR só é gerado quando a pesquisa
+  // marca `qr_link_exemplo` (demonstração): usa o link de um participante pendente,
+  // que NÃO serve para uso real (é pessoal e de uso único).
+  function linkQrFormulario(): { url: string; exemplo: boolean } | null {
+    if (!project) return null
+    if (project.shared_link_token) {
+      return { url: `${window.location.origin}/diagnostico/aberto/${project.shared_link_token}`, exemplo: false }
+    }
+    if (project.config.qr_link_exemplo === true) {
+      const pendente = participantes.find((p) => p.status === 'pendente')
+      if (pendente) return { url: `${window.location.origin}/diagnostico/${pendente.token}`, exemplo: true }
+    }
+    return null
+  }
+
   // ── Send email ─────────────────────────────────────────────────────────────
 
   async function sendEmail(participantId: string) {
@@ -451,6 +467,13 @@ export function DpaDashboardPage() {
   if (!project) return null
 
   const { config } = project
+  // Ambiente de demonstração: `envio_email_bloqueado` esconde todos os botões de
+  // e-mail (a função de envio também recusa, no servidor).
+  const emailLiberado = project.config.envio_email_bloqueado !== true
+  // Acesso só de leitura dos resultados (demonstração para o cliente): esconde a
+  // lista de participantes e tudo que seja gestão ou dado individual. É só da
+  // interface — não substitui um papel de leitura imposto pelo servidor.
+  const somenteResultados = project.config.modo_somente_resultados === true
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -500,6 +523,7 @@ export function DpaDashboardPage() {
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[project.status]}`}>
                     {STATUS_LABELS[project.status]}
                   </span>
+                  {!somenteResultados && (
                   <button
                     onClick={startEditTitle}
                     className="text-xs text-gray-400 hover:text-gray-800 transition-colors"
@@ -507,6 +531,7 @@ export function DpaDashboardPage() {
                   >
                     ✎ Editar
                   </button>
+                  )}
                 </div>
                 {project.descricao && (
                   <RichText value={project.descricao} className="text-sm text-gray-500 mt-0.5" />
@@ -517,7 +542,7 @@ export function DpaDashboardPage() {
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Status actions */}
-            {project.status === 'rascunho' && (
+            {!somenteResultados && project.status === 'rascunho' && (
               <button
                 onClick={() => changeStatus('ativo')}
                 disabled={updating || participantes.length === 0}
@@ -527,7 +552,7 @@ export function DpaDashboardPage() {
                 {updating ? 'Ativando...' : '▶ Ativar'}
               </button>
             )}
-            {project.status === 'ativo' && (
+            {!somenteResultados && project.status === 'ativo' && (
               <button
                 onClick={() => changeStatus('encerrado')}
                 disabled={updating}
@@ -539,12 +564,15 @@ export function DpaDashboardPage() {
 
             {dashboard && (
               <>
+                {!somenteResultados && (
                 <button
                   onClick={exportExcel}
                   className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   ↓ Excel
                 </button>
+                )}
+                {!somenteResultados && (
                 <button
                   onClick={async () => {
                     setExportingPdf(true)
@@ -563,6 +591,7 @@ export function DpaDashboardPage() {
                 >
                   {exportingPdf ? 'Gerando...' : '↓ PDF Interno'}
                 </button>
+                )}
                 <button
                   onClick={async () => {
                     setExportingCompilado(true)
@@ -610,6 +639,7 @@ export function DpaDashboardPage() {
                         },
                         dashboard.por_unidade.map((u) => u.unidade),
                         formUnidade || null,
+                        linkQrFormulario(),
                       )
                     } finally {
                       setExportingForm(false)
@@ -628,7 +658,7 @@ export function DpaDashboardPage() {
       </div>
 
       {/* ── Link compartilhado ── */}
-      {project.shared_link_token && project.status !== 'rascunho' && (
+      {!somenteResultados && project.shared_link_token && project.status !== 'rascunho' && (
         <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5 mb-6">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -696,7 +726,7 @@ export function DpaDashboardPage() {
 
       {/* ── Tabs ── */}
       <div className="flex gap-1 mb-5 border-b border-gray-200">
-        {(['resultados', 'participantes'] as const).map((t) => (
+        {(somenteResultados ? ['resultados'] as const : ['resultados', 'participantes'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -907,14 +937,17 @@ export function DpaDashboardPage() {
       )}
 
       {/* ── Tab: Participantes ── */}
-      {tab === 'participantes' && (
+      {tab === 'participantes' && !somenteResultados && (
         <div>
           <div className="flex items-center justify-between mb-4 gap-3">
             <p className="text-sm text-gray-500">
               {participantes.filter((p) => p.status === 'respondido').length} responderam de {participantes.length}
             </p>
             <div className="flex items-center gap-2">
-              {project.status === 'ativo' && !project.shared_link_token && participantes.some((p) => p.status === 'pendente' && !p.email_enviado_em) && (
+              {!emailLiberado && (
+                <span className="text-xs text-gray-400">Envio de e-mail desativado nesta demonstração</span>
+              )}
+              {project.status === 'ativo' && emailLiberado && !project.shared_link_token && participantes.some((p) => p.status === 'pendente' && !p.email_enviado_em) && (
                 <label className="flex items-center gap-1.5 text-xs text-gray-500">
                   Lote
                   <input
@@ -927,7 +960,7 @@ export function DpaDashboardPage() {
                   />
                 </label>
               )}
-              {project.status === 'ativo' && !project.shared_link_token && participantes.some((p) => p.status === 'pendente' && !p.email_enviado_em) && (
+              {project.status === 'ativo' && emailLiberado && !project.shared_link_token && participantes.some((p) => p.status === 'pendente' && !p.email_enviado_em) && (
                 <button
                   onClick={sendEmailBulk}
                   disabled={sendingBulk}
@@ -946,7 +979,7 @@ export function DpaDashboardPage() {
                   )}
                 </button>
               )}
-              {project.status === 'ativo' && !project.shared_link_token && participantes.some((p) => p.status === 'pendente') && (
+              {project.status === 'ativo' && emailLiberado && !project.shared_link_token && participantes.some((p) => p.status === 'pendente') && (
                 <button
                   onClick={() => setShowComposer(true)}
                   className="text-xs border border-blue-600 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors"
@@ -1091,7 +1124,7 @@ export function DpaDashboardPage() {
                         >
                           {copied === p.token ? '✓ Link copiado' : 'Copiar link'}
                         </button>
-                        {project.status === 'ativo' && !project.shared_link_token && p.status === 'pendente' && (
+                        {project.status === 'ativo' && emailLiberado && !project.shared_link_token && p.status === 'pendente' && (
                           <button
                             onClick={() => sendEmail(p.id)}
                             disabled={sendingEmail === p.id}

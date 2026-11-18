@@ -363,11 +363,25 @@ serve(async (req: Request) => {
     id: string
     nome: string
     status: string
-    config: { label_unidade: string; perguntas: unknown[]; email?: DpaEmailConfig }
+    config: { label_unidade: string; perguntas: unknown[]; email?: DpaEmailConfig; envio_email_bloqueado?: boolean }
   }
 
   if (projetoData.status !== 'ativo') {
     return json({ ok: false, error: 'Cannot send invites — project is not active' })
+  }
+
+  // Ambiente de demonstração: nunca envia e-mail. Os endereços fictícios (.invalid)
+  // voltariam como erro e prejudicariam a reputação do domínio de envio. Vale para
+  // projetos marcados com envio_email_bloqueado e para qualquer tenant cujo slug
+  // comece com "demo-" (este último o administrador do tenant não consegue editar).
+  const { data: tenantRow } = await adminClient
+    .from('tenants')
+    .select('slug')
+    .eq('id', tenantId)
+    .single()
+  const tenantSlug = String((tenantRow as { slug?: string } | null)?.slug ?? '')
+  if (projetoData.config?.envio_email_bloqueado === true || tenantSlug.startsWith('demo-')) {
+    return json({ ok: false, error: 'Envio de e-mail desativado neste ambiente de demonstração.' })
   }
 
   // ── 6. Carregar branding do tenant ────────────────────────────────────────────
