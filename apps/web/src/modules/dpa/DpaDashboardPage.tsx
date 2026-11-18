@@ -141,6 +141,7 @@ export function DpaDashboardPage() {
   const [exportingForm,      setExportingForm]      = useState(false)
   const [formUnidade,        setFormUnidade]        = useState('')
   const [lote, setLote] = useState<{ feitos: number; total: number } | null>(null)
+  const [pedidoRanking, setPedidoRanking] = useState<{ bloco: string; ordem: 'desc' | 'asc'; n: number }>()
   const [updating,     setUpdating]     = useState(false)
   const [copied,       setCopied]       = useState<string | null>(null)
   const [sendingEmail,   setSendingEmail]   = useState<string | null>(null)  // participant id being sent
@@ -286,6 +287,10 @@ export function DpaDashboardPage() {
     }
   }, [project, pdfClima, segAtivo, segRows, dimAtual, perguntasPerfil, nMinimo, branding, segDefs, dimensoes, anterior, segPart, filtros])
   const qtdLote = useMemo(() => (paramsLote ? gruposDoLote(paramsLote).length : 0), [paramsLote])
+
+  function verBlocoNoRanking(bloco: string, ordem: 'desc' | 'asc') {
+    setPedidoRanking((p) => ({ bloco, ordem, n: (p?.n ?? 0) + 1 }))
+  }
 
   async function baixarLote() {
     if (!paramsLote) return
@@ -1033,6 +1038,7 @@ export function DpaDashboardPage() {
                   insights={insights}
                   participacao={participacaoResumo}
                   temImportancia={typeof project.config.importancia_pergunta_id === 'string'}
+                  onVerBloco={verBlocoNoRanking}
                 />
               )}
               {/* Perfil dos respondentes: fecha a visão geral. Só distribuição agregada, nunca cruzada com resultados */}
@@ -1163,6 +1169,7 @@ export function DpaDashboardPage() {
                   }
                   anterior={anteriorPainel ?? undefined}
                   ocultarGeral={insights !== null}
+                  pedidoRanking={pedidoRanking}
                   onEntrarGrupo={segAtivo && dimAtual ? (g) => entrarNoGrupo(dimAtual, g) : undefined}
                 />
               )}

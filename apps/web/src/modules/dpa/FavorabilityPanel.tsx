@@ -6,7 +6,7 @@
  * o cálculo vive em lib/favorability.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   favorabilityByBlock,
   favorabilityByQuestion,
@@ -41,6 +41,8 @@ interface Props {
   ocultarGeral?: boolean
   /** Clicar em um grupo (base, empresa, área) das listas leva ao recorte dele. */
   onEntrarGrupo?: (grupo: string) => void
+  /** Pedido de fora (ex.: clique no resumo) para mostrar as perguntas de um bloco no ranking. */
+  pedidoRanking?: { bloco: string; ordem: 'desc' | 'asc'; n: number }
 }
 
 const QUADRANT_STYLE: Record<PriorityQuadrant, { label: string; color: string }> = {
@@ -193,12 +195,22 @@ function PriorityChart({ pontos, corteFavoravel, corteImportancia, onSelect }: R
   )
 }
 
-export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin, importanciaPerguntaId, anterior, mostrarPorDimensao, ocultarGeral, onEntrarGrupo }: Props) {
+export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin, importanciaPerguntaId, anterior, mostrarPorDimensao, ocultarGeral, onEntrarGrupo, pedidoRanking }: Props) {
   const [blocoFiltro, setBlocoFiltro] = useState<string>('')
   const [ordem, setOrdem] = useState<'desc' | 'asc'>('desc')
   const [verTodas, setVerTodas] = useState(false)
   const [atalho, setAtalho] = useState<'todas' | 'mais' | 'menos'>('todas')
   const [limiteAtalho, setLimiteAtalho] = useState(5)
+
+  // Pedido vindo do resumo: filtra o ranking pelo bloco, ordena e leva até ele.
+  useEffect(() => {
+    if (!pedidoRanking) return
+    setBlocoFiltro(pedidoRanking.bloco)
+    setOrdem(pedidoRanking.ordem)
+    setAtalho('todas')
+    const t = setTimeout(() => document.getElementById('sec-perguntas')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
+    return () => clearTimeout(t)
+  }, [pedidoRanking?.n]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const dados = useMemo(() => {
     const blocos = favorabilityByBlock(perguntas, respondentes)

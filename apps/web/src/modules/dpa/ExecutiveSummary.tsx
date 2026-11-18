@@ -14,6 +14,8 @@ interface Props {
   participacao:    { respondidos: number; total: number } | null
   /** A pesquisa tem pergunta de importância (sem ela, não há "por onde começar"). */
   temImportancia:  boolean
+  /** Leva às perguntas do bloco no ranking (ordem: pior primeiro = 'asc'). */
+  onVerBloco?:     (bloco: string, ordem: 'desc' | 'asc') => void
 }
 
 function DeltaPill({ delta, rotulo }: { delta: number; rotulo: string }) {
@@ -30,20 +32,36 @@ function DeltaPill({ delta, rotulo }: { delta: number; rotulo: string }) {
   )
 }
 
-function Destaque({ titulo, nome, detalhe, tom }: {
+function Destaque({ titulo, nome, detalhe, tom, onClick }: {
   titulo: string; nome: string | null; detalhe: string; tom: 'bom' | 'ruim' | 'neutro'
+  onClick?: () => void
 }) {
   const cor = tom === 'bom' ? 'text-green-700' : tom === 'ruim' ? 'text-red-700' : 'text-gray-500'
-  return (
-    <div className="rounded-lg border border-gray-200 px-3.5 py-3">
+  const conteudo = (
+    <>
       <p className="text-[11px] text-gray-500">{titulo}</p>
       <p className="text-sm font-medium text-gray-900 mt-0.5 leading-snug">{nome ?? '—'}</p>
       <p className={`text-xs mt-0.5 ${cor}`}>{detalhe}</p>
-    </div>
+    </>
+  )
+  if (!onClick || !nome) {
+    return <div className="rounded-lg border border-gray-200 px-3.5 py-3">{conteudo}</div>
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Ver as perguntas do bloco ${nome}`}
+      title="Ver as perguntas deste bloco"
+      className="group relative text-left rounded-lg border border-gray-200 px-3.5 py-3 transition-colors hover:border-gray-400 hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2"
+    >
+      {conteudo}
+      <span className="absolute right-3 top-3 text-gray-300 group-hover:text-gray-600" aria-hidden="true">›</span>
+    </button>
   )
 }
 
-export function ExecutiveSummary({ insights: i, participacao, temImportancia }: Props) {
+export function ExecutiveSummary({ insights: i, participacao, temImportancia, onVerBloco }: Props) {
   const partPct = participacao && participacao.total > 0
     ? Math.round((participacao.respondidos / participacao.total) * 100) : null
   const comparativo = i.rotuloAnterior !== null
@@ -101,12 +119,14 @@ export function ExecutiveSummary({ insights: i, participacao, temImportancia }: 
             nome={i.maisForte?.bloco ?? null}
             detalhe={i.maisForte ? `${fmtPct(i.maisForte.favoravel)}% favorável` : 'Sem dados'}
             tom="bom"
+            onClick={onVerBloco && i.maisForte ? () => onVerBloco(i.maisForte!.bloco, 'desc') : undefined}
           />
           <Destaque
             titulo="Ponto de atenção"
             nome={i.maisFraco?.bloco ?? null}
             detalhe={i.maisFraco ? `${fmtPct(i.maisFraco.favoravel)}% favorável` : 'Sem dados'}
             tom="ruim"
+            onClick={onVerBloco && i.maisFraco ? () => onVerBloco(i.maisFraco!.bloco, 'asc') : undefined}
           />
           {comparativo && (
             <>
@@ -115,12 +135,14 @@ export function ExecutiveSummary({ insights: i, participacao, temImportancia }: 
                 nome={i.melhora?.rotulo ?? null}
                 detalhe={i.melhora ? `+${fmtPct(i.melhora.delta)} p.p.` : 'Nenhuma variação relevante'}
                 tom={i.melhora ? 'bom' : 'neutro'}
+                onClick={onVerBloco && i.melhora ? () => onVerBloco(i.melhora!.rotulo, 'desc') : undefined}
               />
               <Destaque
                 titulo="Maior queda"
                 nome={i.queda?.rotulo ?? null}
                 detalhe={i.queda ? `−${fmtPct(Math.abs(i.queda.delta))} p.p.` : 'Nenhuma variação relevante'}
                 tom={i.queda ? 'ruim' : 'neutro'}
+                onClick={onVerBloco && i.queda ? () => onVerBloco(i.queda!.rotulo, 'asc') : undefined}
               />
             </>
           )}
@@ -137,15 +159,24 @@ export function ExecutiveSummary({ insights: i, participacao, temImportancia }: 
           ) : (
             <ul className="rounded-lg border border-gray-200 divide-y divide-gray-100">
               {i.prioridades.map((p, idx) => (
-                <li key={p.bloco} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-2.5">
-                  <span
-                    className={`w-2 h-2 rounded-full shrink-0 ${idx === 0 ? 'bg-red-500' : idx === 1 ? 'bg-red-400' : 'bg-amber-400'}`}
-                    aria-hidden="true"
-                  />
-                  <span className="text-sm text-gray-900 flex-1 min-w-[180px]">{p.bloco}</span>
-                  <span className="text-xs text-gray-500">
-                    importante para {fmtPct(p.importancia)}% e favorável para {fmtPct(p.favoravel)}%
-                  </span>
+                <li key={p.bloco}>
+                  <button
+                    type="button"
+                    disabled={!onVerBloco}
+                    onClick={() => onVerBloco?.(p.bloco, 'asc')}
+                    title="Ver as perguntas deste bloco"
+                    className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-2.5 text-left enabled:hover:bg-gray-50"
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${idx === 0 ? 'bg-red-500' : idx === 1 ? 'bg-red-400' : 'bg-amber-400'}`}
+                      aria-hidden="true"
+                    />
+                    <span className="text-sm text-gray-900 flex-1 min-w-[180px]">{p.bloco}</span>
+                    <span className="text-xs text-gray-500">
+                      importante para {fmtPct(p.importancia)}% e favorável para {fmtPct(p.favoravel)}%
+                    </span>
+                    {onVerBloco && <span className="text-gray-300" aria-hidden="true">›</span>}
+                  </button>
                 </li>
               ))}
             </ul>
@@ -158,12 +189,21 @@ export function ExecutiveSummary({ insights: i, participacao, temImportancia }: 
           <h3 className="text-sm font-medium text-gray-900 mb-2">Perguntas mais críticas</h3>
           <ul className="rounded-lg border border-gray-200 divide-y divide-gray-100">
             {i.criticas.map((q) => (
-              <li key={q.texto} className="flex items-start gap-3 px-3.5 py-2.5">
-                <span className={`w-12 shrink-0 text-sm font-semibold tabular-nums ${q.favoravel >= 50 ? 'text-amber-700' : 'text-red-600'}`}>
-                  {fmtPct(q.favoravel)}%
-                </span>
-                <span className="text-sm text-gray-800 flex-1 leading-snug">{q.texto}</span>
-                <span className="hidden sm:inline text-[11px] text-gray-500 bg-gray-100 rounded px-2 py-0.5 shrink-0">{q.bloco}</span>
+              <li key={q.texto}>
+                <button
+                  type="button"
+                  disabled={!onVerBloco}
+                  onClick={() => onVerBloco?.(q.bloco, 'asc')}
+                  title="Ver as perguntas deste bloco"
+                  className="w-full flex items-start gap-3 px-3.5 py-2.5 text-left enabled:hover:bg-gray-50"
+                >
+                  <span className={`w-12 shrink-0 text-sm font-semibold tabular-nums ${q.favoravel >= 50 ? 'text-amber-700' : 'text-red-600'}`}>
+                    {fmtPct(q.favoravel)}%
+                  </span>
+                  <span className="text-sm text-gray-800 flex-1 leading-snug">{q.texto}</span>
+                  <span className="hidden sm:inline text-[11px] text-gray-500 bg-gray-100 rounded px-2 py-0.5 shrink-0">{q.bloco}</span>
+                  {onVerBloco && <span className="text-gray-300" aria-hidden="true">›</span>}
+                </button>
               </li>
             ))}
           </ul>
