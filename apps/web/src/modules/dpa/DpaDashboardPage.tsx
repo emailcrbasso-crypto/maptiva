@@ -21,6 +21,7 @@ import { SegmentFilters } from './SegmentFilters'
 import { GroupComparison, Trilha } from './GroupComparison'
 import { ExecutiveSummary } from './ExecutiveSummary'
 import { SectionNav } from './SectionNav'
+import { useAccess } from '@/modules/auth/AccessContext'
 import { ResultsSkeleton } from './ResultsSkeleton'
 import { buildInsights } from '@/lib/insights'
 import { ProfilePanel } from './ProfilePanel'
@@ -123,6 +124,7 @@ function scoreColor(avg: number): string {
 export function DpaDashboardPage() {
   const { id }       = useParams<{ id: string }>()
   const { branding } = useTenant()
+  const { restrito: acessoCliente } = useAccess()
 
   const [project,      setProject]      = useState<DpaProject | null>(null)
   const [dashboard,    setDashboard]    = useState<DashboardData | null>(null)
@@ -681,7 +683,7 @@ export function DpaDashboardPage() {
   // Acesso só de leitura dos resultados (demonstração para o cliente): esconde a
   // lista de participantes e tudo que seja gestão ou dado individual. É só da
   // interface — não substitui um papel de leitura imposto pelo servidor.
-  const somenteResultados = project.config.modo_somente_resultados === true
+  const somenteResultados = project.config.modo_somente_resultados === true || acessoCliente
 
   return (
     <div className="max-w-5xl mx-auto" style={{ '--brand': branding.primaryColor } as CSSProperties}>

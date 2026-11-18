@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/modules/auth/AuthContext'
 import { useTenant } from '@/modules/auth/TenantContext'
 import { useSuperAdminMode } from '@/modules/auth/SuperAdminContext'
+import { rotaPermitidaRestrito, useAccess } from '@/modules/auth/AccessContext'
 import { supabase } from '@/lib/supabase'
 
 const navItems = [
@@ -29,6 +30,8 @@ export function Layout() {
   const { branding }                 = useTenant()
   const { viewingTenant, exitTenant } = useSuperAdminMode()
   const navigate                     = useNavigate()
+  const { pathname }                 = useLocation()
+  const { restrito, loading: acessoCarregando } = useAccess()
 
   const [menuOpen,     setMenuOpen]     = useState(false)
   const [exitingMode,  setExitingMode]  = useState(false)
@@ -98,7 +101,8 @@ export function Layout() {
 
         {/* Nav */}
         <nav className="flex gap-1 flex-1">
-          {navItems.map(({ to, label }) => (
+          {/* Acesso de cliente: só Dashboard e InSight. Enquanto não sabemos, nenhum item (sem piscar o menu completo). */}
+          {navItems.filter(({ to }) => !acessoCarregando && (!restrito || to === '/dashboard' || to === '/dpa')).map(({ to, label }) => (
             <NavLink
               key={to}
               to={to}
@@ -192,12 +196,14 @@ export function Layout() {
                 >
                   Meu perfil
                 </button>
+                {!restrito && (
                 <button
                   onClick={() => { setMenuOpen(false); navigate('/settings/branding') }}
                   className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   Identidade visual
                 </button>
+                )}
                 <div className="border-t border-gray-100 mt-1 pt-1">
                   <button
                     onClick={() => { setMenuOpen(false); signOut() }}
@@ -214,7 +220,11 @@ export function Layout() {
 
       {/* Page content */}
       <main className="flex-1 p-6 max-w-6xl mx-auto w-full">
-        <Outlet />
+        {acessoCarregando
+          ? <p className="text-sm text-gray-400">Carregando...</p>
+          : restrito && !rotaPermitidaRestrito(pathname)
+            ? <Navigate to="/dashboard" replace />
+            : <Outlet />}
       </main>
     </div>
   )

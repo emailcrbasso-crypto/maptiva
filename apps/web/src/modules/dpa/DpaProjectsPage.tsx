@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { htmlToText } from '@/lib/richText'
+import { useAccess } from '@/modules/auth/AccessContext'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function DpaProjectsPage() {
   const navigate = useNavigate()
+  const { restrito } = useAccess()
   const [projects, setProjects] = useState<DpaProject[]>([])
   const [loading,  setLoading]  = useState(true)
 
@@ -84,17 +86,19 @@ export function DpaProjectsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">Diagnóstico Prévio Anônimo</h1>
+          <h1 className="text-xl font-semibold text-gray-900">{restrito ? 'Pesquisas' : 'Diagnóstico Prévio Anônimo'}</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            Questionários anônimos enviados antes de um ciclo formal.
+            {restrito ? 'Escolha uma pesquisa para ver os resultados.' : 'Questionários anônimos enviados antes de um ciclo formal.'}
           </p>
         </div>
+        {!restrito && (
         <button
           onClick={() => navigate('/dpa/new')}
           className="text-sm bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
         >
           + Novo projeto
         </button>
+        )}
       </div>
 
       {/* Content */}
@@ -107,12 +111,14 @@ export function DpaProjectsPage() {
           <p className="text-sm text-gray-500 mb-6">
             Crie um diagnóstico para coletar percepções anônimas da sua equipe antes de iniciar um ciclo de avaliação.
           </p>
+          {!restrito && (
           <button
             onClick={() => navigate('/dpa/new')}
             className="text-sm bg-gray-900 text-white px-5 py-2.5 rounded-lg hover:bg-gray-700 transition-colors"
           >
             Criar primeiro projeto
           </button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
@@ -161,6 +167,7 @@ export function DpaProjectsPage() {
                   <p className="text-xs text-gray-400">
                     Criado em {new Date(p.created_at).toLocaleDateString('pt-BR')}
                   </p>
+                  {!restrito && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
@@ -173,6 +180,7 @@ export function DpaProjectsPage() {
                   >
                     ⧉ Duplicar
                   </button>
+                  )}
                 </div>
               </div>
             )

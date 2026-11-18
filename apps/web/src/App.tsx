@@ -2,11 +2,12 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from '@/modules/auth/AuthContext'
 import { SuperAdminProvider } from '@/modules/auth/SuperAdminContext'
 import { TenantProvider } from '@/modules/auth/TenantContext'
+import { AccessProvider } from '@/modules/auth/AccessContext'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Layout } from '@/components/Layout'
 import { LoginPage } from '@/modules/auth/LoginPage'
-import { DashboardPage } from '@/modules/dashboard/DashboardPage'
+import { DashboardEntry } from '@/modules/dashboard/DashboardEntry'
 import { CyclesPage } from '@/modules/cycles/CyclesPage'
 import { CycleDetailPage } from '@/modules/cycles/CycleDetailPage'
 import { NewCyclePage } from '@/modules/cycles/NewCyclePage'
@@ -40,6 +41,7 @@ export default function App() {
       <AuthProvider>
         <SuperAdminProvider>
         <TenantProvider>
+        <AccessProvider>
         <Routes>
           {/* Rotas públicas: avaliadores e participantes DPA chegam via magic link */}
           <Route path="/respond/:token"          element={<RespondPage />} />
@@ -59,7 +61,7 @@ export default function App() {
             }
           >
             <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/dashboard" element={<DashboardEntry />} />
             <Route path="/cycles" element={<CyclesPage />} />
             <Route path="/cycles/new" element={<NewCyclePage />} />
             <Route path="/cycles/:id" element={<CycleDetailPage />} />
@@ -86,6 +88,7 @@ export default function App() {
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+        </AccessProvider>
         </TenantProvider>
         </SuperAdminProvider>
       </AuthProvider>
