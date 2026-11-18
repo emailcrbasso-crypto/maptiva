@@ -25,10 +25,11 @@ import { ResultsSkeleton } from './ResultsSkeleton'
 import { buildInsights } from '@/lib/insights'
 import { ProfilePanel } from './ProfilePanel'
 import {
-  applyFilters, regroupBy, recorteVisivel, participationBy, participationTotal, compareGroups,
+  applyFilters, regroupBy, recorteVisivel, participationBy, participationTotal, compareGroups, describeFilters,
   type SegmentDef, type SegmentFilters as Filters, type ParticipationAgg,
 } from '@/lib/segments'
 import { exportDpaPdf } from '@/lib/exportDpaPdf'
+import { exportClimaPdf } from '@/lib/exportClimaPdf'
 import { exportDpaPrintForm } from '@/lib/exportDpaPrintForm'
 import * as XLSX from 'xlsx'
 
@@ -239,6 +240,7 @@ export function DpaDashboardPage() {
     ? 'Em todo o grupo'
     : `No recorte ${dimensoes.filter((d) => filtros[d.id]).map((d) => filtros[d.id]).join(' · ')}`
   const recorteOculto = segAtivo && recorte !== null && !recorteVisivel(recorte.length, nMinimo)
+  const recorteTexto = nFiltros === 0 ? 'Todo o grupo' : describeFilters(segDefs, filtros)
   const insights = useMemo(() => {
     if (!project || project.config.favorabilidade !== true || recorteOculto) return null
     const linhas = segAtivo && recorte ? recorte : (dashboard?.respostas ?? [])
@@ -252,6 +254,7 @@ export function DpaDashboardPage() {
       escopo,
     })
   }, [project, recorteOculto, segAtivo, recorte, dashboard, anteriorPainel, escopo])
+  const pdfClima = project?.config.favorabilidade === true && insights !== null
   const participacaoResumo = useMemo(() => {
     if (segAtivo && segPart) return participationTotal(segPart, segDefs, filtros)
     if (dashboard && !dashboard.modo_compartilhado && nFiltros === 0) {
@@ -707,19 +710,43 @@ export function DpaDashboardPage() {
               <button
                 onClick={async () => {
                   setExportingCompilado(true)
-                  await exportDpaPdf(project, dashboard, {
-                    companyName:  branding.name,
-                    logoUrl:      branding.logoUrl,
-                    primaryColor: branding.primaryColor,
-                    footerText:   branding.pdfFooterText,
-                    hideMaptiva:  branding.hideMaptiva,
-                  }, 'compilado', anterior ?? undefined)
-                  setExportingCompilado(false)
+                  try {
+                    const marca = {
+                      companyName:  branding.name,
+                      logoUrl:      branding.logoUrl,
+                      primaryColor: branding.primaryColor,
+                      footerText:   branding.pdfFooterText,
+                      hideMaptiva:  branding.hideMaptiva,
+                    }
+                    if (pdfClima && insights) {
+                      // Pesquisa de clima: relatório do recorte atual, no desenho da tela.
+                      await exportClimaPdf({
+                        projetoNome:     project.nome,
+                        perguntas:       project.config.perguntas,
+                        respondentes:    segAtivo && recorte ? recorte : dashboard.respostas,
+                        anterior:        anteriorPainel,
+                        insights,
+                        participacao:    participacaoResumo,
+                        recorteTexto,
+                        comparativo,
+                        dimensaoLabel:   dimAtual?.label ?? null,
+                        perfilPerguntas: perguntasPerfil,
+                        nMin:            nMinimo,
+                        branding:        marca,
+                      })
+                    } else {
+                      await exportDpaPdf(project, dashboard, marca, 'compilado', anterior ?? undefined)
+                    }
+                  } finally {
+                    setExportingCompilado(false)
+                  }
                 }}
-                disabled={exportingCompilado || nFiltros > 0}
-                title={nFiltros > 0
-                  ? 'Remova os filtros para gerar o PDF (o PDF por recorte entra na próxima etapa)'
-                  : 'Somente dados agregados e anônimos — apto para envio ao cliente'}
+                disabled={exportingCompilado || (nFiltros > 0 && !pdfClima)}
+                title={pdfClima
+                  ? (nFiltros > 0 ? `PDF do recorte atual: ${recorteTexto}` : 'Relatório em PDF com dados agregados e anônimos')
+                  : nFiltros > 0
+                    ? 'Remova os filtros para gerar o PDF'
+                    : 'Somente dados agregados e anônimos — apto para envio ao cliente'}
                 className="text-sm px-4 py-2 rounded-lg text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
                 style={{ backgroundColor: 'var(--brand, #111827)' }}
               >
