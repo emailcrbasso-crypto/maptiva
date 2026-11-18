@@ -21,6 +21,7 @@ import { SegmentFilters } from './SegmentFilters'
 import { GroupComparison, Trilha } from './GroupComparison'
 import { ExecutiveSummary } from './ExecutiveSummary'
 import { SectionNav } from './SectionNav'
+import { ResultsSkeleton } from './ResultsSkeleton'
 import { buildInsights } from '@/lib/insights'
 import { ProfilePanel } from './ProfilePanel'
 import {
@@ -285,59 +286,57 @@ export function DpaDashboardPage() {
     setParticipantes((partRes.data ?? []) as Participante[])
 
     if ((projRes.data as DpaProject).status !== 'rascunho') {
-      const { data: dashData, error: dashError } = await supabase.rpc('get_dpa_dashboard', {
-        p_projeto_id: id,
-      })
-      if (dashError) {
-        console.error('get_dpa_dashboard error:', dashError)
-        setError(`Erro ao carregar resultados: ${dashError.message}`)
-        setLoading(false)
-        return
-      }
-      if (dashData) {
-        setDashboard(dashData as DashboardData)
-      }
-
-      // Comparativo com a edição anterior (opt-in via config.comparativo_projeto_id)
       const cfg = (projRes.data as DpaProject).config
       const antId = typeof cfg.comparativo_projeto_id === 'string' ? cfg.comparativo_projeto_id : null
       const segmentado = Array.isArray(cfg.segmentos) && cfg.segmentos.length > 0 && cfg.favorabilidade === true
 
+      // Tudo em paralelo: resultados, respostas com empresa/área e edição anterior.
+      const [dashRes, segRes, antRes] = await Promise.all([
+        supabase.rpc('get_dpa_dashboard', { p_projeto_id: id }),
+        segmentado ? supabase.rpc('get_dpa_dashboard_segmentos', { p_projeto_id: id }) : Promise.resolve(null),
+        antId && cfg.favorabilidade === true ? carregarEdicaoAnterior(antId, segmentado) : Promise.resolve(null),
+      ])
+
+      if (dashRes.error) {
+        console.error('get_dpa_dashboard error:', dashRes.error)
+        setError(`Erro ao carregar resultados: ${dashRes.error.message}`)
+        setLoading(false)
+        return
+      }
+      if (dashRes.data) setDashboard(dashRes.data as DashboardData)
+
       // Respostas com empresa/área/unidade, para os filtros (falha em silêncio: sem filtros).
       setSegRows(null)
       setSegPart(null)
-      if (segmentado) {
-        const seg = await supabase.rpc('get_dpa_dashboard_segmentos', { p_projeto_id: id })
-        if (!seg.error && seg.data) {
-          const d = seg.data as { respostas: Resposta[]; participacao?: ParticipationAgg[] }
-          setSegRows(d.respostas)
-          setSegPart(Array.isArray(d.participacao) ? d.participacao : null)
-        }
+      if (segRes && !segRes.error && segRes.data) {
+        const d = segRes.data as { respostas: Resposta[]; participacao?: ParticipationAgg[] }
+        setSegRows(d.respostas)
+        setSegPart(Array.isArray(d.participacao) ? d.participacao : null)
       }
 
-      setAnterior(null)
-      if (antId && cfg.favorabilidade === true) {
-        const [antProj, antDash] = await Promise.all([
-          supabase.from('dpa_projetos').select('nome, config').eq('id', antId).single(),
-          supabase.rpc('get_dpa_dashboard', { p_projeto_id: antId }),
-        ])
-        const antData = antDash.data as DashboardData | null
-        if (!antProj.error && !antDash.error && antData) {
-          const antCfg = (antProj.data?.config ?? {}) as Record<string, unknown>
-          let antRows = antData.respostas
-          if (segmentado) {
-            const antSeg = await supabase.rpc('get_dpa_dashboard_segmentos', { p_projeto_id: antId })
-            if (!antSeg.error && antSeg.data) antRows = (antSeg.data as { respostas: Resposta[] }).respostas
-          }
-          setAnterior({
-            rotulo: typeof antCfg.rotulo_comparativo === 'string' ? antCfg.rotulo_comparativo : (antProj.data?.nome ?? 'edição anterior'),
-            respondentes: antRows,
-          })
-        }
-      }
+      setAnterior(antRes)
     }
 
     setLoading(false)
+  }
+
+  // Edição anterior para o comparativo (opt-in via config.comparativo_projeto_id).
+  async function carregarEdicaoAnterior(antId: string, segmentado: boolean) {
+    const [antProj, antDash, antSeg] = await Promise.all([
+      supabase.from('dpa_projetos').select('nome, config').eq('id', antId).single(),
+      supabase.rpc('get_dpa_dashboard', { p_projeto_id: antId }),
+      segmentado ? supabase.rpc('get_dpa_dashboard_segmentos', { p_projeto_id: antId }) : Promise.resolve(null),
+    ])
+    const antData = antDash.data as DashboardData | null
+    if (antProj.error || antDash.error || !antData) return null
+    const antCfg = (antProj.data?.config ?? {}) as Record<string, unknown>
+    const antRows = antSeg && !antSeg.error && antSeg.data
+      ? (antSeg.data as { respostas: Resposta[] }).respostas
+      : antData.respostas
+    return {
+      rotulo: typeof antCfg.rotulo_comparativo === 'string' ? antCfg.rotulo_comparativo : (antProj.data?.nome ?? 'edição anterior'),
+      respondentes: antRows,
+    }
   }
 
   useEffect(() => { load() }, [id])
@@ -610,8 +609,22 @@ export function DpaDashboardPage() {
 
   // ─────────────────────────────────────────────────────────────────────────
 
-  if (loading) return <p className="text-gray-400 text-sm">Carregando...</p>
-  if (error)   return <p className="text-red-500 text-sm">{error}</p>
+  if (loading) return <ResultsSkeleton />
+  if (error) {
+    return (
+      <div className="max-w-xl mx-auto bg-white rounded-xl border border-gray-200 p-8 text-center" role="alert">
+        <h2 className="text-base font-medium text-gray-900">Não foi possível carregar os resultados</h2>
+        <p className="text-sm text-gray-500 mt-2">{error}</p>
+        <button
+          type="button"
+          onClick={() => { setError(null); setLoading(true); void load() }}
+          className="mt-5 text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+        >
+          Tentar de novo
+        </button>
+      </div>
+    )
+  }
   if (!project) return null
 
   const { config } = project
@@ -949,6 +962,7 @@ export function DpaDashboardPage() {
                     { id: 'sec-perguntas', label: 'Perguntas' },
                     { id: 'sec-mapa', label: 'Mapa de calor' },
                     { id: 'sec-perfil', label: 'Perfil' },
+                    { id: 'sec-respostas', label: 'Respostas abertas' },
                   ]}
                 />
               )}
@@ -1069,9 +1083,13 @@ export function DpaDashboardPage() {
               )}
 
               {/* Per-question results (sem filtros ativos: usam todas as respostas) */}
-              {nFiltros === 0 && config.perguntas.map((p, idx) => {
+              {nFiltros === 0 && (
+              <div id="sec-respostas" className="space-y-5 scroll-mt-16">
+              {config.perguntas.map((p, idx) => {
                 // Perguntas de perfil só aparecem no quadro "Perfil dos respondentes" (com o mínimo aplicado).
                 if (perguntasPerfil.some((pp) => pp.id === p.id)) return null
+                // Nas pesquisas de clima as perguntas de escala já estão no ranking: aqui ficam só as demais.
+                if (project.config.favorabilidade === true && p.tipo === 'escala_5') return null
                 const stats = questionStats(p.id, p.tipo)
                 return (
                   <div key={p.id} className="bg-white rounded-xl border border-gray-200 p-6">
@@ -1194,6 +1212,8 @@ export function DpaDashboardPage() {
                   </div>
                 )
               })}
+              </div>
+              )}
             </>
           )}
         </div>

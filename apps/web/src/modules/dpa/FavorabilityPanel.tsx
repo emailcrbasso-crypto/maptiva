@@ -146,8 +146,8 @@ function DeltaList({ title, items }: { title: string; items: FavorabilityDelta[]
     <div className="flex-1 min-w-0">
       <h4 className="text-xs font-semibold text-gray-700 mb-2">{title}</h4>
       <ul className="space-y-2">
-        {items.map((q) => (
-          <li key={q.chave} className="flex items-start gap-2 text-xs">
+        {items.map((q, idx) => (
+          <li key={q.chave} className={`items-start gap-2 text-xs ${idx >= 3 ? 'hidden md:flex' : 'flex'}`}>
             <span className="shrink-0 w-28"><DeltaBadge delta={q.delta} /></span>
             <span className="text-gray-700 leading-snug">
               {q.rotulo} <span className="text-gray-400">· {q.anterior}% → {q.atual}%</span>
@@ -202,6 +202,7 @@ function PriorityChart({ pontos, corteFavoravel, corteImportancia }: ReturnType<
 export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin, importanciaPerguntaId, anterior, mostrarPorDimensao, ocultarGeral }: Props) {
   const [blocoFiltro, setBlocoFiltro] = useState<string>('')
   const [ordem, setOrdem] = useState<'desc' | 'asc'>('desc')
+  const [verTodas, setVerTodas] = useState(false)
 
   const dados = useMemo(() => {
     const blocos = favorabilityByBlock(perguntas, respondentes)
@@ -267,6 +268,9 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
     return itens.sort((a, b) => ordem === 'desc' ? b.favoravel - a.favoravel : a.favoravel - b.favoravel)
   }, [perguntasFav, blocoFiltro, ordem])
 
+  const RANKING_INICIAL = 10
+  const rankingVisivel = blocoFiltro || verTodas ? ranking : ranking.slice(0, RANKING_INICIAL)
+
   if (blocos.length === 0 || respondentes.length === 0) return null
 
   const geralPorBaseMap = new Map(geralPorBase.unidades.map((u) => [u.unidade, u.favoravel]))
@@ -307,13 +311,15 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                 key={b.bloco}
                 type="button"
                 onClick={() => setBlocoFiltro((cur) => (cur === b.bloco ? '' : b.bloco))}
-                className={`w-full flex items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                className={`w-full flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3 rounded-lg px-2 py-2 sm:py-1.5 text-left transition-colors ${
                   blocoFiltro === b.bloco ? 'bg-gray-100' : 'hover:bg-gray-50'
                 }`}
               >
-                <span className="text-xs text-gray-700 w-48 shrink-0 truncate" title={b.bloco}>{b.bloco}</span>
-                <div className="flex-1"><StackedBar fav={b.favoravel} neu={b.neutro} des={b.desfavoravel} /></div>
-                <span className="w-36 text-right shrink-0"><Trio fav={b.favoravel} neu={b.neutro} des={b.desfavoravel} /></span>
+                <span className="text-xs text-gray-700 sm:w-48 sm:shrink-0 sm:truncate" title={b.bloco}>{b.bloco}</span>
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div className="flex-1 min-w-0"><StackedBar fav={b.favoravel} neu={b.neutro} des={b.desfavoravel} /></div>
+                  <span className="sm:w-36 text-right shrink-0"><Trio fav={b.favoravel} neu={b.neutro} des={b.desfavoravel} /></span>
+                </div>
               </button>
             ))}
           </div>
@@ -423,8 +429,8 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
             Prioridades de ação
           </SectionTitle>
           <div className="flex flex-col lg:flex-row gap-6">
-            <div className="flex-1 min-w-0"><PriorityChart {...prioridades} /></div>
-            <div className="lg:w-60 shrink-0 space-y-2">
+            <div className="flex-1 min-w-0 hidden md:block"><PriorityChart {...prioridades} /></div>
+            <div className="lg:w-60 shrink-0 space-y-3">
               {(['prioridade', 'manter', 'monitorar', 'menor_urgencia'] as PriorityQuadrant[]).map((q) => {
                 const itens = prioridades.pontos.filter((p) => p.quadrante === q)
                   .sort((a, b) => b.importancia - a.importancia)
@@ -491,7 +497,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
       {/* Ranking completo */}
       <div id="sec-perguntas" className={card}>
         <div className="flex flex-wrap items-end justify-between gap-3 mb-3">
-          <SectionTitle hint={`${ranking.length} perguntas${blocoFiltro ? ` em "${blocoFiltro}"` : ''}.`}>
+          <SectionTitle hint={`${rankingVisivel.length} de ${ranking.length} perguntas${blocoFiltro ? ` em "${blocoFiltro}"` : ''}.`}>
             Ranking de perguntas
           </SectionTitle>
           <div className="flex items-center gap-2">
@@ -521,27 +527,41 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                 <th className="py-1.5 pr-2 w-8 font-medium">#</th>
                 <th className="py-1.5 pr-3 font-medium">Pergunta</th>
                 <th className="py-1.5 pr-3 font-medium hidden md:table-cell">Bloco</th>
-                <th className="py-1.5 px-2 font-medium w-36">Distribuição</th>
+                <th className="py-1.5 px-2 font-medium w-36 hidden sm:table-cell">Distribuição</th>
                 <th className="py-1.5 pl-2 font-medium w-14 text-right text-green-700">Fav.</th>
-                <th className="py-1.5 pl-2 font-medium w-14 text-right">Neutro</th>
-                <th className="py-1.5 pl-2 font-medium w-14 text-right text-red-600">Desfav.</th>
+                <th className="py-1.5 pl-2 font-medium w-14 text-right hidden sm:table-cell">Neutro</th>
+                <th className="py-1.5 pl-2 font-medium w-14 text-right text-red-600 hidden sm:table-cell">Desfav.</th>
               </tr>
             </thead>
             <tbody>
-              {ranking.map((q, i) => (
+              {rankingVisivel.map((q, i) => (
                 <tr key={q.id} className="border-b border-gray-100 align-top">
                   <td className="py-2 pr-2 text-gray-400">{i + 1}</td>
-                  <td className="py-2 pr-3 text-gray-800 leading-snug">{q.texto}</td>
+                  <td className="py-2 pr-3 text-gray-800 leading-snug">
+                    {q.texto}
+                    <span className="sm:hidden block mt-1"><Trio fav={q.favoravel} neu={q.neutro} des={q.desfavoravel} /></span>
+                  </td>
                   <td className="py-2 pr-3 text-gray-500 hidden md:table-cell">{q.bloco}</td>
-                  <td className="py-2 px-2"><StackedBar fav={q.favoravel} neu={q.neutro} des={q.desfavoravel} /></td>
+                  <td className="py-2 px-2 hidden sm:table-cell"><StackedBar fav={q.favoravel} neu={q.neutro} des={q.desfavoravel} /></td>
                   <td className="py-2 pl-2 text-right font-semibold text-green-700 tabular-nums">{q.favoravel}%</td>
-                  <td className="py-2 pl-2 text-right text-gray-500 tabular-nums">{q.neutro}%</td>
-                  <td className="py-2 pl-2 text-right text-red-600 tabular-nums">{q.desfavoravel}%</td>
+                  <td className="py-2 pl-2 text-right text-gray-500 tabular-nums hidden sm:table-cell">{q.neutro}%</td>
+                  <td className="py-2 pl-2 text-right text-red-600 tabular-nums hidden sm:table-cell">{q.desfavoravel}%</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {!blocoFiltro && ranking.length > RANKING_INICIAL && (
+          <div className="mt-3 text-center">
+            <button
+              type="button"
+              onClick={() => setVerTodas((v) => !v)}
+              className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              {verTodas ? 'Mostrar só as primeiras' : `Mostrar as ${ranking.length} perguntas`}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Bloco × unidade */}

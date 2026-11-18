@@ -127,7 +127,39 @@ export function GroupComparison({
             Nenhum grupo de {atual.label.toLowerCase()} tem pelo menos {nMin} respondentes neste recorte.
           </p>
         ) : (
-          <div className="overflow-x-auto -mx-1">
+          <>
+          <ul className="md:hidden divide-y divide-gray-100 border border-gray-100 rounded-lg">
+            <li className="flex items-center gap-3 px-3 py-3 bg-gray-50">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900">{resultado.total.grupo}</p>
+                <p className="text-xs text-gray-500">{resultado.total.n.toLocaleString('pt-BR')} respondentes</p>
+              </div>
+              <span className={`text-sm font-semibold rounded px-2 py-1 ${cellColor(resultado.total.geral)}`}>{resultado.total.geral}%</span>
+            </li>
+            {resultado.grupos.map((g) => {
+              const part = participacao?.get(g.grupo)
+              const pct = part && part.total > 0 ? Math.round((part.respondidos / part.total) * 100) : null
+              return (
+                <li key={g.grupo}>
+                  <button
+                    type="button"
+                    onClick={() => onEntrar(atual, g.grupo)}
+                    className="w-full flex items-center gap-3 px-3 py-3 text-left hover:bg-gray-50 active:bg-gray-100"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-900">{g.grupo}</p>
+                      <p className="text-xs text-gray-500">
+                        {g.n.toLocaleString('pt-BR')} respondentes{pct !== null ? ` · participação ${pct}%` : ''}
+                      </p>
+                    </div>
+                    <span className={`text-sm font-semibold rounded px-2 py-1 ${cellColor(g.geral)}`}>{g.geral}%</span>
+                    <span className="text-gray-300" aria-hidden="true">›</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+          <div className="hidden md:block overflow-x-auto -mx-1">
             <table className="text-xs border-separate border-spacing-y-1 border-spacing-x-1 min-w-full">
               <thead>
                 <tr>
@@ -191,6 +223,11 @@ export function GroupComparison({
               {resultado.omitidos > 0 && ` ${resultado.omitidos} ${resultado.omitidos > 1 ? 'grupos não aparecem' : 'grupo não aparece'} por ter menos de ${nMin} respondentes, para proteger o anonimato.`}
             </p>
           </div>
+          <p className="md:hidden text-[11px] text-gray-400">
+            Verde 70% ou mais, amarelo de 50% a 69%, vermelho abaixo de 50%. Toque em um grupo para ver só ele.
+            {resultado.omitidos > 0 && ` ${resultado.omitidos} ${resultado.omitidos > 1 ? 'grupos não aparecem' : 'grupo não aparece'} por ter menos de ${nMin} respondentes.`}
+          </p>
+          </>
         )
       )}
     </div>

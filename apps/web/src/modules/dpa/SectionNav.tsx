@@ -17,7 +17,7 @@ export function SectionNav({ secoes }: { secoes: NavSection[] }) {
 
   // Quais seções existem no momento (alguns quadros dependem dos dados).
   useEffect(() => {
-    const ids = secoes.filter((s) => document.getElementById(s.id)).map((s) => s.id)
+    const ids = secoes.filter((s) => (document.getElementById(s.id)?.offsetHeight ?? 0) > 0).map((s) => s.id)
     setPresentes((prev) => (prev.length === ids.length && prev.every((x, i) => x === ids[i]) ? prev : ids))
   })
 
@@ -42,7 +42,7 @@ export function SectionNav({ secoes }: { secoes: NavSection[] }) {
   return (
     <nav
       aria-label="Seções dos resultados"
-      className="sticky top-0 z-10 -mx-1 px-1 bg-white/95 backdrop-blur border-b border-gray-200 flex gap-1 overflow-x-auto"
+      className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-gray-200 flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {visiveis.map((s) => {
         const on = ativa === s.id
