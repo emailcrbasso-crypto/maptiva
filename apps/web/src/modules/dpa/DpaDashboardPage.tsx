@@ -10,13 +10,15 @@
  *  - Ações: ativar/encerrar projeto, exportar PDF e Excel
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { RichText, RichTextEditor } from '@/components/RichText'
 import { useTenant } from '@/modules/auth/TenantContext'
 import { DpaEmailComposer } from './DpaEmailComposer'
 import { FavorabilityPanel } from './FavorabilityPanel'
+import { SegmentFilters } from './SegmentFilters'
+import { applyFilters, regroupBy, recorteVisivel, type SegmentDef, type SegmentFilters as Filters } from '@/lib/segments'
 import { exportDpaPdf } from '@/lib/exportDpaPdf'
 import { exportDpaPrintForm } from '@/lib/exportDpaPrintForm'
 import * as XLSX from 'xlsx'
@@ -51,6 +53,9 @@ interface DpaProject {
 interface Resposta {
   id:            string
   unidade:       string | null
+  /** Só vêm da função de segmentação (pesquisas com config.segmentos). */
+  empresa?:      string | null
+  area?:         string | null
   respondido_em: string | null
   respostas:     Record<string, string | number | string[]>
 }
@@ -145,6 +150,36 @@ export function DpaDashboardPage() {
   const [addSaving,     setAddSaving]     = useState(false)
   const [addError,      setAddError]      = useState('')
 
+  // ── Segmentação (pesquisas com config.segmentos: empresa, área, perfil) ────
+  const [segRows,   setSegRows]   = useState<Resposta[] | null>(null)
+  const [filtros,   setFiltros]   = useState<Filters>({})
+  const [agrupar,   setAgrupar]   = useState('unidade')
+
+  const segDefs = useMemo<SegmentDef[]>(
+    () => (Array.isArray(project?.config.segmentos) ? (project?.config.segmentos as SegmentDef[]) : []),
+    [project],
+  )
+  const nMinimo = typeof project?.config.n_minimo === 'number' ? (project.config.n_minimo as number) : 3
+  const segAtivo = segDefs.length > 0 && segRows !== null && project?.config.favorabilidade === true
+  const defAgrupar = segDefs.find((d) => d.id === agrupar) ?? segDefs[0]
+  const nFiltros = Object.keys(filtros).length
+
+  const recorte = useMemo(
+    () => (segAtivo ? applyFilters(segRows!, segDefs, filtros) : null),
+    [segAtivo, segRows, segDefs, filtros],
+  )
+  const respondentesPainel = useMemo<Resposta[]>(
+    () => (segAtivo && recorte && defAgrupar ? regroupBy(recorte, defAgrupar) : (dashboard?.respostas ?? [])),
+    [segAtivo, recorte, defAgrupar, dashboard],
+  )
+  const anteriorPainel = useMemo(() => {
+    if (!anterior || !segAtivo || !defAgrupar) return anterior
+    return {
+      rotulo: anterior.rotulo,
+      respondentes: regroupBy(applyFilters(anterior.respondentes, segDefs, filtros), defAgrupar),
+    }
+  }, [anterior, segAtivo, segDefs, filtros, defAgrupar])
+
   async function load() {
     if (!id) return
 
@@ -187,6 +222,15 @@ export function DpaDashboardPage() {
       // Comparativo com a edição anterior (opt-in via config.comparativo_projeto_id)
       const cfg = (projRes.data as DpaProject).config
       const antId = typeof cfg.comparativo_projeto_id === 'string' ? cfg.comparativo_projeto_id : null
+      const segmentado = Array.isArray(cfg.segmentos) && cfg.segmentos.length > 0 && cfg.favorabilidade === true
+
+      // Respostas com empresa/área/unidade, para os filtros (falha em silêncio: sem filtros).
+      setSegRows(null)
+      if (segmentado) {
+        const seg = await supabase.rpc('get_dpa_dashboard_segmentos', { p_projeto_id: id })
+        if (!seg.error && seg.data) setSegRows((seg.data as { respostas: Resposta[] }).respostas)
+      }
+
       setAnterior(null)
       if (antId && cfg.favorabilidade === true) {
         const [antProj, antDash] = await Promise.all([
@@ -196,9 +240,14 @@ export function DpaDashboardPage() {
         const antData = antDash.data as DashboardData | null
         if (!antProj.error && !antDash.error && antData) {
           const antCfg = (antProj.data?.config ?? {}) as Record<string, unknown>
+          let antRows = antData.respostas
+          if (segmentado) {
+            const antSeg = await supabase.rpc('get_dpa_dashboard_segmentos', { p_projeto_id: antId })
+            if (!antSeg.error && antSeg.data) antRows = (antSeg.data as { respostas: Resposta[] }).respostas
+          }
           setAnterior({
             rotulo: typeof antCfg.rotulo_comparativo === 'string' ? antCfg.rotulo_comparativo : (antProj.data?.nome ?? 'edição anterior'),
-            respondentes: antData.respostas,
+            respondentes: antRows,
           })
         }
       }
@@ -585,8 +634,10 @@ export function DpaDashboardPage() {
                     }, 'interno', anterior ?? undefined)
                     setExportingPdf(false)
                   }}
-                  disabled={exportingPdf}
-                  title="Relatório completo, com respostas individuais — uso interno da consultoria"
+                  disabled={exportingPdf || nFiltros > 0}
+                  title={nFiltros > 0
+                    ? 'Remova os filtros para gerar o PDF (o PDF por recorte entra na próxima etapa)'
+                    : 'Relatório completo, com respostas individuais — uso interno da consultoria'}
                   className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
                 >
                   {exportingPdf ? 'Gerando...' : '↓ PDF Interno'}
@@ -604,8 +655,10 @@ export function DpaDashboardPage() {
                     }, 'compilado', anterior ?? undefined)
                     setExportingCompilado(false)
                   }}
-                  disabled={exportingCompilado}
-                  title="Somente dados agregados e anônimos — apto para envio ao cliente"
+                  disabled={exportingCompilado || nFiltros > 0}
+                  title={nFiltros > 0
+                    ? 'Remova os filtros para gerar o PDF (o PDF por recorte entra na próxima etapa)'
+                    : 'Somente dados agregados e anônimos — apto para envio ao cliente'}
                   className="text-sm px-4 py-2 rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 transition-colors"
                 >
                   {exportingCompilado ? 'Gerando...' : '🔒 PDF Compilado (Cliente)'}
@@ -793,22 +846,40 @@ export function DpaDashboardPage() {
                   <span className="text-xs text-gray-400">(vale também para o PDF)</span>
                 </label>
               )}
-              {project.config.favorabilidade === true && (
+              {segAtivo && recorte && (
+                <SegmentFilters
+                  defs={segDefs}
+                  rows={segRows!}
+                  filtros={filtros}
+                  onChange={setFiltros}
+                  agrupar={defAgrupar?.id ?? 'unidade'}
+                  onAgrupar={setAgrupar}
+                  nMin={nMinimo}
+                  exibindo={recorte.length}
+                />
+              )}
+              {segAtivo && recorte && !recorteVisivel(recorte.length, nMinimo) && (
+                <div className="bg-amber-50 border border-amber-100 rounded-xl px-5 py-4 text-sm text-amber-800">
+                  Este recorte tem menos de {nMinimo} respondentes e não é exibido, para proteger o anonimato.
+                  Remova algum filtro para ver os resultados.
+                </div>
+              )}
+              {project.config.favorabilidade === true && !(segAtivo && recorte && !recorteVisivel(recorte.length, nMinimo)) && (
                 <FavorabilityPanel
                   perguntas={config.perguntas}
-                  respondentes={dashboard.respostas}
-                  labelUnidade={config.label_unidade}
-                  nMin={3}
+                  respondentes={respondentesPainel}
+                  labelUnidade={segAtivo && defAgrupar ? defAgrupar.label : config.label_unidade}
+                  nMin={nMinimo}
                   importanciaPerguntaId={
                     typeof project.config.importancia_pergunta_id === 'string'
                       ? project.config.importancia_pergunta_id : undefined
                   }
-                  anterior={anterior ?? undefined}
+                  anterior={anteriorPainel ?? undefined}
                 />
               )}
 
-              {/* Per-question results */}
-              {config.perguntas.map((p, idx) => {
+              {/* Per-question results (sem filtros ativos: usam todas as respostas) */}
+              {nFiltros === 0 && config.perguntas.map((p, idx) => {
                 const stats = questionStats(p.id, p.tipo)
                 return (
                   <div key={p.id} className="bg-white rounded-xl border border-gray-200 p-6">
