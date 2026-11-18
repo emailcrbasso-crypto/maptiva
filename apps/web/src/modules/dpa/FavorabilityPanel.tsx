@@ -159,7 +159,7 @@ function DeltaList({ title, items }: { title: string; items: FavorabilityDelta[]
   )
 }
 
-function PriorityChart({ pontos, corteFavoravel, corteImportancia }: ReturnType<typeof priorityMatrix>) {
+function PriorityChart({ pontos, corteFavoravel, corteImportancia, onSelect }: ReturnType<typeof priorityMatrix> & { onSelect?: (bloco: string) => void }) {
   const W = 640, H = 340, L = 52, R = 16, T = 16, B = 40
   const xs = pontos.map((p) => p.favoravel)
   const ys = pontos.map((p) => p.importancia)
@@ -183,18 +183,35 @@ function PriorityChart({ pontos, corteFavoravel, corteImportancia }: ReturnType<
       <text x={(L + W - R) / 2} y={H - 8} fontSize="11" fill="#6b7280" textAnchor="middle">Favorabilidade (%)</text>
       <text x={14} y={(T + H - B) / 2} fontSize="11" fill="#6b7280" textAnchor="middle"
         transform={`rotate(-90 14 ${(T + H - B) / 2})`}>Importância (%)</text>
-      {pontos.map((p, i) => (
-        <g key={p.bloco}>
-          <circle cx={sx(p.favoravel)} cy={sy(p.importancia)} r="6" fill={QUADRANT_STYLE[p.quadrante].color} fillOpacity="0.85" />
-          <text
-            x={sx(p.favoravel) + (i % 2 === 0 ? 9 : -9)}
-            y={sy(p.importancia) + 4}
-            fontSize="10.5"
-            fill="#374151"
-            textAnchor={i % 2 === 0 ? 'start' : 'end'}
-          >{p.bloco.length > 22 ? `${p.bloco.slice(0, 21)}…` : p.bloco}</text>
-        </g>
-      ))}
+      {pontos.map((p, i) => {
+        const x = sx(p.favoravel)
+        const y = sy(p.importancia)
+        // O rótulo vai para o lado com espaço: perto da borda direita fica à esquerda do ponto, e vice-versa.
+        const esquerda = x > W - R - 150 ? true : x < L + 150 ? false : i % 2 !== 0
+        return (
+          <g
+            key={p.bloco}
+            role="button"
+            tabIndex={0}
+            aria-label={`Ver as perguntas do bloco ${p.bloco}`}
+            onClick={() => onSelect?.(p.bloco)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(p.bloco) } }}
+            className="cursor-pointer outline-none group"
+          >
+            <title>{p.bloco}: ver as perguntas deste bloco</title>
+            <circle cx={x} cy={y} r="16" fill="transparent" />
+            <circle cx={x} cy={y} r="6" fill={QUADRANT_STYLE[p.quadrante].color} fillOpacity="0.85" className="transition-all group-hover:[r:8] group-focus-visible:[r:8]" />
+            <text
+              x={x + (esquerda ? -10 : 10)}
+              y={y + 4}
+              fontSize="10.5"
+              fill="#374151"
+              textAnchor={esquerda ? 'end' : 'start'}
+              className="group-hover:underline"
+            >{p.bloco.length > 22 ? `${p.bloco.slice(0, 21)}…` : p.bloco}</text>
+          </g>
+        )
+      })}
     </svg>
   )
 }
@@ -271,8 +288,8 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
   const RANKING_INICIAL = 10
 
   // Clicar em um bloco filtra o ranking de perguntas e leva até ele; clicar de novo limpa o filtro.
-  function escolherBloco(bloco: string) {
-    const limpar = blocoFiltro === bloco
+  function escolherBloco(bloco: string, sempre = false) {
+    const limpar = !sempre && blocoFiltro === bloco
     setBlocoFiltro(limpar ? '' : bloco)
     if (!limpar) {
       setOrdem('desc')
@@ -435,11 +452,11 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
       {/* Prioridades */}
       {prioridades && prioridades.pontos.length > 0 && (
         <div id="sec-prioridades" className={card}>
-          <SectionTitle hint="Cruza o que as pessoas dizem que mais importa com como a empresa está avaliada. Os cortes são as médias dos blocos.">
+          <SectionTitle hint="Cruza o que as pessoas dizem que mais importa com como a empresa está avaliada. Os cortes são as médias dos blocos. Clique em um bloco para ver as perguntas dele.">
             Prioridades de ação
           </SectionTitle>
           <div className="flex flex-col lg:flex-row gap-6">
-            <div className="flex-1 min-w-0 hidden md:block"><PriorityChart {...prioridades} /></div>
+            <div className="flex-1 min-w-0 hidden md:block"><PriorityChart {...prioridades} onSelect={(b) => escolherBloco(b, true)} /></div>
             <div className="lg:w-60 shrink-0 space-y-3">
               {(['prioridade', 'manter', 'monitorar', 'menor_urgencia'] as PriorityQuadrant[]).map((q) => {
                 const itens = prioridades.pontos.filter((p) => p.quadrante === q)
@@ -450,7 +467,16 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                     <p className="text-xs font-semibold" style={{ color: QUADRANT_STYLE[q].color }}>{QUADRANT_STYLE[q].label}</p>
                     <ul className="text-xs text-gray-700 space-y-0.5 mt-0.5">
                       {itens.map((p) => (
-                        <li key={p.bloco}>{p.bloco} <span className="text-gray-400">· {p.favoravel}% fav. · {p.importancia}% importância</span></li>
+                        <li key={p.bloco}>
+                          <button
+                            type="button"
+                            onClick={() => escolherBloco(p.bloco, true)}
+                            className="text-left hover:text-gray-900 hover:underline"
+                            title="Ver as perguntas deste bloco"
+                          >
+                            {p.bloco} <span className="text-gray-400">· {p.favoravel}% fav. · {p.importancia}% importância</span>
+                          </button>
+                        </li>
                       ))}
                     </ul>
                   </div>
