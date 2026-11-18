@@ -40,6 +40,8 @@ interface Props {
   anterior?: { rotulo: string; respondentes: RespondentRow[] }
   /** Pesquisas segmentadas: mostra em destaque a favorabilidade por dimensão escolhida (empresa, base, área). */
   mostrarPorDimensao?: boolean
+  /** Esconde o bloco "Favorabilidade geral" (a visão geral já o mostra). */
+  ocultarGeral?: boolean
 }
 
 const QUADRANT_STYLE: Record<PriorityQuadrant, { label: string; color: string }> = {
@@ -197,7 +199,7 @@ function PriorityChart({ pontos, corteFavoravel, corteImportancia }: ReturnType<
   )
 }
 
-export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin, importanciaPerguntaId, anterior, mostrarPorDimensao }: Props) {
+export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin, importanciaPerguntaId, anterior, mostrarPorDimensao, ocultarGeral }: Props) {
   const [blocoFiltro, setBlocoFiltro] = useState<string>('')
   const [ordem, setOrdem] = useState<'desc' | 'asc'>('desc')
 
@@ -268,12 +270,13 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
   if (blocos.length === 0 || respondentes.length === 0) return null
 
   const geralPorBaseMap = new Map(geralPorBase.unidades.map((u) => [u.unidade, u.favoravel]))
-  const card = 'bg-white rounded-xl border border-gray-200 p-6'
+  const card = 'bg-white rounded-xl border border-gray-200 p-6 scroll-mt-16'
 
   return (
     <div className="space-y-5">
       {/* Geral + blocos */}
-      <div className={`${card} space-y-8`}>
+      <div id="sec-blocos" className={`${card} space-y-8`}>
+        {!ocultarGeral && (
         <div>
           <div className="flex items-baseline justify-between gap-3 mb-1">
             <h3 className="text-sm font-semibold text-gray-900">Favorabilidade geral</h3>
@@ -292,6 +295,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
             <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />Desfavorável {geral.desfavoravel}%</span>
           </div>
         </div>
+        )}
 
         <div>
           <SectionTitle hint="Clique em um bloco para ver suas perguntas no ranking abaixo.">
@@ -354,7 +358,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
 
       {/* Evolução em relação à edição anterior */}
       {comparativo && anterior && (
-        <div className={`${card} space-y-6`}>
+        <div id="sec-evolucao" className={`${card} space-y-6`}>
           <SectionTitle hint={`Favorabilidade (% de notas 4 e 5) de ${anterior.rotulo} para esta edição. Variações de até 2 p.p. contam como estabilidade.`}>
             Evolução em relação a {anterior.rotulo}
           </SectionTitle>
@@ -414,7 +418,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
 
       {/* Prioridades */}
       {prioridades && prioridades.pontos.length > 0 && (
-        <div className={card}>
+        <div id="sec-prioridades" className={card}>
           <SectionTitle hint="Cruza o que as pessoas dizem que mais importa com como a empresa está avaliada. Os cortes são as médias dos blocos.">
             Prioridades de ação
           </SectionTitle>
@@ -443,7 +447,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
 
       {/* Riscos psicossociais */}
       {riscoGeral && riscoGeral.n > 0 && (
-        <div className={`${card} space-y-6`}>
+        <div id="sec-riscos" className={`${card} space-y-6`}>
           <div>
             <div className="flex items-baseline justify-between gap-3 mb-1">
               <h3 className="text-sm font-semibold text-gray-900">Riscos psicossociais</h3>
@@ -485,7 +489,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
       </div>
 
       {/* Ranking completo */}
-      <div className={card}>
+      <div id="sec-perguntas" className={card}>
         <div className="flex flex-wrap items-end justify-between gap-3 mb-3">
           <SectionTitle hint={`${ranking.length} perguntas${blocoFiltro ? ` em "${blocoFiltro}"` : ''}.`}>
             Ranking de perguntas
@@ -542,7 +546,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
 
       {/* Bloco × unidade */}
       {matriz.unidades.length > 0 && (
-        <div className={card}>
+        <div id="sec-mapa" className={card}>
           <SectionTitle hint={`Grupos com menos de ${nMin} respondentes não aparecem, para proteger o anonimato.`}>
             Favorabilidade por bloco e {labelUnidade.toLowerCase()}
           </SectionTitle>

@@ -284,3 +284,18 @@ export function compareGroups(
   const total = summarize('Total do recorte', perguntas, rows)
   return { blocos: Object.keys(total.blocos), total, grupos, omitidos: todos.length - visiveis.length }
 }
+
+/** Participação somada do recorte (filtros de atributo do participante); null com filtro de perfil ativo. */
+export function participationTotal(
+  aggs: ParticipationAgg[],
+  defs: SegmentDef[],
+  filters: SegmentFilters,
+): { respondidos: number; total: number } | null {
+  const ativos = defs.filter((d) => filters[d.id])
+  if (ativos.some((d) => d.origem !== 'campo' || !d.campo)) return null
+  const base = aggs.filter((a) => ativos.every((d) => (a[d.campo!] ?? null) === filters[d.id]))
+  return {
+    respondidos: base.reduce((acc, a) => acc + a.respondidos, 0),
+    total:       base.reduce((acc, a) => acc + a.total, 0),
+  }
+}

@@ -28,7 +28,7 @@ export function ProfilePanel({ perguntas, respondentes, nMin }: Props) {
   if (dists.length === 0) return null
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+    <div id="sec-perfil" className="bg-white rounded-xl border border-gray-200 p-6 space-y-5 scroll-mt-16">
       <div>
         <h3 className="text-sm font-semibold text-gray-900">Perfil dos respondentes</h3>
         <p className="text-xs text-gray-500 mt-0.5">

@@ -10,7 +10,7 @@
  *  - Ações: ativar/encerrar projeto, exportar PDF e Excel
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { RichText, RichTextEditor } from '@/components/RichText'
@@ -18,10 +18,13 @@ import { useTenant } from '@/modules/auth/TenantContext'
 import { DpaEmailComposer } from './DpaEmailComposer'
 import { FavorabilityPanel } from './FavorabilityPanel'
 import { SegmentFilters } from './SegmentFilters'
-import { GroupComparison } from './GroupComparison'
+import { GroupComparison, Trilha } from './GroupComparison'
+import { ExecutiveSummary } from './ExecutiveSummary'
+import { SectionNav } from './SectionNav'
+import { buildInsights } from '@/lib/insights'
 import { ProfilePanel } from './ProfilePanel'
 import {
-  applyFilters, regroupBy, recorteVisivel, participationBy, compareGroups,
+  applyFilters, regroupBy, recorteVisivel, participationBy, participationTotal, compareGroups,
   type SegmentDef, type SegmentFilters as Filters, type ParticipationAgg,
 } from '@/lib/segments'
 import { exportDpaPdf } from '@/lib/exportDpaPdf'
@@ -206,6 +209,7 @@ export function DpaDashboardPage() {
     const i = dimensoes.findIndex((d) => d.id === def.id)
     const seguinte = dimensoes.slice(i + 1).find((d) => !prox[d.id]) ?? dimensoes.find((d) => !prox[d.id])
     setAgrupar(seguinte?.id ?? '')
+    document.getElementById('sec-topo')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
   function sairDoGrupo(id: string) {
     const prox = { ...filtros }
@@ -228,6 +232,32 @@ export function DpaDashboardPage() {
       respondentes: regroupBy(applyFilters(anterior.respondentes, segDefs, filtros), defAgrupar),
     }
   }, [anterior, segAtivo, segDefs, filtros, defAgrupar])
+
+  const rotuloRaiz = dimensoes[0] ? `Todas as ${dimensoes[0].label.toLowerCase()}s` : 'Todos'
+  const escopo = nFiltros === 0
+    ? 'Em todo o grupo'
+    : `No recorte ${dimensoes.filter((d) => filtros[d.id]).map((d) => filtros[d.id]).join(' · ')}`
+  const recorteOculto = segAtivo && recorte !== null && !recorteVisivel(recorte.length, nMinimo)
+  const insights = useMemo(() => {
+    if (!project || project.config.favorabilidade !== true || recorteOculto) return null
+    const linhas = segAtivo && recorte ? recorte : (dashboard?.respostas ?? [])
+    if (linhas.length === 0) return null
+    return buildInsights({
+      perguntas: project.config.perguntas,
+      respondentes: linhas,
+      anterior: anteriorPainel,
+      importanciaPerguntaId: typeof project.config.importancia_pergunta_id === 'string'
+        ? project.config.importancia_pergunta_id : undefined,
+      escopo,
+    })
+  }, [project, recorteOculto, segAtivo, recorte, dashboard, anteriorPainel, escopo])
+  const participacaoResumo = useMemo(() => {
+    if (segAtivo && segPart) return participationTotal(segPart, segDefs, filtros)
+    if (dashboard && !dashboard.modo_compartilhado && nFiltros === 0) {
+      return { respondidos: dashboard.total_respondidos, total: dashboard.total_participantes }
+    }
+    return null
+  }, [segAtivo, segPart, segDefs, filtros, dashboard, nFiltros])
 
   async function load() {
     if (!id) return
@@ -375,6 +405,21 @@ export function DpaDashboardPage() {
     await load()
     setUpdating(false)
   }
+
+  function fecharMenu(el: HTMLElement) {
+    el.closest('details')?.removeAttribute('open')
+  }
+
+  // Menu "Ações": fecha ao clicar fora dele.
+  useEffect(() => {
+    function aoClicar(e: MouseEvent) {
+      document.querySelectorAll('details[data-menu][open]').forEach((d) => {
+        if (!d.contains(e.target as Node)) d.removeAttribute('open')
+      })
+    }
+    document.addEventListener('click', aoClicar)
+    return () => document.removeEventListener('click', aoClicar)
+  }, [])
 
   // ── Copy link ──────────────────────────────────────────────────────────────
 
@@ -579,7 +624,7 @@ export function DpaDashboardPage() {
   const somenteResultados = project.config.modo_somente_resultados === true
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="max-w-5xl mx-auto" style={{ '--brand': branding.primaryColor } as CSSProperties}>
       {/* ── Header ── */}
       <div className="mb-6">
         <Link to="/dpa" className="text-sm text-gray-400 hover:text-gray-600">
@@ -644,122 +689,136 @@ export function DpaDashboardPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Status actions */}
-            {!somenteResultados && project.status === 'rascunho' && (
+            {/* Ação principal: o relatório para o cliente. O resto vive no menu "Ações". */}
+            {dashboard && (
               <button
-                onClick={() => changeStatus('ativo')}
-                disabled={updating || participantes.length === 0}
-                title={participantes.length === 0 ? 'Adicione participantes antes de ativar' : ''}
-                className="text-sm bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                onClick={async () => {
+                  setExportingCompilado(true)
+                  await exportDpaPdf(project, dashboard, {
+                    companyName:  branding.name,
+                    logoUrl:      branding.logoUrl,
+                    primaryColor: branding.primaryColor,
+                    footerText:   branding.pdfFooterText,
+                    hideMaptiva:  branding.hideMaptiva,
+                  }, 'compilado', anterior ?? undefined)
+                  setExportingCompilado(false)
+                }}
+                disabled={exportingCompilado || nFiltros > 0}
+                title={nFiltros > 0
+                  ? 'Remova os filtros para gerar o PDF (o PDF por recorte entra na próxima etapa)'
+                  : 'Somente dados agregados e anônimos — apto para envio ao cliente'}
+                className="text-sm px-4 py-2 rounded-lg text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+                style={{ backgroundColor: 'var(--brand, #111827)' }}
               >
-                {updating ? 'Ativando...' : '▶ Ativar'}
-              </button>
-            )}
-            {!somenteResultados && project.status === 'ativo' && (
-              <button
-                onClick={() => changeStatus('encerrado')}
-                disabled={updating}
-                className="text-sm border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
-              >
-                {updating ? '...' : '⏹ Encerrar'}
+                {exportingCompilado ? 'Gerando...' : '↓ Baixar PDF'}
               </button>
             )}
 
-            {dashboard && (
-              <>
-                {!somenteResultados && (
-                <button
-                  onClick={exportExcel}
-                  className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  ↓ Excel
-                </button>
-                )}
-                {!somenteResultados && (
-                <button
-                  onClick={async () => {
-                    setExportingPdf(true)
-                    await exportDpaPdf(project, dashboard, {
-                      companyName:  branding.name,
-                      logoUrl:      branding.logoUrl,
-                      primaryColor: branding.primaryColor,
-                      footerText:   branding.pdfFooterText,
-                      hideMaptiva:  branding.hideMaptiva,
-                    }, 'interno', anterior ?? undefined)
-                    setExportingPdf(false)
-                  }}
-                  disabled={exportingPdf || nFiltros > 0}
-                  title={nFiltros > 0
-                    ? 'Remova os filtros para gerar o PDF (o PDF por recorte entra na próxima etapa)'
-                    : 'Relatório completo, com respostas individuais — uso interno da consultoria'}
-                  className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                >
-                  {exportingPdf ? 'Gerando...' : '↓ PDF Interno'}
-                </button>
-                )}
-                <button
-                  onClick={async () => {
-                    setExportingCompilado(true)
-                    await exportDpaPdf(project, dashboard, {
-                      companyName:  branding.name,
-                      logoUrl:      branding.logoUrl,
-                      primaryColor: branding.primaryColor,
-                      footerText:   branding.pdfFooterText,
-                      hideMaptiva:  branding.hideMaptiva,
-                    }, 'compilado', anterior ?? undefined)
-                    setExportingCompilado(false)
-                  }}
-                  disabled={exportingCompilado || nFiltros > 0}
-                  title={nFiltros > 0
-                    ? 'Remova os filtros para gerar o PDF (o PDF por recorte entra na próxima etapa)'
-                    : 'Somente dados agregados e anônimos — apto para envio ao cliente'}
-                  className="text-sm px-4 py-2 rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 transition-colors"
-                >
-                  {exportingCompilado ? 'Gerando...' : '🔒 PDF Compilado (Cliente)'}
-                </button>
-                {dashboard.por_unidade.length > 1 && (
-                  <select
-                    value={formUnidade}
-                    onChange={(e) => setFormUnidade(e.target.value)}
-                    aria-label="Base do formulário impresso"
-                    title="Folha com a base já impressa e no QR code, ou folha em que a pessoa marca a base"
-                    className="text-sm px-2 py-2 rounded-lg border border-gray-300 text-gray-700"
+            <details data-menu className="relative">
+              <summary className="list-none cursor-pointer select-none text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+                Ações ▾
+              </summary>
+              <div className="absolute right-0 mt-1 z-20 w-72 bg-white border border-gray-200 rounded-xl shadow-lg p-2 space-y-0.5">
+                {!somenteResultados && project.status === 'rascunho' && (
+                  <button
+                    onClick={(e) => { fecharMenu(e.currentTarget); void changeStatus('ativo') }}
+                    disabled={updating || participantes.length === 0}
+                    title={participantes.length === 0 ? 'Adicione participantes antes de ativar' : ''}
+                    className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 disabled:opacity-50"
                   >
-                    <option value="">Formulário: marcar a base à mão</option>
-                    {dashboard.por_unidade.map((u) => (
-                      <option key={u.unidade} value={u.unidade}>Formulário: {u.unidade}</option>
-                    ))}
-                  </select>
+                    {updating ? 'Ativando...' : '▶ Ativar pesquisa'}
+                  </button>
                 )}
-                <button
-                  onClick={async () => {
-                    setExportingForm(true)
-                    try {
-                      await exportDpaPrintForm(
-                        project as Parameters<typeof exportDpaPrintForm>[0],
-                        {
+                {!somenteResultados && project.status === 'ativo' && (
+                  <button
+                    onClick={(e) => { fecharMenu(e.currentTarget); void changeStatus('encerrado') }}
+                    disabled={updating}
+                    className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {updating ? '...' : '⏹ Encerrar pesquisa'}
+                  </button>
+                )}
+
+                {dashboard && !somenteResultados && (
+                  <>
+                    <button
+                      onClick={(e) => { fecharMenu(e.currentTarget); exportExcel() }}
+                      className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50"
+                    >
+                      ↓ Excel com as respostas
+                    </button>
+                    <button
+                      onClick={async (e) => {
+                        fecharMenu(e.currentTarget)
+                        setExportingPdf(true)
+                        await exportDpaPdf(project, dashboard, {
                           companyName:  branding.name,
                           logoUrl:      branding.logoUrl,
                           primaryColor: branding.primaryColor,
                           footerText:   branding.pdfFooterText,
                           hideMaptiva:  branding.hideMaptiva,
-                        },
-                        dashboard.por_unidade.map((u) => u.unidade),
-                        formUnidade || null,
-                        linkQrFormulario(),
-                      )
-                    } finally {
-                      setExportingForm(false)
-                    }
-                  }}
-                  disabled={exportingForm}
-                  title="Folha A4 para impressão, gerada a partir das perguntas desta pesquisa — sem identificação pessoal"
-                  className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                >
-                  {exportingForm ? 'Gerando...' : '🖨 Formulário impresso'}
-                </button>
-              </>
-            )}
+                        }, 'interno', anterior ?? undefined)
+                        setExportingPdf(false)
+                      }}
+                      disabled={exportingPdf || nFiltros > 0}
+                      title={nFiltros > 0
+                        ? 'Remova os filtros para gerar o PDF (o PDF por recorte entra na próxima etapa)'
+                        : 'Relatório completo, com respostas individuais — uso interno da consultoria'}
+                      className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {exportingPdf ? 'Gerando...' : '↓ PDF interno (com comentários)'}
+                    </button>
+                  </>
+                )}
+
+                {dashboard && (
+                  <div className="border-t border-gray-100 mt-1 pt-2 px-1 space-y-1.5">
+                    {dashboard.por_unidade.length > 1 && (
+                      <select
+                        value={formUnidade}
+                        onChange={(e) => setFormUnidade(e.target.value)}
+                        aria-label="Base do formulário impresso"
+                        title="Folha com a base já impressa e no QR code, ou folha em que a pessoa marca a base"
+                        className="w-full text-xs px-2 py-1.5 rounded-lg border border-gray-300 text-gray-700"
+                      >
+                        <option value="">Formulário: marcar a base à mão</option>
+                        {dashboard.por_unidade.map((u) => (
+                          <option key={u.unidade} value={u.unidade}>Formulário: {u.unidade}</option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      onClick={async (e) => {
+                        fecharMenu(e.currentTarget)
+                        setExportingForm(true)
+                        try {
+                          await exportDpaPrintForm(
+                            project as Parameters<typeof exportDpaPrintForm>[0],
+                            {
+                              companyName:  branding.name,
+                              logoUrl:      branding.logoUrl,
+                              primaryColor: branding.primaryColor,
+                              footerText:   branding.pdfFooterText,
+                              hideMaptiva:  branding.hideMaptiva,
+                            },
+                            dashboard.por_unidade.map((u) => u.unidade),
+                            formUnidade || null,
+                            linkQrFormulario(),
+                          )
+                        } finally {
+                          setExportingForm(false)
+                        }
+                      }}
+                      disabled={exportingForm}
+                      title="Folha A4 para impressão, gerada a partir das perguntas desta pesquisa — sem identificação pessoal"
+                      className="w-full text-left text-sm px-2 py-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {exportingForm ? 'Gerando...' : '🖨 Formulário impresso'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </details>
           </div>
         </div>
       </div>
@@ -800,7 +859,7 @@ export function DpaDashboardPage() {
             </p>
           </div>
         </div>
-      ) : dashboard ? (
+      ) : dashboard && project.config.favorabilidade !== true ? (
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <p className="text-xs text-gray-400 mb-1">Taxa de resposta</p>
@@ -857,16 +916,68 @@ export function DpaDashboardPage() {
             </div>
           ) : (
             <>
-              {/* Navegação por grupos (pesquisas segmentadas): trilha, comparar por e tabela clicável */}
+              <div id="sec-topo" className="scroll-mt-4" />
+
+              {/* Onde estou: a trilha fica no topo, acima do resumo que ela altera */}
+              {segAtivo && recorte && (
+                <Trilha
+                  dimensoes={dimensoes}
+                  filtros={filtros}
+                  rotuloRaiz={rotuloRaiz}
+                  onSair={sairDoGrupo}
+                  onLimpar={limparRecorte}
+                />
+              )}
+
+              {/* Visão geral executiva (pesquisas de clima) */}
+              {insights && (
+                <ExecutiveSummary
+                  insights={insights}
+                  participacao={participacaoResumo}
+                  temImportancia={typeof project.config.importancia_pergunta_id === 'string'}
+                />
+              )}
+              {insights && (
+                <SectionNav
+                  secoes={[
+                    { id: 'sec-visao', label: 'Visão geral' },
+                    { id: 'sec-comparativo', label: 'Comparativo' },
+                    { id: 'sec-blocos', label: 'Blocos' },
+                    { id: 'sec-evolucao', label: 'Evolução' },
+                    { id: 'sec-prioridades', label: 'Prioridades' },
+                    { id: 'sec-riscos', label: 'Riscos' },
+                    { id: 'sec-perguntas', label: 'Perguntas' },
+                    { id: 'sec-mapa', label: 'Mapa de calor' },
+                    { id: 'sec-perfil', label: 'Perfil' },
+                  ]}
+                />
+              )}
+
+              {/* Comparação com a edição anterior (liga/desliga) */}
+              {project.config.favorabilidade === true && anteriorCarregado && (
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={mostrarComparativo}
+                    onChange={(e) => setMostrarComparativo(e.target.checked)}
+                    className="rounded border-gray-300"
+                  />
+                  Comparar com {anteriorCarregado.rotulo}
+                  <span className="text-xs text-gray-400">(vale também para o PDF)</span>
+                </label>
+              )}
+
+              {/* Navegação por grupos (pesquisas segmentadas): comparar por e tabela clicável */}
               {segAtivo && recorte && (
                 <GroupComparison
+                  semTrilha
                   dimensoes={dimensoes}
                   atual={dimAtual}
                   filtros={filtros}
                   resultado={comparativo}
                   participacao={participacaoPorGrupo}
                   nMin={nMinimo}
-                  rotuloRaiz={dimensoes[0] ? `Todas as ${dimensoes[0].label.toLowerCase()}s` : 'Todos'}
+                  rotuloRaiz={rotuloRaiz}
                   onTrocarDimensao={setAgrupar}
                   onEntrar={entrarNoGrupo}
                   onSair={sairDoGrupo}
@@ -937,19 +1048,6 @@ export function DpaDashboardPage() {
                 </div>
               )}
 
-              {/* Pesquisa de clima: favorabilidade por bloco (opt-in por projeto) */}
-              {project.config.favorabilidade === true && anteriorCarregado && (
-                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={mostrarComparativo}
-                    onChange={(e) => setMostrarComparativo(e.target.checked)}
-                    className="rounded border-gray-300"
-                  />
-                  Comparar com {anteriorCarregado.rotulo}
-                  <span className="text-xs text-gray-400">(vale também para o PDF)</span>
-                </label>
-              )}
               {project.config.favorabilidade === true && !(segAtivo && recorte && !recorteVisivel(recorte.length, nMinimo)) && (
                 <FavorabilityPanel
                   perguntas={config.perguntas}
@@ -961,6 +1059,7 @@ export function DpaDashboardPage() {
                       ? project.config.importancia_pergunta_id : undefined
                   }
                   anterior={anteriorPainel ?? undefined}
+                  ocultarGeral={insights !== null}
                 />
               )}
 

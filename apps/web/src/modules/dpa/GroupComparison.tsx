@@ -27,6 +27,8 @@ interface Props {
   participacao?: Map<string, ParticipationInfo> | null
   nMin:       number
   rotuloRaiz: string
+  /** Esconde a trilha (quando a página já a mostra no topo). */
+  semTrilha?: boolean
   onTrocarDimensao: (id: string) => void
   onEntrar:         (def: SegmentDef, valor: string) => void
   onSair:           (id: string) => void
@@ -40,16 +42,15 @@ function cellColor(pct: number | null): string {
   return 'bg-red-100 text-red-800'
 }
 
-export function GroupComparison({
-  dimensoes, atual, filtros, resultado, participacao, nMin, rotuloRaiz,
-  onTrocarDimensao, onEntrar, onSair, onLimpar,
-}: Props) {
+export function Trilha({ dimensoes, filtros, rotuloRaiz, onSair, onLimpar }: {
+  dimensoes:  SegmentDef[]
+  filtros:    SegmentFilters
+  rotuloRaiz: string
+  onSair:     (id: string) => void
+  onLimpar:   () => void
+}) {
   const ativos = dimensoes.filter((d) => filtros[d.id])
-  const disponiveis = dimensoes.filter((d) => !filtros[d.id])
-
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-      {/* Trilha: onde estou */}
       <nav aria-label="Recorte atual" className="flex flex-wrap items-center gap-1.5 text-sm">
         <button
           type="button"
@@ -76,6 +77,20 @@ export function GroupComparison({
           </span>
         ))}
       </nav>
+  )
+}
+
+export function GroupComparison({
+  dimensoes, atual, filtros, resultado, participacao, nMin, rotuloRaiz, semTrilha,
+  onTrocarDimensao, onEntrar, onSair, onLimpar,
+}: Props) {
+  const disponiveis = dimensoes.filter((d) => !filtros[d.id])
+
+  return (
+    <div id="sec-comparativo" className="bg-white rounded-xl border border-gray-200 p-5 space-y-4 scroll-mt-16">
+      {!semTrilha && (
+        <Trilha dimensoes={dimensoes} filtros={filtros} rotuloRaiz={rotuloRaiz} onSair={onSair} onLimpar={onLimpar} />
+      )}
 
       {/* Dimensão comparada */}
       {disponiveis.length > 0 ? (
