@@ -5,7 +5,7 @@
  * abaixo do mínimo de respondentes são agrupadas ou omitidas (lib/segments).
  */
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { profileDistribution } from '@/lib/segments'
 
 interface PerguntaPerfil {
@@ -21,6 +21,8 @@ interface Props {
 }
 
 export function ProfilePanel({ perguntas, respondentes, nMin }: Props) {
+  // No celular o perfil começa recolhido, para não alongar o início da página; no computador fica sempre aberto.
+  const [aberto, setAberto] = useState(false)
   const dists = useMemo(
     () => perguntas.map((p) => profileDistribution(p, respondentes, nMin)).filter((d) => d.base > 0),
     [perguntas, respondentes, nMin],
@@ -29,14 +31,25 @@ export function ProfilePanel({ perguntas, respondentes, nMin }: Props) {
 
   return (
     <div id="sec-perfil" className="bg-white rounded-xl border border-gray-200 p-6 space-y-5 scroll-mt-16">
-      <div>
-        <h3 className="text-sm font-semibold text-gray-900">Perfil dos respondentes</h3>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Como se distribuem as pessoas que responderam (informação voluntária, com a opção "prefiro não informar").
-          Não é cruzada com os resultados. Grupos com menos de {nMin} pessoas são reunidos em "Outras respostas" ou não aparecem.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Perfil dos respondentes</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Como se distribuem as pessoas que responderam (informação voluntária, com a opção "prefiro não informar").
+            Não é cruzada com os resultados. Grupos com menos de {nMin} pessoas são reunidos em "Outras respostas" ou não aparecem.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setAberto((v) => !v)}
+          aria-expanded={aberto}
+          aria-controls="perfil-corpo"
+          className="md:hidden shrink-0 text-xs text-gray-600 border border-gray-300 rounded-lg px-2.5 py-1.5 hover:bg-gray-50"
+        >
+          {aberto ? 'Recolher' : 'Ver perfil'}
+        </button>
       </div>
-      <div className="grid gap-6 md:grid-cols-3">
+      <div id="perfil-corpo" className={`${aberto ? 'grid' : 'hidden md:grid'} gap-6 md:grid-cols-3`}>
         {dists.map((d) => (
           <div key={d.id}>
             <h4 className="text-xs font-semibold text-gray-700 mb-2">{d.texto.replace(/\?$/, '')}</h4>

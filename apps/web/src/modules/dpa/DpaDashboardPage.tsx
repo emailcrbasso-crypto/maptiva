@@ -977,10 +977,15 @@ export function DpaDashboardPage() {
                   temImportancia={typeof project.config.importancia_pergunta_id === 'string'}
                 />
               )}
+              {/* Perfil dos respondentes: fecha a visão geral. Só distribuição agregada, nunca cruzada com resultados */}
+              {perguntasPerfil.length > 0 && !recorteOculto && (
+                <ProfilePanel perguntas={perguntasPerfil} respondentes={respondentesPainel} nMin={nMinimo} />
+              )}
               {insights && (
                 <SectionNav
                   secoes={[
                     { id: 'sec-visao', label: 'Visão geral' },
+                    { id: 'sec-perfil', label: 'Perfil' },
                     { id: 'sec-comparativo', label: 'Comparativo' },
                     { id: 'sec-blocos', label: 'Blocos' },
                     { id: 'sec-evolucao', label: 'Evolução' },
@@ -988,7 +993,6 @@ export function DpaDashboardPage() {
                     { id: 'sec-riscos', label: 'Riscos' },
                     { id: 'sec-perguntas', label: 'Perguntas' },
                     { id: 'sec-mapa', label: 'Mapa de calor' },
-                    { id: 'sec-perfil', label: 'Perfil' },
                     { id: 'sec-respostas', label: 'Respostas abertas' },
                   ]}
                 />
@@ -1102,11 +1106,6 @@ export function DpaDashboardPage() {
                   anterior={anteriorPainel ?? undefined}
                   ocultarGeral={insights !== null}
                 />
-              )}
-
-              {/* Perfil dos respondentes: só distribuição agregada, nunca cruzada com resultados */}
-              {perguntasPerfil.length > 0 && !(segAtivo && recorte && !recorteVisivel(recorte.length, nMinimo)) && (
-                <ProfilePanel perguntas={perguntasPerfil} respondentes={respondentesPainel} nMin={nMinimo} />
               )}
 
               {/* Per-question results (sem filtros ativos: usam todas as respostas) */}
