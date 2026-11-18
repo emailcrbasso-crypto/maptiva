@@ -20,11 +20,8 @@ import {
   importanceByBlock,
   priorityMatrix,
   riskQuestions,
-  topQuestions,
-  bottomQuestions,
   type FavorabilityDelta,
   type PriorityQuadrant,
-  type QuestionFavorability,
   type QuestionRef,
   type RespondentRow,
 } from '@/lib/favorability'
@@ -42,6 +39,8 @@ interface Props {
   mostrarPorDimensao?: boolean
   /** Esconde o bloco "Favorabilidade geral" (a visão geral já o mostra). */
   ocultarGeral?: boolean
+  /** Clicar em um grupo (base, empresa, área) das listas leva ao recorte dele. */
+  onEntrarGrupo?: (grupo: string) => void
 }
 
 const QUADRANT_STYLE: Record<PriorityQuadrant, { label: string; color: string }> = {
@@ -99,28 +98,6 @@ function SectionTitle({ children, hint }: { children: React.ReactNode; hint?: st
     <div className="mb-3">
       <h3 className="text-sm font-semibold text-gray-900">{children}</h3>
       {hint && <p className="text-xs text-gray-500 mt-0.5">{hint}</p>}
-    </div>
-  )
-}
-
-function QuestionList({ title, items, tone }: {
-  title: string
-  items: QuestionFavorability[]
-  tone: 'good' | 'bad'
-}) {
-  return (
-    <div className="flex-1 min-w-0">
-      <h4 className="text-xs font-semibold text-gray-700 mb-2">{title}</h4>
-      <ul className="space-y-2">
-        {items.map((q) => (
-          <li key={q.id} className="flex items-start gap-2 text-xs">
-            <span className={`shrink-0 w-11 text-right font-semibold ${tone === 'good' ? 'text-green-700' : 'text-red-600'}`}>
-              {q.favoravel}%
-            </span>
-            <span className="text-gray-700 leading-snug">{q.texto}</span>
-          </li>
-        ))}
-      </ul>
     </div>
   )
 }
@@ -216,10 +193,12 @@ function PriorityChart({ pontos, corteFavoravel, corteImportancia, onSelect }: R
   )
 }
 
-export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin, importanciaPerguntaId, anterior, mostrarPorDimensao, ocultarGeral }: Props) {
+export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin, importanciaPerguntaId, anterior, mostrarPorDimensao, ocultarGeral, onEntrarGrupo }: Props) {
   const [blocoFiltro, setBlocoFiltro] = useState<string>('')
   const [ordem, setOrdem] = useState<'desc' | 'asc'>('desc')
   const [verTodas, setVerTodas] = useState(false)
+  const [atalho, setAtalho] = useState<'todas' | 'mais' | 'menos'>('todas')
+  const [limiteAtalho, setLimiteAtalho] = useState(5)
 
   const dados = useMemo(() => {
     const blocos = favorabilityByBlock(perguntas, respondentes)
@@ -236,6 +215,19 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
       ? favorabilityPooledByUnit(riscoPerguntas, respondentes, nMin) : null
     const riscoIds = new Set(riscoPerguntas.map((p) => p.id))
     const riscoItens = perguntasFav.filter((q) => riscoIds.has(q.id))
+
+    // Variação em relação à edição anterior: do risco geral e de cada pergunta.
+    let riscoDelta: number | null = null
+    const deltaPergunta = new Map<string, number>()
+    if (anterior && anterior.respondentes.length > 0) {
+      for (const d of compareQuestions(perguntasFav, favorabilityByQuestion(perguntas, anterior.respondentes))) {
+        deltaPergunta.set(d.chave, d.delta)
+      }
+      if (riscoGeral && riscoPerguntas.length > 0) {
+        const ant = favorabilityPooled(riscoPerguntas, anterior.respondentes)
+        if (ant.n > 0) riscoDelta = Math.round((riscoGeral.favoravel - ant.favoravel) * 10) / 10
+      }
+    }
 
     const prioridades = importanciaPerguntaId
       ? priorityMatrix(blocos, importanceByBlock(importanciaPerguntaId, blocos.map((b) => b.bloco), respondentes))
@@ -275,15 +267,17 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
 
     return {
       blocos, perguntasFav, matriz, geralPorBase, riscoGeral, riscoPorBase, riscoItens, prioridades, geral, comparativo,
+      riscoDelta, deltaPergunta,
     }
   }, [perguntas, respondentes, nMin, importanciaPerguntaId, anterior])
 
-  const { blocos, perguntasFav, matriz, geralPorBase, riscoGeral, riscoPorBase, riscoItens, prioridades, geral, comparativo } = dados
+  const { blocos, perguntasFav, matriz, geralPorBase, riscoGeral, riscoPorBase, riscoItens, prioridades, geral, comparativo, riscoDelta, deltaPergunta } = dados
 
   const ranking = useMemo(() => {
     const itens = perguntasFav.filter((q) => q.n > 0 && (!blocoFiltro || q.bloco === blocoFiltro))
-    return itens.sort((a, b) => ordem === 'desc' ? b.favoravel - a.favoravel : a.favoravel - b.favoravel)
-  }, [perguntasFav, blocoFiltro, ordem])
+    const desc = atalho === 'mais' ? true : atalho === 'menos' ? false : ordem === 'desc'
+    return itens.sort((a, b) => desc ? b.favoravel - a.favoravel : a.favoravel - b.favoravel)
+  }, [perguntasFav, blocoFiltro, ordem, atalho])
 
   const RANKING_INICIAL = 10
 
@@ -296,7 +290,9 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
       setTimeout(() => document.getElementById('sec-perguntas')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
     }
   }
-  const rankingVisivel = blocoFiltro || verTodas ? ranking : ranking.slice(0, RANKING_INICIAL)
+  const rankingVisivel = atalho !== 'todas'
+    ? ranking.slice(0, limiteAtalho)
+    : blocoFiltro || verTodas ? ranking : ranking.slice(0, RANKING_INICIAL)
 
   if (blocos.length === 0 || respondentes.length === 0) return null
 
@@ -488,47 +484,110 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
       )}
 
       {/* Riscos psicossociais */}
-      {riscoGeral && riscoGeral.n > 0 && (
+      {riscoGeral && riscoGeral.n > 0 && (() => {
+        const abaixo = [...riscoItens].filter((q) => q.n > 0 && q.favoravel < 50).sort((a, b) => a.favoravel - b.favoravel)
+        const maiores = abaixo.slice(0, 10)
+        const gruposRisco = riscoPorBase ? [...riscoPorBase.unidades].sort((a, b) => a.favoravel - b.favoravel) : []
+        const corTexto = (p: number) => (p >= 70 ? 'text-green-700' : p >= 50 ? 'text-amber-700' : 'text-red-600')
+        return (
         <div id="sec-riscos" className={`${card} space-y-6`}>
           <div>
-            <div className="flex items-baseline justify-between gap-3 mb-1">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-1">
               <h3 className="text-sm font-semibold text-gray-900">Riscos psicossociais</h3>
-              <span className="text-2xl font-semibold text-gray-900">{riscoGeral.favoravel}%</span>
+              <span className="flex items-baseline gap-2">
+                {riscoDelta !== null && anterior && <DeltaBadge delta={riscoDelta} />}
+                <span className="text-2xl font-semibold text-gray-900">{riscoGeral.favoravel}%</span>
+              </span>
             </div>
-            <p className="text-xs text-gray-500 mb-3">
-              Favorabilidade das {riscoItens.length} perguntas ligadas a carga, pressão, apoio, assédio e segurança psicológica,
-              que atravessam vários blocos. Quanto menor, maior o risco.
+            <p className="text-xs text-gray-500 mb-3" title="Perguntas sobre carga, pressão, apoio, assédio e segurança psicológica, que atravessam vários blocos.">
+              Favorabilidade das {riscoItens.length} perguntas de carga, pressão, apoio e assédio. Quanto menor, maior o risco.
             </p>
             <StackedBar fav={riscoGeral.favoravel} neu={riscoGeral.neutro} des={riscoGeral.desfavoravel} />
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px] text-gray-500">
+              <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />Favorável {riscoGeral.favoravel}%</span>
+              <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />Neutro {riscoGeral.neutro}%</span>
+              <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />Desfavorável {riscoGeral.desfavoravel}%</span>
+            </div>
           </div>
           <div className="flex flex-col md:flex-row gap-6">
-            <QuestionList
-              title="10 maiores riscos"
-              items={[...riscoItens].filter((q) => q.n > 0).sort((a, b) => a.favoravel - b.favoravel).slice(0, 10)}
-              tone="bad"
-            />
-            {riscoPorBase && riscoPorBase.unidades.length > 0 && (
-              <div className="md:w-72 shrink-0">
-                <h4 className="text-xs font-semibold text-gray-700 mb-2">Por {labelUnidade.toLowerCase()}</h4>
-                <ul className="space-y-1.5">
-                  {[...riscoPorBase.unidades].sort((a, b) => a.favoravel - b.favoravel).map((u) => (
-                    <li key={u.unidade} className="flex items-center gap-2 text-xs">
-                      <span className="w-32 truncate text-gray-700" title={u.unidade}>{u.unidade}</span>
-                      <span className={`ml-auto rounded px-1.5 py-0.5 font-semibold ${cellColor(u.favoravel)}`}>{u.favoravel}%</span>
+            <div className="flex-1 min-w-0">
+              <h4 className="text-xs font-semibold text-gray-700">Maiores riscos</h4>
+              <p className="text-[11px] text-gray-500 mb-2">
+                {abaixo.length === 0
+                  ? 'Nenhuma pergunta está abaixo de 50% de favorabilidade.'
+                  : `${abaixo.length} de ${riscoItens.length} perguntas com menos de 50% de respostas favoráveis${abaixo.length > maiores.length ? ` (as ${maiores.length} piores)` : ''}.`}
+              </p>
+              <ul className="space-y-2.5">
+                {maiores.map((q) => {
+                  const d = deltaPergunta.get(q.id)
+                  return (
+                    <li key={q.id}>
+                      <button
+                        type="button"
+                        onClick={() => escolherBloco(q.bloco, true)}
+                        title="Ver as perguntas deste bloco"
+                        className="w-full flex items-start gap-3 text-left rounded-lg -mx-1.5 px-1.5 py-1 hover:bg-gray-50"
+                      >
+                        <span className={`w-12 shrink-0 text-sm font-semibold tabular-nums ${corTexto(q.favoravel)}`}>{q.favoravel}%</span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-xs text-gray-800 leading-snug">{q.texto}</span>
+                          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className="text-[11px] text-gray-500 bg-gray-100 rounded px-1.5 py-0.5">{q.bloco}</span>
+                            {d !== undefined && anterior && (
+                              <span className={`text-[11px] font-medium ${d > 0 ? 'text-green-700' : d < 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                                {d > 0 ? '+' : d < 0 ? '−' : ''}{Math.abs(d).toString().replace('.', ',')} p.p. vs {anterior.rotulo}
+                              </span>
+                            )}
+                          </span>
+                          <span className="block mt-1.5"><StackedBar fav={q.favoravel} neu={q.neutro} des={q.desfavoravel} /></span>
+                        </span>
+                      </button>
                     </li>
-                  ))}
+                  )
+                })}
+              </ul>
+            </div>
+            {gruposRisco.length > 0 && (
+              <div className="md:w-80 shrink-0">
+                <h4 className="text-xs font-semibold text-gray-700">Por {labelUnidade.toLowerCase()}</h4>
+                <p className="text-[11px] text-gray-500 mb-2">
+                  {onEntrarGrupo ? 'Do maior para o menor risco. Clique para ver só o grupo.' : 'Do maior para o menor risco.'}
+                </p>
+                <ul className="space-y-1">
+                  {gruposRisco.map((u) => {
+                    const conteudo = (
+                      <>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-xs text-gray-800 leading-snug break-words">{u.unidade}</span>
+                          <span className="block text-[11px] text-gray-400">{u.respondentes.toLocaleString('pt-BR')} respondentes</span>
+                        </span>
+                        <span className={`rounded px-1.5 py-0.5 text-xs font-semibold shrink-0 ${cellColor(u.favoravel)}`}>{u.favoravel}%</span>
+                      </>
+                    )
+                    return (
+                      <li key={u.unidade}>
+                        {onEntrarGrupo ? (
+                          <button
+                            type="button"
+                            onClick={() => onEntrarGrupo(u.unidade)}
+                            className="w-full flex items-center gap-2 text-left rounded-lg -mx-1.5 px-1.5 py-1.5 hover:bg-gray-50"
+                          >
+                            {conteudo}
+                            <span className="text-gray-300" aria-hidden="true">›</span>
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-2 py-1.5">{conteudo}</div>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
               </div>
             )}
           </div>
         </div>
-      )}
-
-      {/* Mais e menos favoráveis */}
-      <div className={`${card} flex flex-col md:flex-row gap-6`}>
-        <QuestionList title="10 mais favoráveis" items={topQuestions(perguntasFav, 10)} tone="good" />
-        <QuestionList title="10 menos favoráveis" items={bottomQuestions(perguntasFav, 10)} tone="bad" />
-      </div>
+        )
+      })()}
 
       {/* Ranking completo */}
       <div id="sec-perguntas" className={card}>
@@ -546,6 +605,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
               <option value="">Todos os blocos</option>
               {blocos.map((b) => <option key={b.bloco} value={b.bloco}>{b.bloco}</option>)}
             </select>
+            {atalho === 'todas' && (
             <button
               type="button"
               onClick={() => setOrdem((o) => (o === 'desc' ? 'asc' : 'desc'))}
@@ -553,7 +613,23 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
             >
               {ordem === 'desc' ? 'Maior favorabilidade primeiro' : 'Menor favorabilidade primeiro'}
             </button>
+            )}
           </div>
+        </div>
+        <div className="mb-3 flex flex-wrap gap-1.5" role="group" aria-label="Quais perguntas mostrar">
+          {([['todas', 'Todas'], ['mais', 'Mais favoráveis'], ['menos', 'Menos favoráveis']] as const).map(([id, rotulo]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => { setAtalho(id); setLimiteAtalho(5) }}
+              aria-pressed={atalho === id}
+              className={`text-xs rounded-full px-3 py-1 border transition-colors ${
+                atalho === id ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {rotulo}
+            </button>
+          ))}
         </div>
         {blocoFiltro && (
           <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm">
@@ -580,6 +656,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                 <th className="py-1.5 pl-2 font-medium w-14 text-right text-green-700">Fav.</th>
                 <th className="py-1.5 pl-2 font-medium w-14 text-right hidden sm:table-cell">Neutro</th>
                 <th className="py-1.5 pl-2 font-medium w-14 text-right text-red-600 hidden sm:table-cell">Desfav.</th>
+                {anterior && <th className="py-1.5 pl-2 font-medium w-24 text-right hidden md:table-cell">vs {anterior.rotulo}</th>}
               </tr>
             </thead>
             <tbody>
@@ -590,17 +667,45 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                     {q.texto}
                     <span className="sm:hidden block mt-1"><Trio fav={q.favoravel} neu={q.neutro} des={q.desfavoravel} /></span>
                   </td>
-                  <td className="py-2 pr-3 text-gray-500 hidden md:table-cell">{q.bloco}</td>
+                  <td className="py-2 pr-3 hidden md:table-cell">
+                    <button
+                      type="button"
+                      onClick={() => setBlocoFiltro(q.bloco)}
+                      title="Ver só as perguntas deste bloco"
+                      className="text-gray-500 hover:text-gray-900 hover:underline text-left"
+                    >
+                      {q.bloco}
+                    </button>
+                  </td>
                   <td className="py-2 px-2 hidden sm:table-cell"><StackedBar fav={q.favoravel} neu={q.neutro} des={q.desfavoravel} /></td>
                   <td className="py-2 pl-2 text-right font-semibold text-green-700 tabular-nums">{q.favoravel}%</td>
                   <td className="py-2 pl-2 text-right text-gray-500 tabular-nums hidden sm:table-cell">{q.neutro}%</td>
                   <td className="py-2 pl-2 text-right text-red-600 tabular-nums hidden sm:table-cell">{q.desfavoravel}%</td>
+                  {anterior && (() => {
+                    const d = deltaPergunta.get(q.id)
+                    return (
+                      <td className={`py-2 pl-2 text-right tabular-nums hidden md:table-cell ${d === undefined ? 'text-gray-300' : d > 0 ? 'text-green-700' : d < 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                        {d === undefined ? '–' : `${d > 0 ? '+' : d < 0 ? '−' : ''}${Math.abs(d).toString().replace('.', ',')} p.p.`}
+                      </td>
+                    )
+                  })()}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {!blocoFiltro && ranking.length > RANKING_INICIAL && (
+        {atalho !== 'todas' && ranking.length > 5 && (
+          <div className="mt-3 text-center">
+            <button
+              type="button"
+              onClick={() => setLimiteAtalho((n) => (n === 5 ? 10 : 5))}
+              className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              {limiteAtalho === 5 ? 'Ver 10' : 'Ver só 5'}
+            </button>
+          </div>
+        )}
+        {atalho === 'todas' && !blocoFiltro && ranking.length > RANKING_INICIAL && (
           <div className="mt-3 text-center">
             <button
               type="button"

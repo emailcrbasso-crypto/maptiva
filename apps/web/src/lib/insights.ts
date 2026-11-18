@@ -10,6 +10,7 @@ import {
   compareBlocks,
   deltaDirection,
   favorabilityByBlock,
+  favorabilityByQuestion,
   favorabilityPooled,
   importanceByBlock,
   priorityMatrix,
@@ -23,6 +24,12 @@ export interface PriorityItem {
   bloco:       string
   favoravel:   number
   importancia: number
+}
+
+export interface CriticalQuestion {
+  texto:     string
+  bloco:     string
+  favoravel: number
 }
 
 export interface ExecutiveInsights {
@@ -40,6 +47,8 @@ export interface ExecutiveInsights {
   queda:     FavorabilityDelta | null
   /** Blocos de alta importância e baixa favorabilidade, do mais importante para o menos. */
   prioridades: PriorityItem[]
+  /** As perguntas com menor favorabilidade (até 3). */
+  criticas:    CriticalQuestion[]
   /** Frase de abertura em português. */
   frase: string
 }
@@ -130,6 +139,12 @@ export function buildInsights(params: {
       .map((p) => ({ bloco: p.bloco, favoravel: p.favoravel, importancia: p.importancia }))
   }
 
+  const criticas = favorabilityByQuestion(perguntas, respondentes)
+    .filter((q) => q.n > 0)
+    .sort((a, b) => a.favoravel - b.favoravel)
+    .slice(0, 3)
+    .map((q) => ({ texto: q.texto, bloco: q.bloco, favoravel: q.favoravel }))
+
   return {
     n: respondentes.length,
     geral,
@@ -140,6 +155,7 @@ export function buildInsights(params: {
     melhora,
     queda,
     prioridades,
+    criticas,
     frase: buildHeadline({ escopo, geral: geral.favoravel, deltaGeral, rotuloAnterior, maisForte, maisFraco }),
   }
 }

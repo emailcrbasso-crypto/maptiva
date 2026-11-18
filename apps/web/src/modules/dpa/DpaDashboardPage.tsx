@@ -1163,6 +1163,7 @@ export function DpaDashboardPage() {
                   }
                   anterior={anteriorPainel ?? undefined}
                   ocultarGeral={insights !== null}
+                  onEntrarGrupo={segAtivo && dimAtual ? (g) => entrarNoGrupo(dimAtual, g) : undefined}
                 />
               )}
 

@@ -152,6 +152,23 @@ export function ExecutiveSummary({ insights: i, participacao, temImportancia }: 
           )}
         </div>
       )}
+
+      {i.criticas.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-gray-900 mb-2">Perguntas mais críticas</h3>
+          <ul className="rounded-lg border border-gray-200 divide-y divide-gray-100">
+            {i.criticas.map((q) => (
+              <li key={q.texto} className="flex items-start gap-3 px-3.5 py-2.5">
+                <span className={`w-12 shrink-0 text-sm font-semibold tabular-nums ${q.favoravel >= 50 ? 'text-amber-700' : 'text-red-600'}`}>
+                  {fmtPct(q.favoravel)}%
+                </span>
+                <span className="text-sm text-gray-800 flex-1 leading-snug">{q.texto}</span>
+                <span className="hidden sm:inline text-[11px] text-gray-500 bg-gray-100 rounded px-2 py-0.5 shrink-0">{q.bloco}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   )
 }
