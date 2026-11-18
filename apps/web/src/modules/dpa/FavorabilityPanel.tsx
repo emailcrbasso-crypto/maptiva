@@ -269,6 +269,16 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
   }, [perguntasFav, blocoFiltro, ordem])
 
   const RANKING_INICIAL = 10
+
+  // Clicar em um bloco filtra o ranking de perguntas e leva até ele; clicar de novo limpa o filtro.
+  function escolherBloco(bloco: string) {
+    const limpar = blocoFiltro === bloco
+    setBlocoFiltro(limpar ? '' : bloco)
+    if (!limpar) {
+      setOrdem('desc')
+      setTimeout(() => document.getElementById('sec-perguntas')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
+    }
+  }
   const rankingVisivel = blocoFiltro || verTodas ? ranking : ranking.slice(0, RANKING_INICIAL)
 
   if (blocos.length === 0 || respondentes.length === 0) return null
@@ -302,7 +312,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
         )}
 
         <div>
-          <SectionTitle hint="Clique em um bloco para ver suas perguntas no ranking abaixo.">
+          <SectionTitle hint="Toque em um bloco para ver as perguntas dele, da mais para a menos favorável.">
             Favorabilidade por bloco
           </SectionTitle>
           <div className="space-y-1">
@@ -310,7 +320,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
               <button
                 key={b.bloco}
                 type="button"
-                onClick={() => setBlocoFiltro((cur) => (cur === b.bloco ? '' : b.bloco))}
+                onClick={() => escolherBloco(b.bloco)}
                 className={`w-full flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3 rounded-lg px-2 py-2 sm:py-1.5 text-left transition-colors ${
                   blocoFiltro === b.bloco ? 'bg-gray-100' : 'hover:bg-gray-50'
                 }`}
@@ -519,6 +529,19 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
             </button>
           </div>
         </div>
+        {blocoFiltro && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm">
+            <span className="text-gray-500">Mostrando só o bloco</span>
+            <span className="font-medium text-gray-900">{blocoFiltro}</span>
+            <button
+              type="button"
+              onClick={() => setBlocoFiltro('')}
+              className="ml-auto text-xs text-gray-600 underline hover:text-gray-900"
+            >
+              Ver todas as perguntas
+            </button>
+          </div>
+        )}
         <div className="mb-2"><Legend /></div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
