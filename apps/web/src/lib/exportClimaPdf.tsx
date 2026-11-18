@@ -138,14 +138,14 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
   const blocosOrdenados = [...blocos].sort((a, b) => b.favoravel - a.favoravel)
 
   const porPergunta = favorabilityByQuestion(input.perguntas, input.respondentes)
-  const topo = topQuestions(porPergunta, 5)
-  const baixo = bottomQuestions(porPergunta, 5)
+  const topo = topQuestions(porPergunta, 3)
+  const baixo = bottomQuestions(porPergunta, 3)
 
   const riscoPerguntas = riskQuestions(input.perguntas)
   const riscoGeral = riscoPerguntas.length > 0 ? favorabilityPooled(riscoPerguntas, input.respondentes) : null
   const riscoIds = new Set(riscoPerguntas.map((p) => p.id))
   const riscoItens = riscoGeral && riscoGeral.n > 0
-    ? porPergunta.filter((q) => riscoIds.has(q.id) && q.n > 0).sort((a, b) => a.favoravel - b.favoravel).slice(0, 8)
+    ? porPergunta.filter((q) => riscoIds.has(q.id) && q.n > 0).sort((a, b) => a.favoravel - b.favoravel).slice(0, 5)
     : []
 
   let evolucaoBlocos: ReturnType<typeof compareBlocks> = []
@@ -154,8 +154,8 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
   if (input.anterior && input.anterior.respondentes.length > 0) {
     evolucaoBlocos = compareBlocks(blocos, favorabilityByBlock(input.perguntas, input.anterior.respondentes)).sort((a, b) => b.delta - a.delta)
     const deltasPerg = compareQuestions(porPergunta, favorabilityByQuestion(input.perguntas, input.anterior.respondentes))
-    melhoras = deltasPerg.filter((d) => d.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 4)
-    quedas = deltasPerg.filter((d) => d.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 4)
+    melhoras = deltasPerg.filter((d) => d.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 3)
+    quedas = deltasPerg.filter((d) => d.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 3)
   }
 
   const perfis = input.perfilPerguntas
@@ -244,18 +244,45 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
           </>
         )}
 
-        <Text style={S.h2}>Favorabilidade por bloco</Text>
-        <View style={S.box}>
-          {blocosOrdenados.map((b, idx) => (
-            <View key={b.bloco} wrap={false} style={[S.row, idx === blocosOrdenados.length - 1 ? { borderBottomWidth: 0 } : {}]}>
-              <Text style={{ flex: 3, fontSize: 8.5 }}>{b.bloco}</Text>
-              <View style={{ flex: 4 }}><Barra fav={b.favoravel} neu={b.neutro} des={b.desfavoravel} /></View>
-              <Text style={{ width: 96, textAlign: 'right', fontSize: 8, fontFamily: 'Helvetica-Bold' }}>
-                {fmtPct(b.favoravel)}% <Text style={{ color: '#6b7280', fontFamily: 'Helvetica' }}>· {fmtPct(b.neutro)}% · {fmtPct(b.desfavoravel)}%</Text>
-              </Text>
+        {i.criticas.length > 0 && (
+          <View wrap={false}>
+            <Text style={S.h2}>Perguntas mais críticas</Text>
+            <View style={S.box}>
+              {i.criticas.map((q, idx) => (
+                <View key={q.texto} style={[S.row, idx === i.criticas.length - 1 ? { borderBottomWidth: 0 } : {}]}>
+                  <Text style={{ width: 34, fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: q.favoravel >= 50 ? '#b45309' : '#dc2626' }}>{fmtPct(q.favoravel)}%</Text>
+                  <Text style={{ flex: 1, fontSize: 8.5 }}>{q.texto}</Text>
+                  <Text style={{ fontSize: 7, color: '#6b7280', marginLeft: 6 }}>{q.bloco}</Text>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
+          </View>
+        )}
+
+        {perfis.length > 0 && (
+          <View wrap={false}>
+            <Text style={S.h2}>Perfil dos respondentes</Text>
+            <Text style={S.hint}>Informação voluntária, não cruzada com os resultados. Categorias com menos de {nMin} pessoas são reunidas ou omitidas.</Text>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              {perfis.map((d) => (
+                <View key={d.id} style={{ flex: 1 }}>
+                  <Text style={[S.th, { color: '#374151', marginBottom: 3 }]}>{d.texto.replace(/\?$/, '')}</Text>
+                  {d.itens.map((it) => (
+                    <View key={it.rotulo} style={{ marginBottom: 3 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 7.5 }}>{it.rotulo}</Text>
+                        <Text style={{ fontSize: 7.5, color: '#6b7280' }}>{fmtPct(it.pct)}%</Text>
+                      </View>
+                      <View style={{ height: 3, backgroundColor: '#f3f4f6', borderRadius: 2 }}>
+                        <View style={{ width: `${it.pct}%`, height: 3, backgroundColor: '#9ca3af', borderRadius: 2 }} />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
 
         <Text style={[S.hint, { marginTop: 14 }]}>{nota}</Text>
         <Rodape input={input} />
@@ -304,13 +331,26 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
         </Page>
       )}
 
-      {/* ── Blocos, evolução, riscos, ranking e perfil ── */}
+      {/* ── Blocos, evolução, riscos e ranking ── */}
       <Page size="A4" style={S.page}>
         <Cabecalho input={input} cor={cor} />
 
+        <Text style={[S.h2, { marginTop: 0 }]}>Favorabilidade por bloco</Text>
+        <View style={S.box}>
+          {blocosOrdenados.map((b, idx) => (
+            <View key={b.bloco} wrap={false} style={[S.row, idx === blocosOrdenados.length - 1 ? { borderBottomWidth: 0 } : {}]}>
+              <Text style={{ flex: 3, fontSize: 8.5 }}>{b.bloco}</Text>
+              <View style={{ flex: 4 }}><Barra fav={b.favoravel} neu={b.neutro} des={b.desfavoravel} /></View>
+              <Text style={{ width: 96, textAlign: 'right', fontSize: 8, fontFamily: 'Helvetica-Bold' }}>
+                {fmtPct(b.favoravel)}% <Text style={{ color: '#6b7280', fontFamily: 'Helvetica' }}>· {fmtPct(b.neutro)}% · {fmtPct(b.desfavoravel)}%</Text>
+              </Text>
+            </View>
+          ))}
+        </View>
+
         {evolucaoBlocos.length > 0 && input.anterior && (
           <View wrap={false}>
-            <Text style={[S.h2, { marginTop: 0 }]}>Evolução em relação a {input.anterior.rotulo}</Text>
+            <Text style={S.h2}>Evolução em relação a {input.anterior.rotulo}</Text>
             <Text style={S.hint}>Variações de até 2 p.p. são tratadas como estabilidade.</Text>
             <View style={S.box}>
               {evolucaoBlocos.map((b, idx) => (
@@ -370,31 +410,6 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
             ))}
           </View>
         </View>
-
-        {perfis.length > 0 && (
-          <View wrap={false}>
-            <Text style={S.h2}>Perfil dos respondentes</Text>
-            <Text style={S.hint}>Informação voluntária, não cruzada com os resultados. Categorias com menos de {nMin} pessoas são reunidas ou omitidas.</Text>
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              {perfis.map((d) => (
-                <View key={d.id} style={{ flex: 1 }}>
-                  <Text style={[S.th, { color: '#374151', marginBottom: 3 }]}>{d.texto.replace(/\?$/, '')}</Text>
-                  {d.itens.map((it) => (
-                    <View key={it.rotulo} style={{ marginBottom: 3 }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <Text style={{ fontSize: 7.5 }}>{it.rotulo}</Text>
-                        <Text style={{ fontSize: 7.5, color: '#6b7280' }}>{fmtPct(it.pct)}%</Text>
-                      </View>
-                      <View style={{ height: 3, backgroundColor: '#f3f4f6', borderRadius: 2 }}>
-                        <View style={{ width: `${it.pct}%`, height: 3, backgroundColor: '#9ca3af', borderRadius: 2 }} />
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
 
         <Rodape input={input} />
       </Page>
