@@ -7,6 +7,7 @@
 import { useMemo } from 'react'
 import {
   segmentOptions,
+  segmentValue,
   perfilBloqueado,
   type SegmentDef,
   type SegmentFilters as Filters,
@@ -32,6 +33,11 @@ export function SegmentFilters({ defs, rows, filtros, onChange, agrupar, onAgrup
     [defs, rows, filtros, nMin],
   )
   const ativos = defs.filter((d) => filtros[d.id]).length
+  // Dimensões sem nenhum valor nos dados carregados (ex.: participantes sem área).
+  const semDados = useMemo(
+    () => defs.filter((d) => rows.length > 0 && !rows.some((r) => segmentValue(r, d) !== null)),
+    [defs, rows],
+  )
 
   function set(id: string, valor: string) {
     const next = { ...filtros }
@@ -94,6 +100,14 @@ export function SegmentFilters({ defs, rows, filtros, onChange, agrupar, onAgrup
           </button>
         )}
       </div>
+
+      {semDados.length > 0 && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+          Nenhum respondente tem {semDados.map((d) => `"${d.label}"`).join(', ')} preenchido nos dados desta pesquisa,
+          por isso {semDados.length > 1 ? 'esses filtros e agrupamentos ficam vazios' : 'esse filtro e esse agrupamento ficam vazios'}.
+          Os participantes precisam ser carregados com {semDados.length > 1 ? 'essas informações' : 'essa informação'}.
+        </p>
+      )}
 
       <p className="text-xs text-gray-400">
         {ativos > 0

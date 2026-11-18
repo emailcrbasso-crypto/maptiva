@@ -19,7 +19,10 @@ import { DpaEmailComposer } from './DpaEmailComposer'
 import { FavorabilityPanel } from './FavorabilityPanel'
 import { SegmentFilters } from './SegmentFilters'
 import { ProfilePanel } from './ProfilePanel'
-import { applyFilters, regroupBy, recorteVisivel, type SegmentDef, type SegmentFilters as Filters } from '@/lib/segments'
+import {
+  applyFilters, regroupBy, recorteVisivel, participationBy,
+  type SegmentDef, type SegmentFilters as Filters, type ParticipationAgg,
+} from '@/lib/segments'
 import { exportDpaPdf } from '@/lib/exportDpaPdf'
 import { exportDpaPrintForm } from '@/lib/exportDpaPrintForm'
 import * as XLSX from 'xlsx'
@@ -153,6 +156,7 @@ export function DpaDashboardPage() {
 
   // ── Segmentação (pesquisas com config.segmentos: empresa, área, perfil) ────
   const [segRows,   setSegRows]   = useState<Resposta[] | null>(null)
+  const [segPart,   setSegPart]   = useState<ParticipationAgg[] | null>(null)
   const [filtros,   setFiltros]   = useState<Filters>({})
   const [agrupar,   setAgrupar]   = useState('unidade')
 
@@ -164,6 +168,12 @@ export function DpaDashboardPage() {
   const segAtivo = segDefs.length > 0 && segRows !== null && project?.config.favorabilidade === true
   const defAgrupar = segDefs.find((d) => d.id === agrupar) ?? segDefs[0]
   const nFiltros = Object.keys(filtros).length
+  // Participação pela dimensão escolhida (e filtros de atributo). Sem os agregados
+  // (migration 0112 ainda não aplicada) ou para dimensão vinda de pergunta, cai na lista por unidade.
+  const participacao = useMemo(
+    () => (segAtivo && segPart && defAgrupar ? participationBy(segPart, segDefs, filtros, defAgrupar, nMinimo) : null),
+    [segAtivo, segPart, segDefs, filtros, defAgrupar, nMinimo],
+  )
   // Perguntas de perfil (config.perfil_perguntas = ids): mostradas só como distribuição.
   const perguntasPerfil = useMemo(() => {
     const ids = Array.isArray(project?.config.perfil_perguntas) ? (project?.config.perfil_perguntas as string[]) : []
@@ -232,9 +242,14 @@ export function DpaDashboardPage() {
 
       // Respostas com empresa/área/unidade, para os filtros (falha em silêncio: sem filtros).
       setSegRows(null)
+      setSegPart(null)
       if (segmentado) {
         const seg = await supabase.rpc('get_dpa_dashboard_segmentos', { p_projeto_id: id })
-        if (!seg.error && seg.data) setSegRows((seg.data as { respostas: Resposta[] }).respostas)
+        if (!seg.error && seg.data) {
+          const d = seg.data as { respostas: Resposta[]; participacao?: ParticipationAgg[] }
+          setSegRows(d.respostas)
+          setSegPart(Array.isArray(d.participacao) ? d.participacao : null)
+        }
       }
 
       setAnterior(null)
@@ -809,14 +824,37 @@ export function DpaDashboardPage() {
             </div>
           ) : (
             <>
-              {/* Per-unit breakdown */}
-              {dashboard.por_unidade.length > 0 && (
+              {/* Filtros e agrupamento (pesquisas segmentadas): ficam no topo, acima de tudo que eles alteram */}
+              {segAtivo && recorte && (
+                <SegmentFilters
+                  defs={segDefs}
+                  rows={segRows!}
+                  filtros={filtros}
+                  onChange={setFiltros}
+                  agrupar={defAgrupar?.id ?? 'unidade'}
+                  onAgrupar={setAgrupar}
+                  nMin={nMinimo}
+                  exibindo={recorte.length}
+                />
+              )}
+              {segAtivo && recorte && !recorteVisivel(recorte.length, nMinimo) && (
+                <div className="bg-amber-50 border border-amber-100 rounded-xl px-5 py-4 text-sm text-amber-800">
+                  Este recorte tem menos de {nMinimo} respondentes e não é exibido, para proteger o anonimato.
+                  Remova algum filtro para ver os resultados.
+                </div>
+              )}
+
+              {/* Participação: por unidade, ou pela dimensão escolhida e filtros nas pesquisas segmentadas */}
+              {(participacao ? participacao.grupos.length > 0 : dashboard.por_unidade.length > 0) && (
                 <div className="bg-white rounded-xl border border-gray-200 p-6">
                   <h3 className="text-sm font-semibold text-gray-900 mb-4">
-                    Participação por {config.label_unidade}
+                    Participação por {participacao && defAgrupar ? defAgrupar.label.toLowerCase() : config.label_unidade}
                   </h3>
                   <div className="space-y-3">
-                    {dashboard.por_unidade.map((u) => {
+                    {(participacao
+                      ? participacao.grupos.map((g) => ({ unidade: g.grupo, total: g.total, respondidos: g.respondidos }))
+                      : dashboard.por_unidade
+                    ).map((u) => {
                       const pct = u.total > 0 ? Math.round((u.respondidos / u.total) * 100) : 0
                       return (
                         <div key={u.unidade} className="flex items-center gap-3">
@@ -835,6 +873,11 @@ export function DpaDashboardPage() {
                         </div>
                       )
                     })}
+                    {participacao && participacao.omitidos > 0 && (
+                      <p className="text-[11px] text-gray-400">
+                        {participacao.omitidos} {participacao.omitidos > 1 ? 'grupos omitidos' : 'grupo omitido'} por ter menos de {nMinimo} respondentes.
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
@@ -851,24 +894,6 @@ export function DpaDashboardPage() {
                   Comparar com {anteriorCarregado.rotulo}
                   <span className="text-xs text-gray-400">(vale também para o PDF)</span>
                 </label>
-              )}
-              {segAtivo && recorte && (
-                <SegmentFilters
-                  defs={segDefs}
-                  rows={segRows!}
-                  filtros={filtros}
-                  onChange={setFiltros}
-                  agrupar={defAgrupar?.id ?? 'unidade'}
-                  onAgrupar={setAgrupar}
-                  nMin={nMinimo}
-                  exibindo={recorte.length}
-                />
-              )}
-              {segAtivo && recorte && !recorteVisivel(recorte.length, nMinimo) && (
-                <div className="bg-amber-50 border border-amber-100 rounded-xl px-5 py-4 text-sm text-amber-800">
-                  Este recorte tem menos de {nMinimo} respondentes e não é exibido, para proteger o anonimato.
-                  Remova algum filtro para ver os resultados.
-                </div>
               )}
               {project.config.favorabilidade === true && !(segAtivo && recorte && !recorteVisivel(recorte.length, nMinimo)) && (
                 <FavorabilityPanel

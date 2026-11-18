@@ -181,3 +181,52 @@ export function profileDistribution(
 
   return { id: pergunta.id, texto: pergunta.texto, base, itens, agrupado }
 }
+
+// ── Participação por dimensão (a partir de contagens agregadas) ──────────────
+
+export interface ParticipationAgg {
+  empresa?:    string | null
+  area?:       string | null
+  unidade?:    string | null
+  total:       number
+  respondidos: number
+}
+
+export interface ParticipationGroup {
+  grupo:       string
+  total:       number
+  respondidos: number
+}
+
+/**
+ * Participação por uma dimensão de atributo do participante (empresa, unidade,
+ * área), respeitando os filtros de atributo ativos. Grupos com menos de `nMin`
+ * respondentes não aparecem. Dimensões vindas de perguntas (perfil) não têm
+ * contagem de participantes: devolve null.
+ */
+export function participationBy(
+  aggs: ParticipationAgg[],
+  defs: SegmentDef[],
+  filters: SegmentFilters,
+  def: SegmentDef,
+  nMin: number,
+): { grupos: ParticipationGroup[]; omitidos: number } | null {
+  if (def.origem !== 'campo' || !def.campo) return null
+  const campo = def.campo
+
+  const ativos = defs.filter((d) => d.origem === 'campo' && d.campo && filters[d.id])
+  const base = aggs.filter((a) => ativos.every((d) => (a[d.campo!] ?? null) === filters[d.id]))
+
+  const map = new Map<string, ParticipationGroup>()
+  for (const a of base) {
+    const g = a[campo]?.trim()
+    if (!g) continue
+    const cur = map.get(g) ?? { grupo: g, total: 0, respondidos: 0 }
+    cur.total += a.total
+    cur.respondidos += a.respondidos
+    map.set(g, cur)
+  }
+  const todos = [...map.values()]
+  const grupos = todos.filter((g) => g.respondidos >= nMin).sort((a, b) => b.total - a.total)
+  return { grupos, omitidos: todos.length - grupos.length }
+}
