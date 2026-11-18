@@ -74,7 +74,12 @@ export function SegmentFilters({ defs, rows, filtros, onChange, agrupar, onAgrup
 
         <label className="flex flex-col gap-1 text-xs text-gray-500">
           Ver resultados por
-          <select value={agrupar} onChange={(e) => onAgrupar(e.target.value)} className={select}>
+          <select
+            value={agrupar}
+            onChange={(e) => onAgrupar(e.target.value)}
+            title="Muda o agrupamento do quadro 'Favorabilidade por…', do mapa de calor e das listas por grupo"
+            className={select}
+          >
             {defs.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
           </select>
         </label>

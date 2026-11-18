@@ -881,6 +881,7 @@ export function DpaDashboardPage() {
                       ? project.config.importancia_pergunta_id : undefined
                   }
                   anterior={anteriorPainel ?? undefined}
+                  mostrarPorDimensao={segAtivo}
                 />
               )}
 

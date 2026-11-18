@@ -38,6 +38,8 @@ interface Props {
   importanciaPerguntaId?: string
   /** Edição anterior da mesma pesquisa, para o comparativo (mesmas perguntas e blocos). */
   anterior?: { rotulo: string; respondentes: RespondentRow[] }
+  /** Pesquisas segmentadas: mostra em destaque a favorabilidade por dimensão escolhida (empresa, base, área). */
+  mostrarPorDimensao?: boolean
 }
 
 const QUADRANT_STYLE: Record<PriorityQuadrant, { label: string; color: string }> = {
@@ -195,7 +197,7 @@ function PriorityChart({ pontos, corteFavoravel, corteImportancia }: ReturnType<
   )
 }
 
-export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin, importanciaPerguntaId, anterior }: Props) {
+export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin, importanciaPerguntaId, anterior, mostrarPorDimensao }: Props) {
   const [blocoFiltro, setBlocoFiltro] = useState<string>('')
   const [ordem, setOrdem] = useState<'desc' | 'asc'>('desc')
 
@@ -314,6 +316,41 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
           <div className="mt-3"><Legend /></div>
         </div>
       </div>
+
+      {/* Favorabilidade pela dimensão escolhida em "Ver resultados por" */}
+      {mostrarPorDimensao && (
+        <div className={card}>
+          <SectionTitle hint={`Favorabilidade geral (% de notas 4 e 5) de cada ${labelUnidade.toLowerCase()}. Grupos com menos de ${nMin} respondentes não aparecem, para proteger o anonimato.`}>
+            Favorabilidade por {labelUnidade.toLowerCase()}
+          </SectionTitle>
+          {geralPorBase.unidades.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              Não há grupos de {labelUnidade.toLowerCase()} com pelo menos {nMin} respondentes neste recorte.
+              Se esta dimensão deveria ter dados, confira se os participantes foram carregados com ela.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {geralPorBase.unidades.map((u) => (
+                <div key={u.unidade} className="flex items-center gap-3">
+                  <span className="text-xs text-gray-700 w-52 shrink-0 truncate" title={u.unidade}>{u.unidade}</span>
+                  <div className="flex-1 h-2.5 rounded-full bg-gray-100 overflow-hidden">
+                    <div className="h-full bg-green-500" style={{ width: `${u.favoravel}%` }} />
+                  </div>
+                  <span className="w-28 text-right text-xs tabular-nums shrink-0">
+                    <span className="font-semibold text-green-700">{u.favoravel}%</span>
+                    <span className="text-gray-400"> · {u.respondentes.toLocaleString('pt-BR')} resp.</span>
+                  </span>
+                </div>
+              ))}
+              {geralPorBase.omitidas > 0 && (
+                <p className="text-[11px] text-gray-400 pt-1">
+                  {geralPorBase.omitidas} {geralPorBase.omitidas > 1 ? 'grupos omitidos' : 'grupo omitido'} por ter menos de {nMin} respondentes.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Evolução em relação à edição anterior */}
       {comparativo && anterior && (
