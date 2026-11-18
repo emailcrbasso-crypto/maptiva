@@ -121,3 +121,63 @@ export function describeFilters(defs: SegmentDef[], filters: SegmentFilters): st
     .map((d) => `${d.label}: ${filters[d.id]}`)
     .join(' · ')
 }
+
+// ── Perfil dos respondentes (distribuição agregada, sem cruzar com resultados) ──
+
+export interface ProfileItem {
+  rotulo: string
+  n:      number
+  /** % sobre quem respondeu a pergunta (inclui "prefiro não informar"). */
+  pct:    number
+}
+
+export interface ProfileDistribution {
+  id:       string
+  texto:    string
+  /** Respostas válidas da pergunta. */
+  base:     number
+  itens:    ProfileItem[]
+  /** true quando categorias menores que o mínimo foram agrupadas ou omitidas. */
+  agrupado: boolean
+}
+
+export const OUTRAS_RESPOSTAS = 'Outras respostas'
+
+/**
+ * Distribuição de uma pergunta de perfil. Categorias com menos de `nMin`
+ * respondentes são reunidas em "Outras respostas"; se esse grupo também ficar
+ * abaixo do mínimo, é omitido. Mantém a ordem das opções da pergunta.
+ */
+export function profileDistribution(
+  pergunta: { id: string; texto: string; opcoes?: string[] },
+  rows: Array<{ respostas: Record<string, unknown> }>,
+  nMin: number,
+): ProfileDistribution {
+  const counts = new Map<string, number>()
+  let base = 0
+  for (const r of rows) {
+    const v = r.respostas[pergunta.id]
+    if (typeof v !== 'string' || !v.trim()) continue
+    base++
+    counts.set(v.trim(), (counts.get(v.trim()) ?? 0) + 1)
+  }
+
+  const ordem = [
+    ...(pergunta.opcoes ?? []),
+    ...[...counts.keys()].filter((k) => !(pergunta.opcoes ?? []).includes(k)),
+  ]
+  const pct = (n: number) => (base === 0 ? 0 : Math.round((n / base) * 1000) / 10)
+
+  const itens: ProfileItem[] = []
+  let pequenos = 0
+  let agrupado = false
+  for (const rotulo of ordem) {
+    const n = counts.get(rotulo) ?? 0
+    if (n === 0) continue
+    if (n >= nMin) itens.push({ rotulo, n, pct: pct(n) })
+    else { pequenos += n; agrupado = true }
+  }
+  if (pequenos >= nMin) itens.push({ rotulo: OUTRAS_RESPOSTAS, n: pequenos, pct: pct(pequenos) })
+
+  return { id: pergunta.id, texto: pergunta.texto, base, itens, agrupado }
+}

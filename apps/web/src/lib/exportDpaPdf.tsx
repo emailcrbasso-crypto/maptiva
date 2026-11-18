@@ -52,6 +52,8 @@ interface DpaConfig {
   favorabilidade?: boolean
   /** Pergunta de múltipla escolha cujas opções são os blocos (importância). */
   importancia_pergunta_id?: string
+  /** Ids das perguntas de perfil, excluídas do relatório. */
+  perfil_perguntas?: string[]
 }
 
 interface DpaProject {
@@ -376,7 +378,9 @@ function DpaDocument({
 }) {
   const today       = new Date().toLocaleDateString('pt-BR')
   const config      = project.config
-  const perguntas   = config.perguntas
+  // Perguntas de perfil (escolaridade, sexo, faixa etária) não entram no relatório:
+  // só aparecem no painel, como distribuição com o mínimo de respondentes aplicado.
+  const perguntas   = config.perguntas.filter((p) => !(config.perfil_perguntas ?? []).includes(p.id))
   const isCompilado = mode === 'compilado'
   // Cross-tab só faz sentido quando o projeto de fato segmenta por mais de 1 unidade
   const unidadesMultiplas = dashboard.por_unidade.length > 1

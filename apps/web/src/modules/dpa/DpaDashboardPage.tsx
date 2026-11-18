@@ -18,6 +18,7 @@ import { useTenant } from '@/modules/auth/TenantContext'
 import { DpaEmailComposer } from './DpaEmailComposer'
 import { FavorabilityPanel } from './FavorabilityPanel'
 import { SegmentFilters } from './SegmentFilters'
+import { ProfilePanel } from './ProfilePanel'
 import { applyFilters, regroupBy, recorteVisivel, type SegmentDef, type SegmentFilters as Filters } from '@/lib/segments'
 import { exportDpaPdf } from '@/lib/exportDpaPdf'
 import { exportDpaPrintForm } from '@/lib/exportDpaPrintForm'
@@ -163,6 +164,11 @@ export function DpaDashboardPage() {
   const segAtivo = segDefs.length > 0 && segRows !== null && project?.config.favorabilidade === true
   const defAgrupar = segDefs.find((d) => d.id === agrupar) ?? segDefs[0]
   const nFiltros = Object.keys(filtros).length
+  // Perguntas de perfil (config.perfil_perguntas = ids): mostradas só como distribuição.
+  const perguntasPerfil = useMemo(() => {
+    const ids = Array.isArray(project?.config.perfil_perguntas) ? (project?.config.perfil_perguntas as string[]) : []
+    return (project?.config.perguntas ?? []).filter((p) => ids.includes(p.id))
+  }, [project])
 
   const recorte = useMemo(
     () => (segAtivo ? applyFilters(segRows!, segDefs, filtros) : null),
@@ -878,8 +884,15 @@ export function DpaDashboardPage() {
                 />
               )}
 
+              {/* Perfil dos respondentes: só distribuição agregada, nunca cruzada com resultados */}
+              {perguntasPerfil.length > 0 && !(segAtivo && recorte && !recorteVisivel(recorte.length, nMinimo)) && (
+                <ProfilePanel perguntas={perguntasPerfil} respondentes={respondentesPainel} nMin={nMinimo} />
+              )}
+
               {/* Per-question results (sem filtros ativos: usam todas as respostas) */}
               {nFiltros === 0 && config.perguntas.map((p, idx) => {
+                // Perguntas de perfil só aparecem no quadro "Perfil dos respondentes" (com o mínimo aplicado).
+                if (perguntasPerfil.some((pp) => pp.id === p.id)) return null
                 const stats = questionStats(p.id, p.tipo)
                 return (
                   <div key={p.id} className="bg-white rounded-xl border border-gray-200 p-6">
