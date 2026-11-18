@@ -83,6 +83,7 @@ const S = StyleSheet.create({
   optRow:    { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   footer:    { position: 'absolute', bottom: 24, left: 44, right: 44 + QR_SIZE + 10, flexDirection: 'row', justifyContent: 'space-between', fontSize: 7, color: '#6b7280' },
   qr:        { position: 'absolute', bottom: 16, right: 44, width: QR_SIZE, height: QR_SIZE },
+  qrLink:    { position: 'absolute', bottom: 16, left: 44, width: QR_SIZE, height: QR_SIZE },
 })
 
 function Bubble({ n }: { n: number }) {
@@ -126,13 +127,17 @@ export function buildPrintGroups(perguntas: PrintQuestion[]): Group[] {
   return groups
 }
 
+/** QR que abre a pesquisa no celular (imagem já gerada) e se é só de demonstração. */
+export interface PrintLinkQr { image: string; exemplo: boolean }
+
 export function PrintDocument({
-  project, branding, unidades, unidade, qrs,
+  project, branding, unidades, unidade, qrs, linkQr,
 }: {
   project: PrintProject; branding: PdfBranding; unidades: string[]
   /** Base pré-impressa na folha (e no QR); sem ela, a pessoa marca a base à mão. */
   unidade?: string | null
   qrs: string[]
+  linkQr?: PrintLinkQr | null
 }) {
   const code = surveyCode(project.id)
   const groups = buildPrintGroups(project.config.perguntas)
@@ -164,6 +169,7 @@ export function PrintDocument({
             opção por pergunta. Se errar, risque a resposta errada com um X e marque a correta. Não escreva seu nome:
             suas respostas são anônimas e analisadas apenas em conjunto. O QR code no rodapé identifica somente a
             pesquisa, a base e a folha, nunca a pessoa.
+            {linkQr ? ' Prefere responder pelo celular? Aponte a câmera para o QR code do canto inferior esquerdo.' : ''}
           </Text>
           <View style={{ flexDirection: 'row', marginTop: 6 }}>
             {legend.map((l, i) => (
@@ -242,8 +248,13 @@ export function PrintDocument({
           )
         })}
 
-        <View fixed style={S.footer}>
-          <Text>{branding.footerText}</Text>
+        {linkQr && (
+          <View fixed style={S.qrLink}>
+            <Image src={linkQr.image} style={{ width: QR_SIZE, height: QR_SIZE }} />
+          </View>
+        )}
+        <View fixed style={[S.footer, linkQr ? { left: 44 + QR_SIZE + 10 } : {}]}>
+          <Text>{linkQr?.exemplo ? `${branding.footerText} · QR de exemplo` : branding.footerText}</Text>
           <Text>Pesquisa {code}{unidade ? ` · ${unidade}` : ''}</Text>
           <Text render={({ pageNumber, totalPages }) => `Folha ${pageNumber}/${totalPages}`} />
         </View>
@@ -264,10 +275,14 @@ export async function exportDpaPrintForm(
   branding: PdfBranding,
   unidades: string[],
   unidade: string | null = null,
+  link: { url: string; exemplo: boolean } | null = null,
 ): Promise<void> {
   const qrs  = await buildQrImages(project.id, unidade)
+  const linkQr: PrintLinkQr | null = link
+    ? { image: await QRCode.toDataURL(link.url, { margin: 1, width: 240, errorCorrectionLevel: 'M' }), exemplo: link.exemplo }
+    : null
   const blob = await pdf(
-    <PrintDocument project={project} branding={branding} unidades={unidades} unidade={unidade} qrs={qrs} />
+    <PrintDocument project={project} branding={branding} unidades={unidades} unidade={unidade} qrs={qrs} linkQr={linkQr} />
   ).toBlob()
 
   const url      = URL.createObjectURL(blob)
