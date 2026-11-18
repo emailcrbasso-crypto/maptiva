@@ -408,8 +408,13 @@ export function nomeArquivoClima(projetoNome: string, recorteTexto: string): str
   return `Clima_${limpa(projetoNome).slice(0, 60)}${recorte}_${new Date().toISOString().slice(0, 10)}.pdf`
 }
 
+/** Gera o PDF do recorte como Blob (usado no download avulso e no lote em ZIP). */
+export async function buildClimaPdfBlob(input: ClimaPdfInput): Promise<Blob> {
+  return pdf(<ClimaDocument input={input} />).toBlob()
+}
+
 export async function exportClimaPdf(input: ClimaPdfInput): Promise<void> {
-  const blob = await pdf(<ClimaDocument input={input} />).toBlob()
+  const blob = await buildClimaPdfBlob(input)
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

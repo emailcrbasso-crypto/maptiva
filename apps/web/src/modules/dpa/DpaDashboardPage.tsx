@@ -30,6 +30,7 @@ import {
 } from '@/lib/segments'
 import { exportDpaPdf } from '@/lib/exportDpaPdf'
 import { exportClimaPdf } from '@/lib/exportClimaPdf'
+import { baixarArquivo, gerarLoteClima, gruposDoLote, type LoteParams } from '@/lib/climaBatch'
 import { exportDpaPrintForm } from '@/lib/exportDpaPrintForm'
 import * as XLSX from 'xlsx'
 
@@ -137,6 +138,7 @@ export function DpaDashboardPage() {
   const [exportingCompilado, setExportingCompilado] = useState(false)
   const [exportingForm,      setExportingForm]      = useState(false)
   const [formUnidade,        setFormUnidade]        = useState('')
+  const [lote, setLote] = useState<{ feitos: number; total: number } | null>(null)
   const [updating,     setUpdating]     = useState(false)
   const [copied,       setCopied]       = useState<string | null>(null)
   const [sendingEmail,   setSendingEmail]   = useState<string | null>(null)  // participant id being sent
@@ -255,6 +257,48 @@ export function DpaDashboardPage() {
     })
   }, [project, recorteOculto, segAtivo, recorte, dashboard, anteriorPainel, escopo])
   const pdfClima = project?.config.favorabilidade === true && insights !== null
+  // PDF em lote: um relatório por grupo da dimensão comparada (ex.: um por empresa), em um ZIP.
+  const paramsLote: LoteParams | null = useMemo(() => {
+    if (!project || !pdfClima || !segAtivo || !segRows || !dimAtual) return null
+    return {
+      projetoNome:     project.nome,
+      perguntas:       project.config.perguntas,
+      perfilPerguntas: perguntasPerfil,
+      importanciaPerguntaId: typeof project.config.importancia_pergunta_id === 'string'
+        ? project.config.importancia_pergunta_id : undefined,
+      nMin:            nMinimo,
+      branding: {
+        companyName:  branding.name,
+        logoUrl:      branding.logoUrl,
+        primaryColor: branding.primaryColor,
+        footerText:   branding.pdfFooterText,
+        hideMaptiva:  branding.hideMaptiva,
+      },
+      defs:            segDefs,
+      dimensoes,
+      linhas:          segRows,
+      anterior:        anterior ? { rotulo: anterior.rotulo, respondentes: anterior.respondentes } : null,
+      agregados:       segPart,
+      filtros,
+      dimLote:         dimAtual,
+    }
+  }, [project, pdfClima, segAtivo, segRows, dimAtual, perguntasPerfil, nMinimo, branding, segDefs, dimensoes, anterior, segPart, filtros])
+  const qtdLote = useMemo(() => (paramsLote ? gruposDoLote(paramsLote).length : 0), [paramsLote])
+
+  async function baixarLote() {
+    if (!paramsLote) return
+    setLote({ feitos: 0, total: qtdLote + 1 })
+    try {
+      const r = await gerarLoteClima(paramsLote, (feitos, total) => setLote({ feitos, total }))
+      baixarArquivo(r.blob, r.nome)
+    } catch (e) {
+      console.error('PDF em lote falhou:', e)
+      alert('Não foi possível gerar os PDFs. Tente de novo.')
+    } finally {
+      setLote(null)
+    }
+  }
+
   const participacaoResumo = useMemo(() => {
     if (segAtivo && segPart) return participationTotal(segPart, segDefs, filtros)
     if (dashboard && !dashboard.modo_compartilhado && nFiltros === 0) {
@@ -759,6 +803,18 @@ export function DpaDashboardPage() {
                 Ações ▾
               </summary>
               <div className="absolute right-0 mt-1 z-20 w-72 bg-white border border-gray-200 rounded-xl shadow-lg p-2 space-y-0.5">
+                {paramsLote && dimAtual && qtdLote > 0 && (
+                  <button
+                    onClick={(e) => { fecharMenu(e.currentTarget); void baixarLote() }}
+                    disabled={lote !== null}
+                    title={`Um PDF para cada ${dimAtual.label.toLowerCase()} do recorte atual (${qtdLote}), mais o consolidado, em um arquivo ZIP`}
+                    className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 disabled:opacity-60"
+                  >
+                    {lote
+                      ? `Gerando ${Math.min(lote.feitos + 1, lote.total)} de ${lote.total}…`
+                      : `↓ PDF de cada ${dimAtual.label.toLowerCase()} (ZIP, ${qtdLote})`}
+                  </button>
+                )}
                 {!somenteResultados && project.status === 'rascunho' && (
                   <button
                     onClick={(e) => { fecharMenu(e.currentTarget); void changeStatus('ativo') }}
