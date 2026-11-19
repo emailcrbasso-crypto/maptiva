@@ -88,7 +88,8 @@ const S = StyleSheet.create({
   cell:      { width: COL, alignItems: 'center' },
   bubble:    { width: BUBBLE, height: BUBBLE, borderRadius: BUBBLE / 2, borderWidth: 0.9, borderColor: '#111827', alignItems: 'center', justifyContent: 'center' },
   bubbleTxt: { fontSize: 6.5, color: '#6b7280' },
-  square:    { width: 11, height: 11, borderWidth: 0.9, borderColor: '#111827', marginRight: 6 },
+  // opção de múltipla escolha: mesma bolinha da escala (vazia), para o formulário ter um só padrão de marcação
+  square:    { width: BUBBLE, height: BUBBLE, borderRadius: BUBBLE / 2, borderWidth: 0.9, borderColor: '#111827', marginRight: 6 },
   optRow:    { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   footer:    { position: 'absolute', bottom: 24, left: 44, right: 44 + QR_SIZE + 10, flexDirection: 'row', justifyContent: 'space-between', fontSize: 7, color: '#6b7280' },
   qr:        { position: 'absolute', bottom: 16, right: 44, width: QR_SIZE, height: QR_SIZE },
@@ -192,13 +193,6 @@ export function PrintDocument({
             ))}
           </View>
         </View>
-
-        {unidade && (
-          <View style={S.box} wrap={false}>
-            <Text style={S.boxTitle}>{labelUnidade}: {unidade}</Text>
-            <Text style={S.small}>Esta folha já está identificada para a sua {labelUnidade.toLowerCase()}. Não é preciso marcar nada aqui.</Text>
-          </View>
-        )}
 
         {!unidade && unidades.length > 0 && (
           <View style={S.box} wrap={false}>
