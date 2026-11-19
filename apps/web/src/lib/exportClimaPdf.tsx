@@ -20,6 +20,8 @@ import {
   favorabilityByBlock,
   favorabilityByQuestion,
   favorabilityPooled,
+  favorabilityPooledByUnit,
+  compareUnits,
   importanceByBlock,
   priorityMatrix,
   riskQuestions,
@@ -54,6 +56,8 @@ export interface ClimaPdfInput {
   branding:      PdfBranding
   /** Pergunta de importância (escolha dos blocos mais relevantes); habilita a tabela de prioridades. */
   importanciaPerguntaId?: string
+  /** Respondentes reagrupados pela dimensão (empresa, base…), para a evolução por grupo. */
+  porGrupo?: { label: string; atual: RespondentRow[]; anterior: RespondentRow[] | null }
 }
 
 const COR_FAV = '#22c55e'
@@ -156,12 +160,42 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
     : []
 
   let evolucaoBlocos: ReturnType<typeof compareBlocks> = []
+  let melhoras: ReturnType<typeof compareQuestions> = []
+  let quedas: ReturnType<typeof compareQuestions> = []
   const deltaPorPergunta = new Map<string, number>()
   if (input.anterior && input.anterior.respondentes.length > 0) {
     evolucaoBlocos = compareBlocks(blocos, favorabilityByBlock(input.perguntas, input.anterior.respondentes)).sort((a, b) => b.delta - a.delta)
     const deltasPerg = compareQuestions(porPergunta, favorabilityByQuestion(input.perguntas, input.anterior.respondentes))
     for (const d of deltasPerg) deltaPorPergunta.set(d.chave, d.delta)
+    melhoras = deltasPerg.filter((d) => d.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 5)
+    quedas = deltasPerg.filter((d) => d.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 5)
   }
+  const geralAnterior = input.anterior && input.anterior.respondentes.length > 0
+    ? favorabilityPooled(input.perguntas, input.anterior.respondentes).favoravel : null
+  const evolucaoGrupos = input.porGrupo && input.porGrupo.anterior && input.porGrupo.anterior.length > 0
+    ? compareUnits(
+        favorabilityPooledByUnit(input.perguntas, input.porGrupo.atual, nMin).unidades,
+        favorabilityPooledByUnit(input.perguntas, input.porGrupo.anterior, nMin).unidades,
+      ).sort((a, b) => b.delta - a.delta)
+    : []
+
+  // Perguntas de múltipla escolha (fora o perfil): quantas pessoas escolheram cada opção.
+  const perfilIdSet = new Set(input.perfilPerguntas.map((p) => p.id))
+  const multiplas = input.perguntas
+    .filter((p) => p.tipo === 'multipla_escolha' && !perfilIdSet.has(p.id) && Array.isArray(p.opcoes) && p.opcoes.length > 0)
+    .map((p) => {
+      const contagem = new Map<string, number>((p.opcoes ?? []).map((o) => [o, 0]))
+      let total = 0
+      for (const r of input.respondentes) {
+        const v = r.respostas[p.id]
+        const valores = Array.isArray(v) ? v.map(String) : typeof v === 'string' && v ? [v] : []
+        if (valores.length === 0) continue
+        total++
+        for (const x of valores) if (contagem.has(x)) contagem.set(x, (contagem.get(x) ?? 0) + 1)
+      }
+      return { id: p.id, texto: p.texto, total, itens: (p.opcoes ?? []).map((o) => ({ rotulo: o, n: contagem.get(o) ?? 0 })) }
+    })
+    .filter((m) => m.total > 0)
 
   const QUADRANTE: Record<string, string> = {
     prioridade: 'Prioridade de ação', manter: 'Manter', menor_urgencia: 'Menor urgência', monitorar: 'Monitorar',
@@ -368,24 +402,6 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
           Cada linha mostra {textos.curtoFavoravel.toLowerCase()} · {textos.curtoNeutro.toLowerCase()} · {textos.curtoDesfavoravel.toLowerCase()}, em % das respostas do bloco.
         </Text>
 
-        {evolucaoBlocos.length > 0 && input.anterior && (
-          <View wrap={false}>
-            <Text style={S.h2}>Evolução em relação a {input.anterior.rotulo}</Text>
-            <Text style={S.hint}>Variações de até 2 p.p. são tratadas como estabilidade.</Text>
-            <View style={S.box}>
-              {evolucaoBlocos.map((b, idx) => (
-                <View key={b.chave} style={[S.row, idx === evolucaoBlocos.length - 1 ? { borderBottomWidth: 0 } : {}]}>
-                  <Text style={{ flex: 1, fontSize: 8.5 }}>{b.rotulo}</Text>
-                  <Text style={{ width: 80, fontSize: 8, color: '#6b7280', textAlign: 'right' }}>{fmtPct(b.anterior)}% para {fmtPct(b.atual)}%</Text>
-                  <Text style={{ width: 92, fontSize: 8, fontFamily: 'Helvetica-Bold', textAlign: 'right', color: deltaCor(b.delta) }}>
-                    {deltaPalavra(b.delta)} {fmtDelta(b.delta)}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
         {prioridadesTabela.length > 0 && (
           <View wrap={false}>
             <Text style={S.h2}>Importância e favorabilidade por bloco</Text>
@@ -409,8 +425,101 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
           </View>
         )}
 
+        {multiplas.map((m) => (
+          <View key={m.id} wrap={false}>
+            <Text style={S.h2}>{m.texto}</Text>
+            <Text style={S.hint}>Múltipla escolha · {m.total.toLocaleString('pt-BR')} respostas. A porcentagem é sobre quem respondeu.</Text>
+            <View style={S.box}>
+              {m.itens.map((it, idx) => {
+                const pct = m.total > 0 ? Math.round((it.n / m.total) * 1000) / 10 : 0
+                return (
+                  <View key={it.rotulo} style={[S.row, idx === m.itens.length - 1 ? { borderBottomWidth: 0 } : {}]}>
+                    <Text style={{ width: 170, fontSize: 8.2 }}>{it.rotulo}</Text>
+                    <View style={{ flex: 1, height: 7, backgroundColor: '#f3f4f6', borderRadius: 3, marginRight: 8 }}>
+                      <View style={{ width: `${pct}%`, height: 7, backgroundColor: '#3b82f6', borderRadius: 3 }} />
+                    </View>
+                    <Text style={{ width: 74, fontSize: 8, textAlign: 'right', color: '#6b7280' }}>{it.n.toLocaleString('pt-BR')} ({fmtPct(pct)}%)</Text>
+                  </View>
+                )
+              })}
+            </View>
+          </View>
+        ))}
+
         <Rodape input={input} />
       </Page>
+
+      {/* ── Evolução completa em relação à edição anterior ── */}
+      {evolucaoBlocos.length > 0 && input.anterior && (
+        <Page size="A4" style={S.page}>
+          <Cabecalho input={input} cor={cor} />
+          <Text style={[S.h2, { marginTop: 0 }]} minPresenceAhead={120}>Evolução em relação a {input.anterior.rotulo}</Text>
+          <Text style={S.hint}>Favorabilidade (% de {textos.favoravel}) de {input.anterior.rotulo} para esta edição. Variações de até 2 p.p. contam como estabilidade.</Text>
+
+          <View wrap={false} style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
+            <Text style={{ fontSize: 10 }}>Geral: <Text style={{ fontFamily: 'Helvetica-Bold' }}>{geralAnterior !== null ? `${fmtPct(geralAnterior)}%` : '-'} para {fmtPct(i.geral.favoravel)}%</Text></Text>
+            {i.deltaGeral !== null && <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: deltaCor(i.deltaGeral) }}>{fmtDelta(i.deltaGeral)}</Text>}
+            <Text style={{ fontSize: 8, color: '#9ca3af' }}>{input.anterior.respondentes.length.toLocaleString('pt-BR')} respondentes na edição anterior</Text>
+          </View>
+
+          <View wrap={false}>
+            <Text style={[S.th, { color: '#374151', marginBottom: 3 }]}>Por bloco</Text>
+            <View style={S.box}>
+              <View style={[S.row, { borderBottomWidth: 0.8, borderBottomColor: '#e5e7eb' }]}>
+                <Text style={[S.th, { flex: 1 }]}>Bloco</Text>
+                <Text style={[S.th, { width: 44, textAlign: 'right' }]}>{input.anterior.rotulo}</Text>
+                <Text style={[S.th, { width: 44, textAlign: 'right' }]}>Atual</Text>
+                <Text style={[S.th, { width: 92, textAlign: 'right' }]}>Variação</Text>
+              </View>
+              {evolucaoBlocos.map((b, idx) => (
+                <View key={b.chave} style={[S.row, idx === evolucaoBlocos.length - 1 ? { borderBottomWidth: 0 } : {}]}>
+                  <Text style={{ flex: 1, fontSize: 8.5 }}>{b.rotulo}</Text>
+                  <Text style={{ width: 44, fontSize: 8, textAlign: 'right', color: '#6b7280' }}>{fmtPct(b.anterior)}%</Text>
+                  <Text style={{ width: 44, fontSize: 8, textAlign: 'right', fontFamily: 'Helvetica-Bold' }}>{fmtPct(b.atual)}%</Text>
+                  <Text style={{ width: 92, fontSize: 8, fontFamily: 'Helvetica-Bold', textAlign: 'right', color: deltaCor(b.delta) }}>
+                    {deltaPalavra(b.delta)} {fmtDelta(b.delta)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {(melhoras.length > 0 || quedas.length > 0) && (
+            <View wrap={false} style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+              {[{ t: 'Maiores melhoras (perguntas)', itens: melhoras }, { t: 'Maiores quedas (perguntas)', itens: quedas }].map((col) => (
+                <View key={col.t} style={{ flex: 1 }}>
+                  <Text style={[S.th, { color: '#374151', marginBottom: 3 }]}>{col.t}</Text>
+                  {col.itens.map((q) => (
+                    <View key={q.chave} style={{ flexDirection: 'row', marginBottom: 4 }}>
+                      <Text style={{ width: 42, fontSize: 7.8, fontFamily: 'Helvetica-Bold', color: deltaCor(q.delta) }}>{fmtDelta(q.delta)}</Text>
+                      <Text style={{ flex: 1, fontSize: 7.5, color: '#374151' }}>
+                        {q.rotulo} <Text style={{ color: '#9ca3af' }}>· {fmtPct(q.anterior)}% para {fmtPct(q.atual)}%</Text>
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </View>
+          )}
+
+          {evolucaoGrupos.length > 0 && input.porGrupo && (
+            <View wrap={false} style={{ marginTop: 12 }}>
+              <Text style={[S.th, { color: '#374151', marginBottom: 3 }]}>Por {input.porGrupo.label.toLowerCase()}</Text>
+              <View style={S.box}>
+                {evolucaoGrupos.map((u, idx) => (
+                  <View key={u.chave} style={[S.row, idx === evolucaoGrupos.length - 1 ? { borderBottomWidth: 0 } : {}]}>
+                    <Text style={{ flex: 1, fontSize: 8.5 }}>{u.rotulo}</Text>
+                    <Text style={{ width: 90, fontSize: 8, textAlign: 'right', color: '#6b7280' }}>{fmtPct(u.anterior)}% para {fmtPct(u.atual)}%</Text>
+                    <Text style={{ width: 70, fontSize: 8, fontFamily: 'Helvetica-Bold', textAlign: 'right', color: deltaCor(u.delta) }}>{fmtDelta(u.delta)}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          <Rodape input={input} />
+        </Page>
+      )}
 
       {/* ── Riscos psicossociais e extremos do ranking ── */}
       <Page size="A4" style={S.page}>

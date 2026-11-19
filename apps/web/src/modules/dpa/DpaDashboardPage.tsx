@@ -790,6 +790,11 @@ export function DpaDashboardPage() {
                         branding:        marca,
                         mostrarFrase:    project.config.frase_abertura === true,
                         importanciaPerguntaId: typeof project.config.importancia_pergunta_id === 'string' ? project.config.importancia_pergunta_id : undefined,
+                        porGrupo: {
+                          label:    segAtivo && defAgrupar ? defAgrupar.label : project.config.label_unidade,
+                          atual:    respondentesPainel,
+                          anterior: anteriorPainel?.respondentes ?? null,
+                        },
                       })
                     } else {
                       await exportDpaPdf(project, dashboard, marca, 'compilado', anterior ?? undefined)

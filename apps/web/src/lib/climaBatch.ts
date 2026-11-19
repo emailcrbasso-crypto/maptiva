@@ -13,6 +13,7 @@ import {
   compareGroups,
   describeFilters,
   participationTotal,
+  regroupBy,
   type ParticipationAgg,
   type SegmentDef,
   type SegmentFilters,
@@ -89,6 +90,9 @@ export function entradaPdfClima(
     perfilPerguntas: p.perfilPerguntas,
     mostrarFrase:    p.mostrarFrase,
     importanciaPerguntaId: p.importanciaPerguntaId,
+    porGrupo:        dimComparativo
+      ? { label: dimComparativo.label, atual: regroupBy(rows, dimComparativo), anterior: anterior ? regroupBy(anterior.respondentes, dimComparativo) : null }
+      : undefined,
     nMin:            p.nMin,
     branding:        p.branding,
   }
