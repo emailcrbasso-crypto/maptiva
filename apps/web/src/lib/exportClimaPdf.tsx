@@ -40,7 +40,7 @@ export interface ClimaPdfInput {
   anterior:      { rotulo: string; respondentes: RespondentRow[] } | null
   insights:      ExecutiveInsights
   participacao:  { respondidos: number; total: number } | null
-  /** "Todo o grupo" ou "Empresa: Diastur · Área: Manutenção". */
+  /** "Todo o grupo" ou "Empresa: Empresa A · Área: Manutenção". */
   recorteTexto:  string
   /** Comparativo por grupo (pesquisas segmentadas); null nas demais. */
   comparativo:   GroupComparisonResult | null

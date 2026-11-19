@@ -697,7 +697,7 @@ export function DpaDashboardPage() {
       {/* ── Header ── */}
       <div className="mb-6">
         <Link to="/dpa" className="text-sm text-gray-400 hover:text-gray-600">
-          ← Diagnósticos
+          ← Pesquisas
         </Link>
         <div className="flex flex-col mt-2 gap-4">
           <div className="flex-1 min-w-0">

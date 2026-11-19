@@ -5,6 +5,7 @@
  * A lógica (mínimo de respondentes, cálculo por grupo) vive em lib/segments.
  */
 
+import { fmtPct } from '@/lib/insights'
 import {
   type GroupComparisonResult,
   type SegmentDef,
@@ -136,7 +137,7 @@ export function GroupComparison({
                 <p className="text-sm font-medium text-gray-900">{resultado.total.grupo}</p>
                 <p className="text-xs text-gray-500">{resultado.total.n.toLocaleString('pt-BR')} respondentes</p>
               </div>
-              <span className={`text-sm font-semibold rounded px-2 py-1 ${cellColor(resultado.total.geral)}`}>{resultado.total.geral}%</span>
+              <span className={`text-sm font-semibold rounded px-2 py-1 ${cellColor(resultado.total.geral)}`}>{fmtPct(resultado.total.geral)}%</span>
             </li>
             {resultado.grupos.map((g) => {
               const part = participacao?.get(g.grupo)
@@ -151,10 +152,10 @@ export function GroupComparison({
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-gray-900">{g.grupo}</p>
                       <p className="text-xs text-gray-500">
-                        {g.n.toLocaleString('pt-BR')} respondentes{pct !== null ? ` · participação ${pct}%` : ''}
+                        {g.n.toLocaleString('pt-BR')} respondentes{pct !== null ? ` · participação ${fmtPct(pct)}%` : ''}
                       </p>
                     </div>
-                    <span className={`text-sm font-semibold rounded px-2 py-1 ${cellColor(g.geral)}`}>{g.geral}%</span>
+                    <span className={`text-sm font-semibold rounded px-2 py-1 ${cellColor(g.geral)}`}>{fmtPct(g.geral)}%</span>
                     <span className="text-gray-300" aria-hidden="true">›</span>
                   </button>
                 </li>
@@ -182,10 +183,10 @@ export function GroupComparison({
                   <td className="px-2 py-1.5 sticky left-0 bg-white text-gray-900">{resultado.total.grupo}</td>
                   <td className="text-center tabular-nums text-gray-700">{resultado.total.n.toLocaleString('pt-BR')}</td>
                   {participacao && <td />}
-                  <td className={`text-center rounded px-1 py-1.5 ${cellColor(resultado.total.geral)}`}>{resultado.total.geral}%</td>
+                  <td className={`text-center rounded px-1 py-1.5 ${cellColor(resultado.total.geral)}`}>{fmtPct(resultado.total.geral)}%</td>
                   {resultado.blocos.map((b) => (
                     <td key={b} className={`text-center rounded px-1 py-1.5 ${cellColor(resultado.total.blocos[b] ?? null)}`}>
-                      {resultado.total.blocos[b] != null ? `${resultado.total.blocos[b]}%` : '–'}
+                      {resultado.total.blocos[b] != null ? `${fmtPct(resultado.total.blocos[b])}%` : '–'}
                     </td>
                   ))}
                 </tr>
@@ -207,12 +208,12 @@ export function GroupComparison({
                       </td>
                       <td className="text-center tabular-nums text-gray-600">{g.n.toLocaleString('pt-BR')}</td>
                       {participacao && (
-                        <td className="text-center tabular-nums text-gray-600">{pct !== null ? `${pct}%` : '–'}</td>
+                        <td className="text-center tabular-nums text-gray-600">{pct !== null ? `${fmtPct(pct)}%` : '–'}</td>
                       )}
-                      <td className={`text-center font-semibold rounded px-1 py-1.5 ${cellColor(g.geral)}`}>{g.geral}%</td>
+                      <td className={`text-center font-semibold rounded px-1 py-1.5 ${cellColor(g.geral)}`}>{fmtPct(g.geral)}%</td>
                       {resultado.blocos.map((b) => (
                         <td key={b} className={`text-center font-semibold rounded px-1 py-1.5 ${cellColor(g.blocos[b] ?? null)}`}>
-                          {g.blocos[b] != null ? `${g.blocos[b]}%` : '–'}
+                          {g.blocos[b] != null ? `${fmtPct(g.blocos[b])}%` : '–'}
                         </td>
                       ))}
                     </tr>

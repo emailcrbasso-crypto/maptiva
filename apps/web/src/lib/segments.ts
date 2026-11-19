@@ -116,7 +116,7 @@ export function recorteVisivel(n: number, nMin: number): boolean {
   return n >= nMin
 }
 
-/** "Empresa: Diastur · Área: Manutenção" para legendas e PDF. */
+/** "Empresa: Empresa A · Área: Manutenção" para legendas e PDF. */
 export function describeFilters(defs: SegmentDef[], filters: SegmentFilters): string {
   return defs
     .filter((d) => filters[d.id])

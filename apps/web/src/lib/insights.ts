@@ -67,7 +67,7 @@ function fmtPp(n: number): string {
 }
 
 export function buildHeadline(params: {
-  /** "Em todo o grupo" ou "No recorte Diastur · Manutenção". */
+  /** "Em todo o grupo" ou "No recorte Empresa A · Manutenção". */
   escopo:         string
   geral:          number
   deltaGeral:     number | null

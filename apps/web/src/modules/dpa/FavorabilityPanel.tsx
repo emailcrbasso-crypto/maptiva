@@ -6,6 +6,7 @@
  * o cálculo vive em lib/favorability.
  */
 
+import { fmtPct } from '@/lib/insights'
 import { useEffect, useMemo, useState } from 'react'
 import {
   favorabilityByBlock,
@@ -60,7 +61,7 @@ function StackedBar({ fav, neu, des }: { fav: number; neu: number; des: number }
     <div
       className="flex h-2.5 w-full rounded-full overflow-hidden bg-gray-100"
       role="img"
-      aria-label={`Favorável ${fav}%, neutro ${neu}%, desfavorável ${des}%`}
+      aria-label={`Favorável ${fmtPct(fav)}%, neutro ${fmtPct(neu)}%, desfavorável ${fmtPct(des)}%`}
     >
       <div className="bg-green-500" style={{ width: `${fav}%` }} />
       <div className="bg-gray-300" style={{ width: `${neu}%` }} />
@@ -82,11 +83,11 @@ function Legend({ textos }: { textos: TextosEscala }) {
 function Trio({ fav, neu, des }: { fav: number; neu: number; des: number }) {
   return (
     <span className="tabular-nums whitespace-nowrap text-xs">
-      <span className="font-semibold text-green-700">{fav}%</span>
+      <span className="font-semibold text-green-700">{fmtPct(fav)}%</span>
       <span className="text-gray-300"> · </span>
-      <span className="text-gray-500">{neu}%</span>
+      <span className="text-gray-500">{fmtPct(neu)}%</span>
       <span className="text-gray-300"> · </span>
-      <span className="text-red-600">{des}%</span>
+      <span className="text-red-600">{fmtPct(des)}%</span>
     </span>
   )
 }
@@ -118,7 +119,7 @@ function DeltaBadge({ delta }: { delta: number }) {
       className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-semibold tabular-nums whitespace-nowrap ${style}`}
       title={dir === 'stable' ? 'Variação dentro da margem de estabilidade (±2 p.p.)' : undefined}
     >
-      <span aria-hidden="true">{arrow}</span>{sign}{delta.toString().replace('.', ',')} p.p.
+      <span aria-hidden="true">{arrow}</span>{sign}{fmtPct(delta)} p.p.
     </span>
   )
 }
@@ -132,7 +133,7 @@ function DeltaList({ title, items }: { title: string; items: FavorabilityDelta[]
           <li key={q.chave} className={`items-start gap-2 text-xs ${idx >= 3 ? 'hidden md:flex' : 'flex'}`}>
             <span className="shrink-0 w-28"><DeltaBadge delta={q.delta} /></span>
             <span className="text-gray-700 leading-snug">
-              {q.rotulo} <span className="text-gray-400">· {q.anterior}% → {q.atual}%</span>
+              {q.rotulo} <span className="text-gray-400">· {fmtPct(q.anterior)}% → {fmtPct(q.atual)}%</span>
             </span>
           </li>
         ))}
@@ -221,9 +222,6 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
     const perguntasFav = favorabilityByQuestion(perguntas, respondentes)
     const matriz = favorabilityByUnitAndBlock(perguntas, respondentes, nMin)
     const geralPorBase = favorabilityPooledByUnit(perguntas, respondentes, nMin)
-    const totalN = blocos.reduce((s, b) => s + b.n, 0)
-    const weigh = (key: 'favoravel' | 'neutro' | 'desfavoravel') =>
-      totalN === 0 ? 0 : Math.round((blocos.reduce((s, b) => s + b[key] * b.n, 0) / totalN) * 10) / 10
 
     const riscoPerguntas = riskQuestions(perguntas)
     const riscoGeral = riscoPerguntas.length > 0 ? favorabilityPooled(riscoPerguntas, respondentes) : null
@@ -249,7 +247,8 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
       ? priorityMatrix(blocos, importanceByBlock(importanciaPerguntaId, blocos.map((b) => b.bloco), respondentes))
       : null
 
-    const geral = { favoravel: weigh('favoravel'), neutro: weigh('neutro'), desfavoravel: weigh('desfavoravel') }
+    // Mesma conta do resumo: todas as respostas da escala juntas (e não a média dos blocos).
+    const geral = favorabilityPooled(perguntas, respondentes)
 
     let comparativo: {
       geralDelta: number
@@ -262,9 +261,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
     } | null = null
     if (anterior && anterior.respondentes.length > 0) {
       const blocosAnt = favorabilityByBlock(perguntas, anterior.respondentes)
-      const totalAnt = blocosAnt.reduce((s, b) => s + b.n, 0)
-      const geralAnt = totalAnt === 0 ? 0
-        : Math.round((blocosAnt.reduce((s, b) => s + b.favoravel * b.n, 0) / totalAnt) * 10) / 10
+      const geralAnt = favorabilityPooled(perguntas, anterior.respondentes).favoravel
       const perguntasAnt = favorabilityByQuestion(perguntas, anterior.respondentes)
       const deltasPerg = compareQuestions(perguntasFav, perguntasAnt)
       comparativo = {
@@ -325,7 +322,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
             <h3 className="text-sm font-semibold text-gray-900">Favorabilidade geral</h3>
             <span className="flex items-baseline gap-2">
               {comparativo && <DeltaBadge delta={comparativo.geralDelta} />}
-              <span className="text-2xl font-semibold text-gray-900">{geral.favoravel}%</span>
+              <span className="text-2xl font-semibold text-gray-900">{fmtPct(geral.favoravel)}%</span>
             </span>
           </div>
           <p className="text-xs text-gray-500 mb-3">
@@ -333,9 +330,9 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
           </p>
           <StackedBar fav={geral.favoravel} neu={geral.neutro} des={geral.desfavoravel} />
           <div className="flex gap-4 mt-2 text-[11px] text-gray-500">
-            <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />{textos.rotuloFavoravel} {geral.favoravel}%</span>
-            <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />{textos.rotuloNeutro} {geral.neutro}%</span>
-            <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />{textos.rotuloDesfavoravel} {geral.desfavoravel}%</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />{textos.rotuloFavoravel} {fmtPct(geral.favoravel)}%</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />{textos.rotuloNeutro} {fmtPct(geral.neutro)}%</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />{textos.rotuloDesfavoravel} {fmtPct(geral.desfavoravel)}%</span>
           </div>
         </div>
         )}
@@ -386,7 +383,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                     <div className="h-full bg-green-500" style={{ width: `${u.favoravel}%` }} />
                   </div>
                   <span className="w-28 text-right text-xs tabular-nums shrink-0">
-                    <span className="font-semibold text-green-700">{u.favoravel}%</span>
+                    <span className="font-semibold text-green-700">{fmtPct(u.favoravel)}%</span>
                     <span className="text-gray-400"> · {u.respondentes.toLocaleString('pt-BR')} resp.</span>
                   </span>
                 </div>
@@ -408,7 +405,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
             Evolução em relação a {anterior.rotulo}
           </SectionTitle>
           <div className="flex flex-wrap items-center gap-3 text-sm text-gray-700">
-            <span>Geral: <strong>{comparativo.geralAnterior}%</strong> → <strong>{geral.favoravel}%</strong></span>
+            <span>Geral: <strong>{fmtPct(comparativo.geralAnterior)}%</strong> → <strong>{fmtPct(geral.favoravel)}%</strong></span>
             <DeltaBadge delta={comparativo.geralDelta} />
             <span className="text-xs text-gray-400">
               {comparativo.respondentesAnterior.toLocaleString('pt-BR')} respondentes na edição anterior
@@ -430,8 +427,8 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                 {[...comparativo.blocos].sort((a, b) => b.delta - a.delta).map((b) => (
                   <tr key={b.chave} className="border-b border-gray-100">
                     <td className="py-2 pr-3 text-gray-800">{b.rotulo}</td>
-                    <td className="py-2 px-2 text-right text-gray-500 tabular-nums">{b.anterior}%</td>
-                    <td className="py-2 px-2 text-right font-semibold text-gray-900 tabular-nums">{b.atual}%</td>
+                    <td className="py-2 px-2 text-right text-gray-500 tabular-nums">{fmtPct(b.anterior)}%</td>
+                    <td className="py-2 px-2 text-right font-semibold text-gray-900 tabular-nums">{fmtPct(b.atual)}%</td>
                     <td className="py-2 pl-2 text-right"><DeltaBadge delta={b.delta} /></td>
                   </tr>
                 ))}
@@ -451,7 +448,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                 {[...comparativo.unidades].sort((a, b) => b.delta - a.delta).map((u) => (
                   <li key={u.chave} className="flex items-center gap-2 text-xs">
                     <span className="w-36 truncate text-gray-700" title={u.rotulo}>{u.rotulo}</span>
-                    <span className="text-gray-400 tabular-nums">{u.anterior}% → {u.atual}%</span>
+                    <span className="text-gray-400 tabular-nums">{fmtPct(u.anterior)}% → {fmtPct(u.atual)}%</span>
                     <span className="ml-auto"><DeltaBadge delta={u.delta} /></span>
                   </li>
                 ))}
@@ -486,7 +483,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                             className="text-left hover:text-gray-900 hover:underline"
                             title="Ver as perguntas deste bloco"
                           >
-                            {p.bloco} <span className="text-gray-400">· prioridade para {p.importancia}% dos respondentes · {p.favoravel}% de avaliações favoráveis</span>
+                            {p.bloco} <span className="text-gray-400">· prioridade para {fmtPct(p.importancia)}% dos respondentes · {fmtPct(p.favoravel)}% de avaliações favoráveis</span>
                           </button>
                         </li>
                       ))}
@@ -512,7 +509,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
               <h3 className="text-sm font-semibold text-gray-900">Riscos psicossociais</h3>
               <span className="flex items-baseline gap-2">
                 {riscoDelta !== null && anterior && <DeltaBadge delta={riscoDelta} />}
-                <span className="text-2xl font-semibold text-gray-900">{riscoGeral.favoravel}%</span>
+                <span className="text-2xl font-semibold text-gray-900">{fmtPct(riscoGeral.favoravel)}%</span>
               </span>
             </div>
             <p className="text-xs text-gray-500 mb-3" title="Perguntas sobre carga, pressão, apoio, assédio e segurança psicológica, que atravessam vários blocos.">
@@ -520,9 +517,9 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
             </p>
             <StackedBar fav={riscoGeral.favoravel} neu={riscoGeral.neutro} des={riscoGeral.desfavoravel} />
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px] text-gray-500">
-              <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />{textos.rotuloFavoravel} {riscoGeral.favoravel}%</span>
-              <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />{textos.rotuloNeutro} {riscoGeral.neutro}%</span>
-              <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />{textos.rotuloDesfavoravel} {riscoGeral.desfavoravel}%</span>
+              <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />{textos.rotuloFavoravel} {fmtPct(riscoGeral.favoravel)}%</span>
+              <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />{textos.rotuloNeutro} {fmtPct(riscoGeral.neutro)}%</span>
+              <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />{textos.rotuloDesfavoravel} {fmtPct(riscoGeral.desfavoravel)}%</span>
             </div>
           </div>
           <div className="flex flex-col md:flex-row gap-6">
@@ -544,14 +541,14 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                         title="Ver as perguntas deste bloco"
                         className="w-full flex items-start gap-3 text-left rounded-lg -mx-1.5 px-1.5 py-1 hover:bg-gray-50"
                       >
-                        <span className={`w-12 shrink-0 text-sm font-semibold tabular-nums ${corTexto(q.favoravel)}`}>{q.favoravel}%</span>
+                        <span className={`w-12 shrink-0 text-sm font-semibold tabular-nums ${corTexto(q.favoravel)}`}>{fmtPct(q.favoravel)}%</span>
                         <span className="flex-1 min-w-0">
                           <span className="block text-xs text-gray-800 leading-snug">{q.texto}</span>
                           <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                             <span className="text-[11px] text-gray-500 bg-gray-100 rounded px-1.5 py-0.5">{q.bloco}</span>
                             {d !== undefined && anterior && (
                               <span className={`text-[11px] font-medium ${d > 0 ? 'text-green-700' : d < 0 ? 'text-red-600' : 'text-gray-500'}`}>
-                                {d > 0 ? '+' : d < 0 ? '−' : ''}{Math.abs(d).toString().replace('.', ',')} p.p. vs {anterior.rotulo}
+                                {d > 0 ? '+' : d < 0 ? '−' : ''}{fmtPct(Math.abs(d))} p.p. vs {anterior.rotulo}
                               </span>
                             )}
                           </span>
@@ -577,7 +574,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                           <span className="block text-xs text-gray-800 leading-snug break-words">{u.unidade}</span>
                           <span className="block text-[11px] text-gray-400">{u.respondentes.toLocaleString('pt-BR')} respondentes</span>
                         </span>
-                        <span className={`rounded px-1.5 py-0.5 text-xs font-semibold shrink-0 ${cellColor(u.favoravel)}`}>{u.favoravel}%</span>
+                        <span className={`rounded px-1.5 py-0.5 text-xs font-semibold shrink-0 ${cellColor(u.favoravel)}`}>{fmtPct(u.favoravel)}%</span>
                       </>
                     )
                     return (
@@ -694,14 +691,14 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                     </button>
                   </td>
                   <td className="py-2 px-2 hidden sm:table-cell"><StackedBar fav={q.favoravel} neu={q.neutro} des={q.desfavoravel} /></td>
-                  <td className="py-2 pl-2 text-right font-semibold text-green-700 tabular-nums">{q.favoravel}%</td>
-                  <td className="py-2 pl-2 text-right text-gray-500 tabular-nums hidden sm:table-cell">{q.neutro}%</td>
-                  <td className="py-2 pl-2 text-right text-red-600 tabular-nums hidden sm:table-cell">{q.desfavoravel}%</td>
+                  <td className="py-2 pl-2 text-right font-semibold text-green-700 tabular-nums">{fmtPct(q.favoravel)}%</td>
+                  <td className="py-2 pl-2 text-right text-gray-500 tabular-nums hidden sm:table-cell">{fmtPct(q.neutro)}%</td>
+                  <td className="py-2 pl-2 text-right text-red-600 tabular-nums hidden sm:table-cell">{fmtPct(q.desfavoravel)}%</td>
                   {anterior && (() => {
                     const d = deltaPergunta.get(q.id)
                     return (
                       <td className={`py-2 pl-2 text-right tabular-nums hidden md:table-cell ${d === undefined ? 'text-gray-300' : d > 0 ? 'text-green-700' : d < 0 ? 'text-red-600' : 'text-gray-500'}`}>
-                        {d === undefined ? '–' : `${d > 0 ? '+' : d < 0 ? '−' : ''}${Math.abs(d).toString().replace('.', ',')} p.p.`}
+                        {d === undefined ? '–' : `${d > 0 ? '+' : d < 0 ? '−' : ''}${fmtPct(Math.abs(d))} p.p.`}
                       </td>
                     )
                   })()}
@@ -759,12 +756,12 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                   return (
                     <tr key={u}>
                       <td className="text-gray-700 px-2 py-1 whitespace-nowrap sticky left-0 bg-white">{u}</td>
-                      <td className={`text-center font-semibold rounded px-1 py-1.5 ${cellColor(g)}`}>{g !== null ? `${g}%` : '–'}</td>
+                      <td className={`text-center font-semibold rounded px-1 py-1.5 ${cellColor(g)}`}>{g !== null ? `${fmtPct(g)}%` : '–'}</td>
                       {matriz.blocos.map((b) => {
                         const c = matriz.celulas[u]?.[b]
                         return (
                           <td key={b} className={`text-center font-semibold rounded px-1 py-1.5 ${cellColor(c?.favoravel ?? null)}`}>
-                            {c?.favoravel !== null && c?.favoravel !== undefined ? `${c.favoravel}%` : '–'}
+                            {c?.favoravel !== null && c?.favoravel !== undefined ? `${fmtPct(c.favoravel)}%` : '–'}
                           </td>
                         )
                       })}

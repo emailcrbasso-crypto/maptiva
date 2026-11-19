@@ -290,7 +290,7 @@ export function DpaNewProjectPage() {
       {/* Header */}
       <div className="mb-6">
         <Link to="/dpa" className="text-sm text-gray-400 hover:text-gray-600">
-          ← Diagnósticos
+          ← Pesquisas
         </Link>
         <h1 className="text-xl font-semibold text-gray-900 mt-2">
           {seed ? 'Duplicar diagnóstico' : 'Novo diagnóstico'}
