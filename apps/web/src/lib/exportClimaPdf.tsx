@@ -145,8 +145,8 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
   const blocosOrdenados = [...blocos].sort((a, b) => b.favoravel - a.favoravel)
 
   const porPergunta = favorabilityByQuestion(input.perguntas, input.respondentes)
-  const topo = topQuestions(porPergunta, 3)
-  const baixo = bottomQuestions(porPergunta, 3)
+  const topo = topQuestions(porPergunta, 10)
+  const baixo = bottomQuestions(porPergunta, 10)
 
   const riscoPerguntas = riskQuestions(input.perguntas)
   const riscoGeral = riscoPerguntas.length > 0 ? favorabilityPooled(riscoPerguntas, input.respondentes) : null
@@ -437,23 +437,40 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
           </View>
         )}
 
-        <View wrap={false}>
-          <Text style={[S.h2, riscoGeral && riscoItens.length > 0 ? {} : { marginTop: 0 }]}>Perguntas mais e menos favoráveis</Text>
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            {[{ t: 'Mais favoráveis', itens: topo, c: '#15803d' }, { t: 'Menos favoráveis', itens: baixo, c: '#dc2626' }].map((col) => (
-              <View key={col.t} style={{ flex: 1 }}>
-                <Text style={[S.th, { color: '#374151', marginBottom: 3 }]}>{col.t}</Text>
-                {col.itens.map((q) => (
-                  <View key={q.id} style={{ flexDirection: 'row', marginBottom: 2.5 }}>
-                    <Text style={{ width: 30, fontSize: 8, fontFamily: 'Helvetica-Bold', color: col.c }}>{fmtPct(q.favoravel)}%</Text>
-                    <Text style={{ flex: 1, fontSize: 7.5, color: '#374151' }}>{q.texto}</Text>
-                  </View>
-                ))}
-              </View>
-            ))}
-          </View>
-        </View>
+        <Rodape input={input} />
+      </Page>
 
+      {/* ── Ranking: 10 mais e 10 menos favoráveis (página própria, para não quebrar) ── */}
+      <Page size="A4" style={S.page}>
+        <Cabecalho input={input} cor={cor} />
+        <Text style={[S.h2, { marginTop: 0 }]} minPresenceAhead={120}>Ranking das perguntas</Text>
+        <Text style={S.hint}>As 10 perguntas com maior e com menor percentual de respostas favoráveis{input.anterior ? `, com a variação em relação a ${input.anterior.rotulo}` : ''}.</Text>
+        {[
+          { t: 'As 10 mais favoráveis', itens: topo, c: '#15803d' },
+          { t: 'As 10 menos favoráveis', itens: baixo, c: '#dc2626' },
+        ].map((col) => (
+          <View key={col.t} wrap={false} style={{ marginBottom: 12 }}>
+            <Text style={[S.h2, { marginTop: 4, color: col.c }]}>{col.t}</Text>
+            <View style={S.box}>
+              {col.itens.map((q, idx) => {
+                const d = deltaPorPergunta.get(q.id)
+                return (
+                  <View key={q.id} wrap={false} style={[S.row, idx === col.itens.length - 1 ? { borderBottomWidth: 0 } : {}]}>
+                    <Text style={{ width: 16, fontSize: 8, color: '#9ca3af' }}>{idx + 1}</Text>
+                    <Text style={{ width: 36, fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: col.c }}>{fmtPct(q.favoravel)}%</Text>
+                    <Text style={{ flex: 1, fontSize: 8, color: '#1f2937', paddingRight: 6 }}>{q.texto}</Text>
+                    <Text style={{ width: 96, fontSize: 7, color: '#6b7280', paddingRight: 6 }}>{q.bloco}</Text>
+                    {input.anterior && (
+                      <Text style={{ width: 46, fontSize: 7.5, textAlign: 'right', color: d !== undefined ? deltaCor(d) : '#9ca3af' }}>
+                        {d !== undefined ? fmtDelta(d) : '-'}
+                      </Text>
+                    )}
+                  </View>
+                )
+              })}
+            </View>
+          </View>
+        ))}
         <Rodape input={input} />
       </Page>
 
