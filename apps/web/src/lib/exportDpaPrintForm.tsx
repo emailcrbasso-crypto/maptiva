@@ -49,7 +49,7 @@ interface PrintQuestion {
 interface PrintProject {
   id:     string
   nome:   string
-  config: { label_unidade: string; perguntas: PrintQuestion[] }
+  config: { label_unidade: string; perguntas: PrintQuestion[]; perfil_perguntas?: string[] }
 }
 
 type EscalaPrint = 'concordancia' | 'frequencia' | 'seis'
@@ -149,7 +149,13 @@ export function PrintDocument({
   linkQr?: PrintLinkQr | null
 }) {
   const code = surveyCode(project.id)
-  const groups = buildPrintGroups(project.config.perguntas)
+  // Perguntas de perfil vêm no topo (como na tela), identificadas por letras para não mudar a
+  // numeração das perguntas de escala.
+  const perfilIds = project.config.perfil_perguntas ?? []
+  const perfil = perfilIds
+    .map((id) => project.config.perguntas.find((q) => q.id === id))
+    .filter((q): q is PrintQuestion => !!q && q.tipo === 'multipla_escolha')
+  const groups = buildPrintGroups(project.config.perguntas).filter((g) => g.kind !== 'other' || !perfilIds.includes(g.q.id))
   const labelUnidade = project.config.label_unidade || 'Unidade'
   const firstScale = groups.find((g) => g.kind === 'scale') as Extract<Group, { kind: 'scale' }> | undefined
   const legend = SCALE_LABELS[firstScale?.escala ?? 'concordancia']
@@ -205,6 +211,26 @@ export function PrintDocument({
                 </View>
               ))}
             </View>
+          </View>
+        )}
+
+        {perfil.length > 0 && (
+          <View style={S.box}>
+            <Text style={S.boxTitle}>Sobre você (opcional)</Text>
+            <Text style={S.small}>Marque uma opção em cada pergunta. Os dados só aparecem em conjunto, nunca de forma individual.</Text>
+            {perfil.map((q, i) => (
+              <View key={q.id} style={{ marginTop: 6 }} wrap={false}>
+                <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold' }}>{String.fromCharCode(65 + i)}. {q.texto}</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                  {(q.opcoes ?? []).map((o) => (
+                    <View key={o} style={[S.optRow, { width: '33.3%' }]}>
+                      <View style={S.square} />
+                      <Text style={S.small}>{o}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ))}
           </View>
         )}
 
