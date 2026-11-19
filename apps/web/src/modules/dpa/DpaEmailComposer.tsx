@@ -9,6 +9,7 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useTenant } from '@/modules/auth/TenantContext'
 
 export interface EmailModelo {
   id:      string
@@ -72,7 +73,28 @@ Se você já respondeu, pode ignorar esta mensagem. Obrigado!`,
   },
 ]
 
+/** Parágrafos separados por linha em branco; um link sozinho na linha vira link clicável (igual à Edge Function). */
+function CorpoPreview({ texto }: { texto: string }) {
+  return (
+    <>
+      {texto.split(/\n\s*\n/).map((par) => par.trim()).filter(Boolean).map((par, i) => (
+        <p key={i} className="text-sm leading-relaxed text-gray-700 mb-4 last:mb-0 break-words">
+          {par.split('\n').map((linha, j) => (
+            <span key={j}>
+              {j > 0 && <br />}
+              {/^https?:\/\//.test(linha.trim()) || linha.trim().startsWith('https://…')
+                ? <span className="text-blue-600 underline break-all">{linha.trim()}</span>
+                : linha}
+            </span>
+          ))}
+        </p>
+      ))}
+    </>
+  )
+}
+
 export function DpaEmailComposer({ projectId, config, pendentes, onClose, onConfigSaved, onSent }: Props) {
+  const { branding } = useTenant()
   const salvos = (config.email_modelos as EmailModelo[] | undefined) ?? []
   const modelos = [...PRESETS, ...salvos]
 
@@ -284,13 +306,27 @@ export function DpaEmailComposer({ projectId, config, pendentes, onClose, onConf
 
           <div>
             <p className="text-xs font-medium text-gray-600 mb-1">Pré-visualização{exemplo ? ` (para ${previewNome})` : ''}</p>
-            <div className="border border-gray-200 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+            <div className="border border-gray-200 rounded-xl bg-gray-50 p-3 text-sm text-gray-700">
               <p className="text-xs text-gray-400 mb-0.5">Assunto</p>
               <p className="font-medium mb-3">{subject || '—'}</p>
-              <div className="bg-white rounded-lg p-4 whitespace-pre-line leading-relaxed break-words">{preview}</div>
+              {/* Mesma casca do e-mail enviado: cabeçalho com marca, mensagem e rodapé */}
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-6 py-4" style={{ background: branding.primaryColor }}>
+                  {branding.logoUrl
+                    ? <img src={branding.logoUrl} alt={branding.name} className="h-8 w-auto max-w-[180px] block" />
+                    : <span className="text-white text-base font-semibold">{branding.name}</span>}
+                </div>
+                <div className="p-6"><CorpoPreview texto={preview} /></div>
+                <div className="px-6 py-4 border-t border-gray-100 text-xs text-gray-400 leading-relaxed">
+                  Este link é de uso único.<br />
+                  Suas respostas são completamente anônimas e apresentadas de forma agregada.<br />
+                  Se não esperava este e-mail, pode ignorá-lo com segurança.
+                  {!branding.hideMaptiva && <><br />Plataforma fornecida por Maptiva</>}
+                </div>
+              </div>
             </div>
             <p className="text-[11px] text-gray-400 mt-2">
-              O e-mail sai com o remetente, o cabeçalho e o rodapé já configurados do projeto.
+              Assim o e-mail chega: cabeçalho com a marca, mensagem e rodapé de confidencialidade.
             </p>
           </div>
         </div>
