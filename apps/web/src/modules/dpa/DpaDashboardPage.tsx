@@ -808,6 +808,23 @@ export function DpaDashboardPage() {
               </button>
             )}
 
+            {/* Demonstração: abre o formulário de resposta (link de um participante pendente) em nova aba. */}
+            {project.config.qr_link_exemplo === true && (() => {
+              const pendente = participantes.find((p) => p.status === 'pendente')
+              return pendente ? (
+                <a
+                  href={`${window.location.origin}/diagnostico/${pendente.token}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Abre o formulário como o participante vê, em outra aba. Para só mostrar, não conclua o envio."
+                  className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  Ver a pesquisa ↗
+                </a>
+              ) : null
+            })()}
+
+            {(!somenteResultados || (paramsLote && dimAtual && qtdLote > 0)) && (
             <details data-menu className="relative">
               <summary className="list-none cursor-pointer select-none text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
                 Ações ▾
@@ -877,7 +894,7 @@ export function DpaDashboardPage() {
                   </>
                 )}
 
-                {dashboard && (
+                {dashboard && !somenteResultados && (
                   <div className="border-t border-gray-100 mt-1 pt-2 px-1 space-y-1.5">
                     {dashboard.por_unidade.length > 1 && (
                       <select
@@ -925,6 +942,7 @@ export function DpaDashboardPage() {
                 )}
               </div>
             </details>
+            )}
           </div>
         </div>
       </div>
