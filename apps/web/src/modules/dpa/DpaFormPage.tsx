@@ -61,6 +61,8 @@ interface DpaConfig {
    * escala em linha por padrão e rascunho salvo no navegador. Ausente = formulário
    * corrido de sempre. */
   modo_paginado?: boolean
+  /** ids das perguntas de perfil: vêm primeiro no formulário, identificadas por letras (A, B, C…). */
+  perfil_perguntas?: string[]
 }
 
 interface Draft {
@@ -404,7 +406,16 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
   // bloco, em vez de repetidos em cada pergunta.
   type Grupo = { bloco: string | null; intro: string | null; fixo: boolean; items: { pergunta: Pergunta; idx: number }[] }
   const grupos: Grupo[] = []
-  config.perguntas.forEach((pergunta, idx) => {
+  // Perguntas de perfil vêm primeiro (como na tela de resultados e no formulário impresso);
+  // as demais mantêm a ordem e a numeração originais.
+  const perfilIds = Array.isArray(config.perfil_perguntas) ? config.perfil_perguntas : []
+  const perfilLetra = new Map(perfilIds.map((id, i) => [id, String.fromCharCode(65 + i)]))
+  const ordenadas = config.perguntas.map((pergunta, idx) => ({ pergunta, idx }))
+  const perfilPrimeiro = [
+    ...perfilIds.map((id) => ordenadas.find((o) => o.pergunta.id === id)).filter((o): o is { pergunta: Pergunta; idx: number } => !!o),
+    ...ordenadas.filter((o) => !perfilLetra.has(o.pergunta.id)),
+  ]
+  perfilPrimeiro.forEach(({ pergunta, idx }) => {
     const chave = pergunta.bloco ?? null
     const last  = grupos[grupos.length - 1]
     if (last && last.bloco !== null && last.bloco === chave) {
@@ -492,7 +503,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                 <div className="flex items-start gap-3 mb-5">
                   {!config.sem_numeracao && (
                     <span className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-100 text-gray-500 text-xs font-semibold flex items-center justify-center mt-0.5">
-                      {idx + 1}
+                      {perfilLetra.get(pergunta.id) ?? idx + 1}
                     </span>
                   )}
                   <div>

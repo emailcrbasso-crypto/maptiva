@@ -804,7 +804,7 @@ export function DpaDashboardPage() {
                 className="text-sm px-4 py-2 rounded-lg text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
                 style={{ backgroundColor: 'var(--brand, #111827)' }}
               >
-                {exportingCompilado ? 'Gerando...' : '↓ Baixar PDF'}
+                {exportingCompilado ? 'Gerando...' : somenteResultados ? '↓ Baixar relatório (PDF)' : '↓ Baixar PDF'}
               </button>
             )}
 
@@ -824,7 +824,18 @@ export function DpaDashboardPage() {
               ) : null
             })()}
 
-            {(!somenteResultados || (paramsLote && dimAtual && qtdLote > 0)) && (
+            {somenteResultados && paramsLote && dimAtual && qtdLote > 0 && (
+              <button
+                onClick={() => void baixarLote()}
+                disabled={lote !== null}
+                title={`Um PDF para cada ${dimAtual.label.toLowerCase()} do recorte atual (${qtdLote}), mais o consolidado, em um arquivo ZIP`}
+                className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                {lote ? `Gerando ${Math.min(lote.feitos + 1, lote.total)} de ${lote.total}…` : `↓ Um PDF por ${dimAtual.label.toLowerCase()} (ZIP)`}
+              </button>
+            )}
+
+            {!somenteResultados && (
             <details data-menu className="relative">
               <summary className="list-none cursor-pointer select-none text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
                 Ações ▾
