@@ -134,6 +134,8 @@ export function DpaDashboardPage() {
   // Comparativo efetivo: só existe se há edição anterior ligada e a chave está ligada.
   const anterior = mostrarComparativo ? anteriorCarregado : null
   const [participantes, setParticipantes] = useState<Participante[]>([])
+  // Demonstração: o botão de planilha é só ilustrativo e apenas mostra este aviso.
+  const [avisoPlanilha, setAvisoPlanilha] = useState(false)
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState<string | null>(null)
   const [tab,          setTab]          = useState<'resultados' | 'participantes'>('resultados')
@@ -787,6 +789,7 @@ export function DpaDashboardPage() {
                         nMin:            nMinimo,
                         branding:        marca,
                         mostrarFrase:    project.config.frase_abertura === true,
+                        importanciaPerguntaId: typeof project.config.importancia_pergunta_id === 'string' ? project.config.importancia_pergunta_id : undefined,
                       })
                     } else {
                       await exportDpaPdf(project, dashboard, marca, 'compilado', anterior ?? undefined)
@@ -833,6 +836,22 @@ export function DpaDashboardPage() {
               >
                 {lote ? `Gerando ${Math.min(lote.feitos + 1, lote.total)} de ${lote.total}…` : `↓ Um PDF por ${dimAtual.label.toLowerCase()} (ZIP)`}
               </button>
+            )}
+
+            {somenteResultados && (
+              <button
+                onClick={() => setAvisoPlanilha(true)}
+                title="Exportação dos resultados em planilha"
+                className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                ↓ Excel / CSV
+              </button>
+            )}
+            {somenteResultados && avisoPlanilha && (
+              <p role="status" className="basis-full text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                A exportação em Excel ou CSV estará disponível na versão final. Nesta demonstração o botão é apenas ilustrativo e não gera arquivo.
+                <button onClick={() => setAvisoPlanilha(false)} className="ml-2 text-gray-400 hover:text-gray-600" aria-label="Fechar aviso">×</button>
+              </p>
             )}
 
             {!somenteResultados && (

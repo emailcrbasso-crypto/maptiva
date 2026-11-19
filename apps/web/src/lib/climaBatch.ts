@@ -88,6 +88,7 @@ export function entradaPdfClima(
     dimensaoLabel:   dimComparativo?.label ?? null,
     perfilPerguntas: p.perfilPerguntas,
     mostrarFrase:    p.mostrarFrase,
+    importanciaPerguntaId: p.importanciaPerguntaId,
     nMin:            p.nMin,
     branding:        p.branding,
   }
