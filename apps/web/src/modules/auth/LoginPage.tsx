@@ -17,7 +17,7 @@ const DEFAULT_PRE_LOGIN: PreLoginBranding = {
   name:         'Maptiva',
   logoUrl:      null,
   primaryColor: '#111827',
-  tagline:      'Plataforma de avaliação 360°',
+  tagline:      'Plataforma de pesquisas e avaliações',
   hideMaptiva:  false,
 }
 
@@ -217,7 +217,7 @@ export function LoginPage() {
             <p className="text-xs text-gray-300 mt-1">Powered by Maptiva</p>
           )}
           {!brand.tagline && brand.name === 'Maptiva' && (
-            <p className="text-sm text-gray-400 mt-1">Plataforma de avaliação 360°</p>
+            <p className="text-sm text-gray-400 mt-1">Plataforma de pesquisas e avaliações</p>
           )}
         </div>
 
