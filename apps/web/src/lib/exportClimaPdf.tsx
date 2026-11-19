@@ -302,7 +302,6 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
           </View>
         )}
 
-        <Text style={[S.hint, { marginTop: 14 }]}>{nota}</Text>
         <Rodape input={input} />
       </Page>
 
