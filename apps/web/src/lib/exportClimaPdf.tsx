@@ -16,6 +16,7 @@ import {
   compareQuestions,
   bottomQuestions,
   deltaDirection,
+  textosEscala,
   favorabilityByBlock,
   favorabilityByQuestion,
   favorabilityPooled,
@@ -45,6 +46,8 @@ export interface ClimaPdfInput {
   comparativo:   GroupComparisonResult | null
   dimensaoLabel: string | null
   perfilPerguntas: ClimaPdfPergunta[]
+  /** Mostra a frase de abertura (desligada por padrão: só os dados). */
+  mostrarFrase?: boolean
   nMin:          number
   branding:      PdfBranding
 }
@@ -165,7 +168,8 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
   const partPct = input.participacao && input.participacao.total > 0
     ? Math.round((input.participacao.respondidos / input.participacao.total) * 100) : null
 
-  const nota = `Dados agregados e anônimos. Grupos e categorias com menos de ${nMin} respondentes não aparecem. Favorável = notas 4 e 5; neutro = nota 3; desfavorável = notas 1 e 2.`
+  const textos = textosEscala(i.escala)
+  const nota = `Dados agregados e anônimos. Grupos e categorias com menos de ${nMin} respondentes não aparecem. ${textos.regra}`
 
   return (
     <Document title={`${input.projetoNome} — ${input.recorteTexto}`}>
@@ -173,7 +177,7 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
       <Page size="A4" style={S.page}>
         <Cabecalho input={input} cor={cor} />
         <Text style={S.recorte}>Recorte: {input.recorteTexto}</Text>
-        <Text style={S.headline}>{i.frase}</Text>
+        {input.mostrarFrase && <Text style={S.headline}>{i.frase}</Text>}
 
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <View style={[S.card, { flex: 1.5 }]}>
@@ -188,7 +192,7 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
             </View>
             <Barra fav={i.geral.favoravel} neu={i.geral.neutro} des={i.geral.desfavoravel} altura={7} />
             <Text style={{ fontSize: 7.5, color: '#6b7280', marginTop: 4 }}>
-              Favorável {fmtPct(i.geral.favoravel)}% · Neutro {fmtPct(i.geral.neutro)}% · Desfavorável {fmtPct(i.geral.desfavoravel)}%
+              {textos.rotuloFavoravel} {fmtPct(i.geral.favoravel)}% · {textos.rotuloNeutro} {fmtPct(i.geral.neutro)}% · {textos.rotuloDesfavoravel} {fmtPct(i.geral.desfavoravel)}%
             </Text>
           </View>
           <View style={[S.card, { flex: 1 }]}>
@@ -236,7 +240,7 @@ function ClimaDocument({ input }: { input: ClimaPdfInput }) {
                 <View key={p.bloco} style={[S.row, idx === i.prioridades.length - 1 ? { borderBottomWidth: 0 } : {}]}>
                   <Text style={{ flex: 1, fontSize: 9 }}>{p.bloco}</Text>
                   <Text style={{ fontSize: 8, color: '#6b7280' }}>
-                    importante para {fmtPct(p.importancia)}% · favorável para {fmtPct(p.favoravel)}%
+                    Prioridade para {fmtPct(p.importancia)}% dos respondentes · {fmtPct(p.favoravel)}% de avaliações favoráveis
                   </Text>
                 </View>
               ))}

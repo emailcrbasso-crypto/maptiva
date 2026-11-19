@@ -20,7 +20,7 @@ import { RichTextEditor } from '@/components/RichText'
 interface Pergunta {
   id:          string
   texto:       string
-  tipo:        'escala_5' | 'texto_livre' | 'multipla_escolha'
+  tipo:        'escala_5' | 'escala_6' | 'texto_livre' | 'multipla_escolha'
   obrigatoria: boolean
   opcoes:      string   // comma-separated string for UI
   multi:        boolean  // permite selecionar mais de uma opção
@@ -57,7 +57,7 @@ function newPergunta(): Pergunta {
 interface SeedConfigPergunta {
   id?:            string
   texto?:         string
-  tipo?:          'escala_5' | 'texto_livre' | 'multipla_escolha'
+  tipo?:          'escala_5' | 'escala_6' | 'texto_livre' | 'multipla_escolha'
   obrigatoria?:   boolean
   opcoes?:        string[]
   multi?:         boolean
@@ -406,6 +406,7 @@ export function DpaNewProjectPage() {
                         className="text-xs border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900"
                       >
                         <option value="escala_5">Escala 1–5</option>
+                        <option value="escala_6">Escala 1–6 (sem ponto neutro)</option>
                         <option value="texto_livre">Texto livre</option>
                         <option value="multipla_escolha">Múltipla escolha</option>
                       </select>

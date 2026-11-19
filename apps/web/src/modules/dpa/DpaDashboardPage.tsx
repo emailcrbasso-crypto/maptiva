@@ -32,6 +32,7 @@ import {
 import { exportDpaPdf } from '@/lib/exportDpaPdf'
 import { exportClimaPdf } from '@/lib/exportClimaPdf'
 import { baixarArquivo, gerarLoteClima, gruposDoLote, type LoteParams } from '@/lib/climaBatch'
+import { escalaDoQuestionario, textosEscala } from '@/lib/favorability'
 import { exportDpaPrintForm } from '@/lib/exportDpaPrintForm'
 import * as XLSX from 'xlsx'
 
@@ -40,7 +41,7 @@ import * as XLSX from 'xlsx'
 interface Pergunta {
   id:          string
   texto:       string
-  tipo:        'escala_5' | 'texto_livre' | 'multipla_escolha'
+  tipo:        'escala_5' | 'escala_6' | 'texto_livre' | 'multipla_escolha'
   obrigatoria: boolean
   opcoes?:     string[]
   multi?:         boolean
@@ -269,6 +270,7 @@ export function DpaDashboardPage() {
       perfilPerguntas: perguntasPerfil,
       importanciaPerguntaId: typeof project.config.importancia_pergunta_id === 'string'
         ? project.config.importancia_pergunta_id : undefined,
+      mostrarFrase:    project.config.frase_abertura === true,
       nMin:            nMinimo,
       branding: {
         companyName:  branding.name,
@@ -638,11 +640,11 @@ export function DpaDashboardPage() {
       .filter((v) => v !== undefined && v !== null && v !== ''
         && !(Array.isArray(v) && v.length === 0))
 
-    if (tipo === 'escala_5') {
+    if (tipo === 'escala_5' || tipo === 'escala_6') {
       const nums = values.map(Number).filter((v) => !isNaN(v))
       if (nums.length === 0) return null
       const avg  = nums.reduce((s, v) => s + v, 0) / nums.length
-      const dist: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+      const dist: Record<number, number> = tipo === 'escala_6' ? { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 } : { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
       for (const v of nums) dist[v] = (dist[v] || 0) + 1
       return { kind: 'scale', avg, dist, total: nums.length }
     }
@@ -784,6 +786,7 @@ export function DpaDashboardPage() {
                         perfilPerguntas: perguntasPerfil,
                         nMin:            nMinimo,
                         branding:        marca,
+                        mostrarFrase:    project.config.frase_abertura === true,
                       })
                     } else {
                       await exportDpaPdf(project, dashboard, marca, 'compilado', anterior ?? undefined)
@@ -1039,6 +1042,7 @@ export function DpaDashboardPage() {
                   participacao={participacaoResumo}
                   temImportancia={typeof project.config.importancia_pergunta_id === 'string'}
                   onVerBloco={verBlocoNoRanking}
+                  mostrarFrase={project.config.frase_abertura === true}
                 />
               )}
               {/* Perfil dos respondentes: fecha a visão geral. Só distribuição agregada, nunca cruzada com resultados */}
@@ -1079,6 +1083,7 @@ export function DpaDashboardPage() {
               {/* Navegação por grupos (pesquisas segmentadas): comparar por e tabela clicável */}
               {segAtivo && recorte && (
                 <GroupComparison
+                  textoFavoravel={textosEscala(escalaDoQuestionario(project.config.perguntas) ?? 5).favoravel}
                   semTrilha
                   dimensoes={dimensoes}
                   atual={dimAtual}
@@ -1181,7 +1186,7 @@ export function DpaDashboardPage() {
                 // Perguntas de perfil só aparecem no quadro "Perfil dos respondentes" (com o mínimo aplicado).
                 if (perguntasPerfil.some((pp) => pp.id === p.id)) return null
                 // Nas pesquisas de clima as perguntas de escala já estão no ranking: aqui ficam só as demais.
-                if (project.config.favorabilidade === true && p.tipo === 'escala_5') return null
+                if (project.config.favorabilidade === true && (p.tipo === 'escala_5' || p.tipo === 'escala_6')) return null
                 const stats = questionStats(p.id, p.tipo)
                 return (
                   <div key={p.id} className="bg-white rounded-xl border border-gray-200 p-6">
@@ -1192,14 +1197,15 @@ export function DpaDashboardPage() {
                       <div>
                         <p className="text-sm font-medium text-gray-900 whitespace-pre-line">{p.texto}</p>
                         <p className="text-xs text-gray-400 mt-0.5">
-                          {p.tipo === 'escala_5' ? 'Escala 1–5' : p.tipo === 'texto_livre' ? 'Texto livre' : 'Múltipla escolha'}
+                          {p.tipo === 'escala_5' ? 'Escala 1–5' : p.tipo === 'escala_6' ? 'Escala 1–6' : p.tipo === 'texto_livre' ? 'Texto livre' : 'Múltipla escolha'}
                           {' · '}{stats?.total ?? 0} resposta{(stats?.total ?? 0) !== 1 ? 's' : ''}
                         </p>
                       </div>
                     </div>
 
                     {/* Scale stats */}
-                    {p.tipo === 'escala_5' && stats?.kind === 'scale' && (() => {
+                    {(p.tipo === 'escala_5' || p.tipo === 'escala_6') && stats?.kind === 'scale' && (() => {
+                      const max = p.tipo === 'escala_6' ? 6 : 5
                       const ss = stats as ScaleStats
                       return (
                         <div className="ml-9">
@@ -1210,7 +1216,7 @@ export function DpaDashboardPage() {
                             <span className="text-sm text-gray-400">média</span>
                           </div>
                           <div className="space-y-1.5">
-                            {[5, 4, 3, 2, 1].map((val) => {
+                            {Array.from({ length: max }, (_, k) => max - k).map((val) => {
                               const count  = ss.dist[val] || 0
                               const pct    = ss.total > 0 ? (count / ss.total) * 100 : 0
                               return (
@@ -1218,7 +1224,7 @@ export function DpaDashboardPage() {
                                   <span className="text-xs text-gray-500 w-4 text-right">{val}</span>
                                   <div className="flex-1 h-5 bg-gray-100 rounded overflow-hidden">
                                     <div
-                                      className={`h-full ${scoreColor(val)} transition-all`}
+                                      className={`h-full ${scoreColor(1 + ((val - 1) * 4) / (max - 1))} transition-all`}
                                       style={{ width: `${pct}%` }}
                                     />
                                   </div>

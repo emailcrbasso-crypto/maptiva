@@ -5,7 +5,7 @@
  * dados do recorte atual.
  */
 
-import { deltaDirection } from '@/lib/favorability'
+import { deltaDirection, textosEscala } from '@/lib/favorability'
 import { fmtPct, type ExecutiveInsights } from '@/lib/insights'
 
 interface Props {
@@ -16,6 +16,8 @@ interface Props {
   temImportancia:  boolean
   /** Leva às perguntas do bloco no ranking (ordem: pior primeiro = 'asc'). */
   onVerBloco?:     (bloco: string, ordem: 'desc' | 'asc') => void
+  /** Mostra a frase de abertura gerada (desligada por padrão: só os dados). */
+  mostrarFrase?:   boolean
 }
 
 function DeltaPill({ delta, rotulo }: { delta: number; rotulo: string }) {
@@ -61,14 +63,17 @@ function Destaque({ titulo, nome, detalhe, tom, onClick }: {
   )
 }
 
-export function ExecutiveSummary({ insights: i, participacao, temImportancia, onVerBloco }: Props) {
+export function ExecutiveSummary({ insights: i, participacao, temImportancia, onVerBloco, mostrarFrase }: Props) {
   const partPct = participacao && participacao.total > 0
     ? Math.round((participacao.respondidos / participacao.total) * 100) : null
   const comparativo = i.rotuloAnterior !== null
+  const textos = textosEscala(i.escala)
 
   return (
     <section id="sec-visao" className="scroll-mt-16 space-y-5" aria-label="Visão geral">
-      <p className="text-xl sm:text-2xl font-medium text-gray-900 leading-snug">{i.frase}</p>
+      {mostrarFrase && (
+        <p className="text-xl sm:text-2xl font-medium text-gray-900 leading-snug">{i.frase}</p>
+      )}
 
       <div className="grid gap-3 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <div className="rounded-xl bg-gray-50 px-5 py-4">
@@ -80,16 +85,16 @@ export function ExecutiveSummary({ insights: i, participacao, temImportancia, on
           <div
             className="flex h-2 rounded-full overflow-hidden bg-gray-200"
             role="img"
-            aria-label={`Favorável ${i.geral.favoravel}%, neutro ${i.geral.neutro}%, desfavorável ${i.geral.desfavoravel}%`}
+            aria-label={`${textos.rotuloFavoravel} ${i.geral.favoravel}%, ${textos.rotuloNeutro} ${i.geral.neutro}%, ${textos.rotuloDesfavoravel} ${i.geral.desfavoravel}%`}
           >
             <div className="bg-green-500" style={{ width: `${i.geral.favoravel}%` }} />
             <div className="bg-gray-300" style={{ width: `${i.geral.neutro}%` }} />
             <div className="bg-red-400" style={{ width: `${i.geral.desfavoravel}%` }} />
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-500">
-            <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />Favorável {fmtPct(i.geral.favoravel)}%</span>
-            <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />Neutro {fmtPct(i.geral.neutro)}%</span>
-            <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />Desfavorável {fmtPct(i.geral.desfavoravel)}%</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />{textos.rotuloFavoravel} {fmtPct(i.geral.favoravel)}%</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />{textos.rotuloNeutro} {fmtPct(i.geral.neutro)}%</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />{textos.rotuloDesfavoravel} {fmtPct(i.geral.desfavoravel)}%</span>
           </div>
         </div>
 
@@ -173,7 +178,7 @@ export function ExecutiveSummary({ insights: i, participacao, temImportancia, on
                     />
                     <span className="text-sm text-gray-900 flex-1 min-w-[180px]">{p.bloco}</span>
                     <span className="text-xs text-gray-500">
-                      importante para {fmtPct(p.importancia)}% e favorável para {fmtPct(p.favoravel)}%
+                      Prioridade para {fmtPct(p.importancia)}% dos respondentes · {fmtPct(p.favoravel)}% de avaliações favoráveis
                     </span>
                     {onVerBloco && <span className="text-gray-300" aria-hidden="true">›</span>}
                   </button>

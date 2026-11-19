@@ -9,6 +9,7 @@ import {
   STABLE_DELTA_PP,
   compareBlocks,
   deltaDirection,
+  escalaDoQuestionario,
   favorabilityByBlock,
   favorabilityByQuestion,
   favorabilityPooled,
@@ -35,6 +36,8 @@ export interface CriticalQuestion {
 export interface ExecutiveInsights {
   /** Respondentes no recorte. */
   n:        number
+  /** Escala das perguntas (5 ou 6 pontos): muda os textos das legendas. */
+  escala:   5 | 6
   geral:    { favoravel: number; neutro: number; desfavoravel: number }
   /** Variação da favorabilidade geral em p.p. em relação à edição anterior; null sem comparativo. */
   deltaGeral:     number | null
@@ -147,6 +150,7 @@ export function buildInsights(params: {
 
   return {
     n: respondentes.length,
+    escala: escalaDoQuestionario(perguntas) ?? 5,
     geral,
     deltaGeral,
     rotuloAnterior,

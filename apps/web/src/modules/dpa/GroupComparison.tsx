@@ -29,6 +29,8 @@ interface Props {
   rotuloRaiz: string
   /** Esconde a trilha (quando a página já a mostra no topo). */
   semTrilha?: boolean
+  /** Notas que contam como favoráveis, para o texto da legenda (ex.: 'notas 5 e 6'). */
+  textoFavoravel?: string
   onTrocarDimensao: (id: string) => void
   onEntrar:         (def: SegmentDef, valor: string) => void
   onSair:           (id: string) => void
@@ -81,7 +83,7 @@ export function Trilha({ dimensoes, filtros, rotuloRaiz, onSair, onLimpar }: {
 }
 
 export function GroupComparison({
-  dimensoes, atual, filtros, resultado, participacao, nMin, rotuloRaiz, semTrilha,
+  dimensoes, atual, filtros, resultado, participacao, nMin, rotuloRaiz, semTrilha, textoFavoravel = 'notas 4 e 5',
   onTrocarDimensao, onEntrar, onSair, onLimpar,
 }: Props) {
   const disponiveis = dimensoes.filter((d) => !filtros[d.id])
@@ -219,7 +221,7 @@ export function GroupComparison({
               </tbody>
             </table>
             <p className="text-[11px] text-gray-400 mt-2 px-1">
-              % de respostas favoráveis (notas 4 e 5). Verde 70% ou mais, amarelo de 50% a 69%, vermelho abaixo de 50%.
+              % de respostas favoráveis ({textoFavoravel}). Verde 70% ou mais, amarelo de 50% a 69%, vermelho abaixo de 50%.
               {resultado.omitidos > 0 && ` ${resultado.omitidos} ${resultado.omitidos > 1 ? 'grupos não aparecem' : 'grupo não aparece'} por ter menos de ${nMin} respondentes, para proteger o anonimato.`}
             </p>
           </div>

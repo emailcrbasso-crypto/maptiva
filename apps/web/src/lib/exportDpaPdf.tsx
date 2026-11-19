@@ -41,7 +41,7 @@ function deltaWord(d: number): string {
 interface Pergunta {
   id:         string
   texto:      string
-  tipo:       'escala_5' | 'texto_livre' | 'multipla_escolha'
+  tipo:       'escala_5' | 'escala_6' | 'texto_livre' | 'multipla_escolha'
   opcoes?:    string[]
 }
 
@@ -194,7 +194,7 @@ function computeScaleStats(perguntaId: string, respostas: Resposta[]) {
 
   if (nums.length === 0) return null
   const avg  = nums.reduce((s, v) => s + v, 0) / nums.length
-  const dist: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+  const dist: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }
   for (const v of nums) dist[v] = (dist[v] || 0) + 1
   return { avg, dist, total: nums.length }
 }
@@ -346,9 +346,9 @@ interface Highlight { label: string; value: string }
 function buildHighlights(perguntas: Pergunta[], respostas: Resposta[]): Highlight[] {
   const items: Highlight[] = []
   for (const p of perguntas) {
-    if (p.tipo === 'escala_5') {
+    if (p.tipo === 'escala_5' || p.tipo === 'escala_6') {
       const stats = computeScaleStats(p.id, respostas)
-      if (stats) items.push({ label: p.texto, value: `${stats.avg.toFixed(2)} / 5.0` })
+      if (stats) items.push({ label: p.texto, value: `${stats.avg.toFixed(2)} / ${p.tipo === 'escala_6' ? '6.0' : '5.0'}` })
     } else if (p.tipo === 'multipla_escolha' && p.opcoes) {
       const rows = computeChoiceStats(p.id, p.opcoes, respostas)
       const top  = [...rows].sort((a, b) => b.count - a.count)[0]
@@ -516,7 +516,7 @@ function DpaDocument({
             <View style={S.section} wrap={false}>
               <Text style={S.sectionTitle}>Favorabilidade por bloco</Text>
               <Text style={S.noticeText}>
-                Favorável = notas 4 e 5 · Neutro = nota 3 · Desfavorável = notas 1 e 2.
+                {perguntas.some((p) => p.tipo === 'escala_6') ? 'Pontos fortes = notas 5 e 6 · Oportunidades de melhoria = notas 3 e 4 · Pontos críticos = notas 1 e 2.' : 'Favorável = notas 4 e 5 · Neutro = nota 3 · Desfavorável = notas 1 e 2.'}
               </Text>
               <View style={{ borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6, paddingHorizontal: 10, marginTop: 4 }}>
                 {ordenados.map((b, i) => (
@@ -682,7 +682,9 @@ function DpaDocument({
           <Text style={S.sectionTitle}>Resultados por pergunta</Text>
 
           {perguntas.map((p, idx) => {
-            if (p.tipo === 'escala_5') {
+            if (p.tipo === 'escala_5' || p.tipo === 'escala_6') {
+              const max = p.tipo === 'escala_6' ? 6 : 5
+              const norm = (v: number) => 1 + ((v - 1) * 4) / (max - 1)
               const stats = computeScaleStats(p.id, dashboard.respostas)
               return (
                 <View key={p.id} style={S.qCard} wrap={false}>
@@ -690,10 +692,10 @@ function DpaDocument({
                   <Text style={S.qTexto}>{p.texto}</Text>
                   {stats ? (
                     <>
-                      <Text style={[S.avgVal, { color: scoreBarColor(stats.avg) }]}>
-                        {stats.avg.toFixed(2)} <Text style={{ fontSize: 8, color: '#9ca3af', fontFamily: 'Helvetica' }}>/ 5.0</Text>
+                      <Text style={[S.avgVal, { color: scoreBarColor(norm(stats.avg)) }]}>
+                        {stats.avg.toFixed(2)} <Text style={{ fontSize: 8, color: '#9ca3af', fontFamily: 'Helvetica' }}>/ {max}.0</Text>
                       </Text>
-                      {[5, 4, 3, 2, 1].map((val) => {
+                      {Array.from({ length: max }, (_, k) => max - k).map((val) => {
                         const count = stats.dist[val] || 0
                         const pct   = stats.total > 0 ? (count / stats.total) * 100 : 0
                         return (
@@ -702,7 +704,7 @@ function DpaDocument({
                             <View style={[S.barBg, { flex: 1 }]}>
                               <View style={[S.barFill, {
                                 width: `${pct}%`,
-                                backgroundColor: scoreBarColor(val),
+                                backgroundColor: scoreBarColor(norm(val)),
                               }]} />
                             </View>
                             <Text style={S.scalePct}>{count} ({pct.toFixed(0)}%)</Text>
@@ -723,7 +725,7 @@ function DpaDocument({
                         return (
                           <View key={unidade} style={S.crossTabRow}>
                             <Text style={S.crossTabUnit}>{unidade}</Text>
-                            <Text style={S.crossTabValue}>{gStats.avg.toFixed(2)} / 5.0</Text>
+                            <Text style={S.crossTabValue}>{gStats.avg.toFixed(2)} / {max}.0</Text>
                           </View>
                         )
                       })}

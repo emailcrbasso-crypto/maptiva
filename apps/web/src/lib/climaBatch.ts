@@ -25,6 +25,7 @@ export interface LoteParams {
   perfilPerguntas: ClimaPdfPergunta[]
   importanciaPerguntaId?: string
   nMin:            number
+  mostrarFrase?:   boolean
   branding:        PdfBranding
   /** Todos os segmentos configurados (para aplicar filtros). */
   defs:            SegmentDef[]
@@ -86,6 +87,7 @@ export function entradaPdfClima(
     comparativo:     dimComparativo ? compareGroups(p.perguntas, rows, dimComparativo, p.nMin) : null,
     dimensaoLabel:   dimComparativo?.label ?? null,
     perfilPerguntas: p.perfilPerguntas,
+    mostrarFrase:    p.mostrarFrase,
     nMin:            p.nMin,
     branding:        p.branding,
   }

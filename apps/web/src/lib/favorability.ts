@@ -1,10 +1,18 @@
 /**
  * Favorabilidade — cálculo puro (sem UI, sem acesso a dados) para pesquisas de
- * clima na escala de concordância de 5 pontos.
+ * clima em escala de concordância. Duas escalas, escolhidas pelo tipo da pergunta:
  *
- *   favorável    = notas 4 e 5  (concordo, concordo totalmente)
- *   neutro       = nota 3
- *   desfavorável = notas 1 e 2  (discordo, discordo totalmente)
+ *   escala_5 (5 pontos)
+ *     favorável    = notas 4 e 5  (concordo, concordo totalmente)
+ *     neutro       = nota 3
+ *     desfavorável = notas 1 e 2  (discordo, discordo totalmente)
+ *
+ *   escala_6 (6 pontos, sem ponto neutro)
+ *     pontos fortes (favorável)           = notas 5 e 6
+ *     oportunidades de melhoria (meio)    = notas 3 e 4
+ *     pontos críticos (desfavorável)      = notas 1 e 2
+ *
+ * Em ambas, "neutro" nas estruturas de dados é a faixa intermediária.
  *
  * Mantido fora dos componentes para servir ao painel, ao PDF e, depois, às
  * exportações e ao Maptiva Grid sem duplicar a regra.
@@ -60,6 +68,88 @@ export interface QuestionFavorability {
 
 const SEM_BLOCO = 'Sem bloco'
 
+export type Categoria = 'favoravel' | 'neutro' | 'desfavoravel'
+
+/** Tipos de pergunta que entram no cálculo de favorabilidade. */
+export function ehEscala(tipo: string): boolean {
+  return tipo === 'escala_5' || tipo === 'escala_6'
+}
+
+/** Maior nota da escala do tipo (5 ou 6). */
+export function escalaMax(tipo: string): 5 | 6 {
+  return tipo === 'escala_6' ? 6 : 5
+}
+
+/** Categoria de uma nota na escala do tipo; null se ausente ou fora da escala. */
+export function categoriaDaNota(tipo: string, value: unknown): Categoria | null {
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  const max = escalaMax(tipo)
+  if (!Number.isInteger(n) || n < 1 || n > max) return null
+  if (max === 6) return n >= 5 ? 'favoravel' : n >= 3 ? 'neutro' : 'desfavoravel'
+  return n >= 4 ? 'favoravel' : n === 3 ? 'neutro' : 'desfavoravel'
+}
+
+/** 6 se alguma pergunta usa a escala de 6 pontos; senão 5 (ou null sem perguntas de escala). */
+export function escalaDoQuestionario(perguntas: Array<{ tipo: string }>): 5 | 6 | null {
+  if (perguntas.some((p) => p.tipo === 'escala_6')) return 6
+  return perguntas.some((p) => p.tipo === 'escala_5') ? 5 : null
+}
+
+/** Textos para legendas e notas, conforme a escala. */
+export interface TextosEscala {
+  /** Notas de cada faixa, ex.: "notas 5 e 6". */
+  favoravel:    string
+  neutro:       string
+  desfavoravel: string
+  /** Nome de cada faixa nas legendas. */
+  rotuloFavoravel:    string
+  rotuloNeutro:       string
+  rotuloDesfavoravel: string
+  /** Nome curto, para cabeçalhos de coluna. */
+  curtoFavoravel:    string
+  curtoNeutro:       string
+  curtoDesfavoravel: string
+  /** Explicação completa da regra, para notas de rodapé. */
+  regra: string
+}
+
+export function textosEscala(max: 5 | 6): TextosEscala {
+  return max === 6
+    ? {
+        favoravel: 'notas 5 e 6', neutro: 'notas 3 e 4', desfavoravel: 'notas 1 e 2',
+        rotuloFavoravel: 'Pontos fortes', rotuloNeutro: 'Oportunidades de melhoria', rotuloDesfavoravel: 'Pontos críticos',
+        curtoFavoravel: 'Fortes', curtoNeutro: 'Melhoria', curtoDesfavoravel: 'Críticos',
+        regra: 'Escala de 6 pontos, sem ponto neutro. Pontos fortes = notas 5 e 6 (contam como favoráveis); oportunidades de melhoria = notas 3 e 4; pontos críticos = notas 1 e 2.',
+      }
+    : {
+        favoravel: 'notas 4 e 5', neutro: 'nota 3', desfavoravel: 'notas 1 e 2',
+        rotuloFavoravel: 'Favorável', rotuloNeutro: 'Neutro', rotuloDesfavoravel: 'Desfavorável',
+        curtoFavoravel: 'Fav.', curtoNeutro: 'Neutro', curtoDesfavoravel: 'Desfav.',
+        regra: 'Favorável = notas 4 e 5; neutro = nota 3; desfavorável = notas 1 e 2.',
+      }
+}
+
+/** Rótulos da escala de 6 pontos de concordância, da nota 1 à 6. */
+export const ROTULOS_ESCALA_6 = [
+  'Discordo totalmente',
+  'Discordo em grande parte',
+  'Mais discordo que concordo',
+  'Mais concordo que discordo',
+  'Concordo em grande parte',
+  'Concordo totalmente',
+] as const
+
+export function breakdownCategorias(cats: Array<Categoria | null>): FavorabilityBreakdown {
+  const out: FavorabilityBreakdown = { n: 0, favoravel: 0, neutro: 0, desfavoravel: 0 }
+  for (const c of cats) {
+    if (c === null) continue
+    out.n++
+    out[c]++
+  }
+  return out
+}
+
 /** Nota 1–5 válida, ou null (resposta ausente, "não se aplica" ou fora da escala). */
 export function parseScore(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null
@@ -97,7 +187,7 @@ export function toPct(b: FavorabilityBreakdown): FavorabilityPct {
 }
 
 function scaleQuestions(perguntas: QuestionRef[]): QuestionRef[] {
-  return perguntas.filter((p) => p.tipo === 'escala_5')
+  return perguntas.filter((p) => ehEscala(p.tipo))
 }
 
 /**
@@ -109,7 +199,7 @@ export function favorabilityByQuestion(
   respondentes: RespondentRow[],
 ): QuestionFavorability[] {
   return scaleQuestions(perguntas).map((p) => {
-    const b = breakdownScores(respondentes.map((r) => parseScore(r.respostas[p.id])))
+    const b = breakdownCategorias(respondentes.map((r) => categoriaDaNota(p.tipo, r.respostas[p.id])))
     const pct = toPct(b)
     return {
       id: p.id,
@@ -133,19 +223,19 @@ export function favorabilityByBlock(
   respondentes: RespondentRow[],
 ): BlockFavorability[] {
   const order: string[] = []
-  const byBlock = new Map<string, { perguntas: number; scores: Array<number | null> }>()
+  const byBlock = new Map<string, { perguntas: number; cats: Array<Categoria | null> }>()
 
   for (const p of scaleQuestions(perguntas)) {
     const bloco = p.bloco?.trim() || SEM_BLOCO
-    if (!byBlock.has(bloco)) { byBlock.set(bloco, { perguntas: 0, scores: [] }); order.push(bloco) }
+    if (!byBlock.has(bloco)) { byBlock.set(bloco, { perguntas: 0, cats: [] }); order.push(bloco) }
     const entry = byBlock.get(bloco)!
     entry.perguntas++
-    for (const r of respondentes) entry.scores.push(parseScore(r.respostas[p.id]))
+    for (const r of respondentes) entry.cats.push(categoriaDaNota(p.tipo, r.respostas[p.id]))
   }
 
   return order.map((bloco) => {
     const e = byBlock.get(bloco)!
-    const pct = toPct(breakdownScores(e.scores))
+    const pct = toPct(breakdownCategorias(e.cats))
     return {
       bloco,
       perguntas: e.perguntas,
@@ -223,11 +313,11 @@ export function favorabilityPooled(
   perguntas: QuestionRef[],
   respondentes: RespondentRow[],
 ): FavorabilityPct {
-  const scores: Array<number | null> = []
+  const cats: Array<Categoria | null> = []
   for (const p of scaleQuestions(perguntas)) {
-    for (const r of respondentes) scores.push(parseScore(r.respostas[p.id]))
+    for (const r of respondentes) cats.push(categoriaDaNota(p.tipo, r.respostas[p.id]))
   }
-  return toPct(breakdownScores(scores))
+  return toPct(breakdownCategorias(cats))
 }
 
 export interface UnitFavorability {

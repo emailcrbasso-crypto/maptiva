@@ -7,6 +7,7 @@
  * Valida o token, exibe as perguntas e submete as respostas anonimamente.
  */
 
+import { ROTULOS_ESCALA_6 } from '@/lib/favorability'
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
@@ -18,7 +19,7 @@ import { RichText } from '@/components/RichText'
 interface Pergunta {
   id:         string
   texto:      string
-  tipo:       'escala_5' | 'texto_livre' | 'multipla_escolha'
+  tipo:       'escala_5' | 'escala_6' | 'texto_livre' | 'multipla_escolha'
   opcoes?:    string[]
   obrigatoria: boolean
   multi?:        boolean
@@ -101,6 +102,15 @@ const SCALE_LABELS: Record<'concordancia' | 'frequencia', Record<number, string>
     5: 'Sempre',
   },
 }
+
+/** Valores e rótulos da escala de uma pergunta (5 pontos, ou 6 pontos sem ponto neutro). */
+function valoresEscala(p: { tipo: string }): number[] {
+  return p.tipo === 'escala_6' ? [1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]
+}
+function rotuloEscala(p: { tipo: string; escala?: 'concordancia' | 'frequencia' }, val: number): string {
+  return p.tipo === 'escala_6' ? ROTULOS_ESCALA_6[val - 1] : SCALE_LABELS[p.escala ?? 'concordancia'][val]
+}
+const ehEscala = (p: { tipo: string }) => p.tipo === 'escala_5' || p.tipo === 'escala_6'
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -496,10 +506,10 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                 </div>
 
                 {/* Scale 1-5 */}
-                {pergunta.tipo === 'escala_5' && (pergunta.escala_layout === 'linha' || (paged && pergunta.escala_layout !== 'lista')) && (
+                {ehEscala(pergunta) && (pergunta.escala_layout === 'linha' || (paged && pergunta.escala_layout !== 'lista')) && (
                   <div className={config.sem_numeracao ? '' : 'sm:ml-10'}>
-                    <div role="radiogroup" className="grid grid-cols-5 gap-1.5 sm:gap-2">
-                      {[1, 2, 3, 4, 5].map((val) => {
+                    <div role="radiogroup" className={`grid gap-1.5 sm:gap-2 ${pergunta.tipo === 'escala_6' ? 'grid-cols-3 sm:grid-cols-6' : 'grid-cols-5'}`}>
+                      {valoresEscala(pergunta).map((val) => {
                         const on = answers[pergunta.id] === val
                         return (
                           <label key={val} className="cursor-pointer">
@@ -517,7 +527,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                             }`}>
                               <span className="text-lg font-semibold leading-none">{val}</span>
                               <span className={`text-[9px] sm:text-xs leading-tight tracking-tight sm:tracking-normal ${on ? 'text-gray-200' : 'text-gray-500'}`}>
-                                {SCALE_LABELS[pergunta.escala ?? 'concordancia'][val]}
+                                {rotuloEscala(pergunta, val)}
                               </span>
                             </div>
                           </label>
@@ -526,9 +536,9 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                     </div>
                   </div>
                 )}
-                {pergunta.tipo === 'escala_5' && !(pergunta.escala_layout === 'linha' || (paged && pergunta.escala_layout !== 'lista')) && (
+                {ehEscala(pergunta) && !(pergunta.escala_layout === 'linha' || (paged && pergunta.escala_layout !== 'lista')) && (
                   <div className={`space-y-2 ${config.sem_numeracao ? '' : 'ml-10'}`}>
-                    {[1, 2, 3, 4, 5].map((val) => (
+                    {valoresEscala(pergunta).map((val) => (
                       <label
                         key={val}
                         className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
@@ -558,7 +568,7 @@ export function DpaFormPage({ shared = false }: { shared?: boolean } = {}) {
                           answers[pergunta.id] === val ? 'font-medium text-gray-900' : 'text-gray-700'
                         }`}>
                           <span className="font-semibold mr-2">{val}</span>
-                          {SCALE_LABELS[pergunta.escala ?? 'concordancia'][val]}
+                          {rotuloEscala(pergunta, val)}
                         </span>
                       </label>
                     ))}

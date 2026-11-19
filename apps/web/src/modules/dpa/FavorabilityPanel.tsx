@@ -17,6 +17,9 @@ import {
   compareQuestions,
   compareUnits,
   deltaDirection,
+  escalaDoQuestionario,
+  textosEscala,
+  type TextosEscala,
   importanceByBlock,
   priorityMatrix,
   riskQuestions,
@@ -66,12 +69,12 @@ function StackedBar({ fav, neu, des }: { fav: number; neu: number; des: number }
   )
 }
 
-function Legend() {
+function Legend({ textos }: { textos: TextosEscala }) {
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-500">
-      <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />Favorável: notas 4 e 5</span>
-      <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />Neutro: nota 3</span>
-      <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />Desfavorável: notas 1 e 2</span>
+      <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />{textos.rotuloFavoravel}: {textos.favoravel}</span>
+      <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />{textos.rotuloNeutro}: {textos.neutro}</span>
+      <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />{textos.rotuloDesfavoravel}: {textos.desfavoravel}</span>
     </div>
   )
 }
@@ -196,6 +199,7 @@ function PriorityChart({ pontos, corteFavoravel, corteImportancia, onSelect }: R
 }
 
 export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin, importanciaPerguntaId, anterior, mostrarPorDimensao, ocultarGeral, onEntrarGrupo, pedidoRanking }: Props) {
+  const textos = textosEscala(escalaDoQuestionario(perguntas) ?? 5)
   const [blocoFiltro, setBlocoFiltro] = useState<string>('')
   const [ordem, setOrdem] = useState<'desc' | 'asc'>('desc')
   const [verTodas, setVerTodas] = useState(false)
@@ -325,13 +329,13 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
             </span>
           </div>
           <p className="text-xs text-gray-500 mb-3">
-            Percentual de respostas 4 e 5 (concordo e concordo totalmente) em {respondentes.length.toLocaleString('pt-BR')} respondentes.
+            Percentual de respostas favoráveis ({textos.favoravel}) em {respondentes.length.toLocaleString('pt-BR')} respondentes.
           </p>
           <StackedBar fav={geral.favoravel} neu={geral.neutro} des={geral.desfavoravel} />
           <div className="flex gap-4 mt-2 text-[11px] text-gray-500">
-            <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />Favorável {geral.favoravel}%</span>
-            <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />Neutro {geral.neutro}%</span>
-            <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />Desfavorável {geral.desfavoravel}%</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />{textos.rotuloFavoravel} {geral.favoravel}%</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />{textos.rotuloNeutro} {geral.neutro}%</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />{textos.rotuloDesfavoravel} {geral.desfavoravel}%</span>
           </div>
         </div>
         )}
@@ -358,14 +362,14 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
               </button>
             ))}
           </div>
-          <div className="mt-3"><Legend /></div>
+          <div className="mt-3"><Legend textos={textos} /></div>
         </div>
       </div>
 
       {/* Favorabilidade pela dimensão escolhida em "Ver resultados por" */}
       {mostrarPorDimensao && (
         <div className={card}>
-          <SectionTitle hint={`Favorabilidade geral (% de notas 4 e 5) de cada ${labelUnidade.toLowerCase()}. Grupos com menos de ${nMin} respondentes não aparecem, para proteger o anonimato.`}>
+          <SectionTitle hint={`Favorabilidade geral (% de ${textos.favoravel}) de cada ${labelUnidade.toLowerCase()}. Grupos com menos de ${nMin} respondentes não aparecem, para proteger o anonimato.`}>
             Favorabilidade por {labelUnidade.toLowerCase()}
           </SectionTitle>
           {geralPorBase.unidades.length === 0 ? (
@@ -400,7 +404,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
       {/* Evolução em relação à edição anterior */}
       {comparativo && anterior && (
         <div id="sec-evolucao" className={`${card} space-y-6`}>
-          <SectionTitle hint={`Favorabilidade (% de notas 4 e 5) de ${anterior.rotulo} para esta edição. Variações de até 2 p.p. contam como estabilidade.`}>
+          <SectionTitle hint={`Favorabilidade (% de ${textos.favoravel}) de ${anterior.rotulo} para esta edição. Variações de até 2 p.p. contam como estabilidade.`}>
             Evolução em relação a {anterior.rotulo}
           </SectionTitle>
           <div className="flex flex-wrap items-center gap-3 text-sm text-gray-700">
@@ -482,7 +486,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                             className="text-left hover:text-gray-900 hover:underline"
                             title="Ver as perguntas deste bloco"
                           >
-                            {p.bloco} <span className="text-gray-400">· {p.favoravel}% fav. · {p.importancia}% importância</span>
+                            {p.bloco} <span className="text-gray-400">· prioridade para {p.importancia}% dos respondentes · {p.favoravel}% de avaliações favoráveis</span>
                           </button>
                         </li>
                       ))}
@@ -516,9 +520,9 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
             </p>
             <StackedBar fav={riscoGeral.favoravel} neu={riscoGeral.neutro} des={riscoGeral.desfavoravel} />
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px] text-gray-500">
-              <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />Favorável {riscoGeral.favoravel}%</span>
-              <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />Neutro {riscoGeral.neutro}%</span>
-              <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />Desfavorável {riscoGeral.desfavoravel}%</span>
+              <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />{textos.rotuloFavoravel} {riscoGeral.favoravel}%</span>
+              <span><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1" />{textos.rotuloNeutro} {riscoGeral.neutro}%</span>
+              <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />{textos.rotuloDesfavoravel} {riscoGeral.desfavoravel}%</span>
             </div>
           </div>
           <div className="flex flex-col md:flex-row gap-6">
@@ -656,7 +660,7 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
             </button>
           </div>
         )}
-        <div className="mb-2"><Legend /></div>
+        <div className="mb-2"><Legend textos={textos} /></div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -665,9 +669,9 @@ export function FavorabilityPanel({ perguntas, respondentes, labelUnidade, nMin,
                 <th className="py-1.5 pr-3 font-medium">Pergunta</th>
                 <th className="py-1.5 pr-3 font-medium hidden md:table-cell">Bloco</th>
                 <th className="py-1.5 px-2 font-medium w-36 hidden sm:table-cell">Distribuição</th>
-                <th className="py-1.5 pl-2 font-medium w-14 text-right text-green-700">Fav.</th>
-                <th className="py-1.5 pl-2 font-medium w-14 text-right hidden sm:table-cell">Neutro</th>
-                <th className="py-1.5 pl-2 font-medium w-14 text-right text-red-600 hidden sm:table-cell">Desfav.</th>
+                <th className="py-1.5 pl-2 font-medium w-14 text-right text-green-700">{textos.curtoFavoravel}</th>
+                <th className="py-1.5 pl-2 font-medium w-14 text-right hidden sm:table-cell">{textos.curtoNeutro}</th>
+                <th className="py-1.5 pl-2 font-medium w-14 text-right text-red-600 hidden sm:table-cell">{textos.curtoDesfavoravel}</th>
                 {anterior && <th className="py-1.5 pl-2 font-medium w-24 text-right hidden md:table-cell">vs {anterior.rotulo}</th>}
               </tr>
             </thead>

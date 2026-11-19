@@ -37,7 +37,7 @@ export async function buildQrImages(projectId: string, unidade: string | null): 
 interface PrintQuestion {
   id:            string
   texto:         string
-  tipo:          'escala_5' | 'texto_livre' | 'multipla_escolha'
+  tipo:          'escala_5' | 'escala_6' | 'texto_livre' | 'multipla_escolha'
   opcoes?:       string[]
   multi?:        boolean
   max_escolhas?: number
@@ -52,13 +52,22 @@ interface PrintProject {
   config: { label_unidade: string; perguntas: PrintQuestion[] }
 }
 
-const SCALE_LABELS: Record<'concordancia' | 'frequencia', string[]> = {
+type EscalaPrint = 'concordancia' | 'frequencia' | 'seis'
+
+/** Cabeçalho de coluna da escala de 6 pontos: abreviado para caber em 36 pt sem quebrar palavras
+ * (os nomes completos aparecem no quadro "Como responder"). */
+const HEADER_SEIS = ['Discordo\ntotal.', 'Discordo\ngr. parte', 'Mais disc.\nque conc.', 'Mais conc.\nque disc.', 'Concordo\ngr. parte', 'Concordo\ntotal.']
+
+const SCALE_LABELS: Record<EscalaPrint, string[]> = {
+  seis: ['Discordo\ntotalmente', 'Discordo em\ngrande parte', 'Mais discordo\nque concordo', 'Mais concordo\nque discordo', 'Concordo em\ngrande parte', 'Concordo\ntotalmente'],
   concordancia: ['Discordo totalmente', 'Discordo', 'Neutro', 'Concordo', 'Concordo totalmente'],
   frequencia:   ['Nunca', 'Raramente', 'Às vezes', 'Frequentemente', 'Sempre'],
 }
 
 /** Largura de cada coluna de bolha — igual no cabeçalho do bloco e nas linhas. */
 const COL = 40
+/** Largura da coluna de bolha: 6 colunas precisam ser um pouco mais estreitas. */
+const colW = (escala: EscalaPrint) => (escala === 'seis' ? 36 : COL)
 const BUBBLE = 13
 const MARK = 14   // lado das marcas de alinhamento
 
@@ -86,33 +95,33 @@ const S = StyleSheet.create({
   qrLink:    { position: 'absolute', bottom: 16, left: 44, width: QR_SIZE, height: QR_SIZE },
 })
 
-function Bubble({ n }: { n: number }) {
+function Bubble({ n, w }: { n: number; w: number }) {
   return (
-    <View style={S.cell}>
+    <View style={[S.cell, { width: w }]}>
       <View style={S.bubble}><Text style={S.bubbleTxt}>{n}</Text></View>
     </View>
   )
 }
 
-function ScaleHeader({ labels }: { labels: string[] }) {
+function ScaleHeader({ labels, w }: { labels: string[]; w: number }) {
   return (
     <>
-      {labels.map((l, i) => <Text key={i} style={S.colHead}>{i + 1}{'\n'}{l.replace(' ', '\n')}</Text>)}
+      {labels.map((l, i) => <Text key={i} style={[S.colHead, { width: w }]}>{i + 1}{'\n'}{l.includes('\n') ? l : l.replace(' ', '\n')}</Text>)}
     </>
   )
 }
 
 /** Agrupa perguntas de escala consecutivas do mesmo bloco; as demais ficam avulsas. */
 type Group =
-  | { kind: 'scale'; bloco: string; intro: string | null; escala: 'concordancia' | 'frequencia'; items: { q: PrintQuestion; n: number }[] }
+  | { kind: 'scale'; bloco: string; intro: string | null; escala: EscalaPrint; items: { q: PrintQuestion; n: number }[] }
   | { kind: 'other'; q: PrintQuestion; n: number }
 
 export function buildPrintGroups(perguntas: PrintQuestion[]): Group[] {
   const groups: Group[] = []
   perguntas.forEach((q, i) => {
     const n = i + 1
-    if (q.tipo === 'escala_5') {
-      const escala = q.escala ?? 'concordancia'
+    if (q.tipo === 'escala_5' || q.tipo === 'escala_6') {
+      const escala: EscalaPrint = q.tipo === 'escala_6' ? 'seis' : (q.escala ?? 'concordancia')
       const bloco = q.bloco?.trim() || ''
       const last = groups[groups.length - 1]
       if (last && last.kind === 'scale' && last.bloco === bloco && last.escala === escala) {
@@ -171,9 +180,9 @@ export function PrintDocument({
             pesquisa, a base e a folha, nunca a pessoa.
             {linkQr ? ' Prefere responder pelo celular? Aponte a câmera para o QR code do canto inferior esquerdo.' : ''}
           </Text>
-          <View style={{ flexDirection: 'row', marginTop: 6 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 }}>
             {legend.map((l, i) => (
-              <Text key={i} style={[S.small, { flex: 1 }]}>{i + 1} = {l}</Text>
+              <Text key={i} style={[S.small, { width: `${100 / (legend.length > 5 ? 3 : legend.length)}%` }]}>{i + 1} = {l.replace('\n', ' ')}</Text>
             ))}
           </View>
         </View>
@@ -206,14 +215,14 @@ export function PrintDocument({
               <View key={`${g.bloco}-${g.items[0].n}`}>
                 <View style={S.blockHead} wrap={false} minPresenceAhead={70}>
                   <Text style={S.blockName}>{g.bloco || 'Perguntas'}</Text>
-                  <ScaleHeader labels={labels} />
+                  <ScaleHeader labels={g.escala === 'seis' ? HEADER_SEIS : labels} w={colW(g.escala)} />
                 </View>
                 {g.intro && <Text style={[S.small, { marginTop: 3 }]}>{g.intro}</Text>}
                 {g.items.map(({ q, n }) => (
                   <View key={q.id} style={S.row} wrap={false}>
                     <Text style={S.num}>{n}</Text>
                     <Text style={S.qText}>{q.texto}</Text>
-                    {[1, 2, 3, 4, 5].map((v) => <Bubble key={v} n={v} />)}
+                    {labels.map((_, i) => <Bubble key={i} n={i + 1} w={colW(g.escala)} />)}
                   </View>
                 ))}
               </View>
